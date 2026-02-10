@@ -2,10 +2,14 @@
 """
 Tag Taxonomy - Enumerated tags for GRDK projects and workflows.
 
-Defines the controlled vocabulary for tagging projects and workflows
-with their intended targets, image modalities, quality levels, detection
-types, and segmentation strategies. Tags enable filtering and discovery
-in the catalog, and some can be auto-derived from processors at publish time.
+Provides container classes for tagging projects and workflows with their
+intended targets, image modalities, quality levels, detection types, and
+segmentation strategies. Tags enable filtering and discovery in the
+catalog, and some can be auto-derived from processors at publish time.
+
+The canonical enum definitions (``ImageModality``, ``DetectionType``,
+``SegmentationType``) live in :mod:`grdl.vocabulary` and are re-exported
+here for backward compatibility.
 
 Author
 ------
@@ -27,48 +31,18 @@ Created
 
 Modified
 --------
-2026-02-06
+2026-02-10
 """
 
 # Standard library
-from enum import Enum
 from typing import List, Optional, Tuple
 
-
-class ImageModality(Enum):
-    """Supported image modalities for workflow tagging.
-
-    Workflows are tagged with one or more modalities (boolean AND),
-    indicating the required input image types.
-    """
-
-    PAN = "PAN"
-    SAR = "SAR"
-    MSI = "MSI"
-    HSI = "HSI"
-    IR = "IR"
-    EO = "EO"
-    LIDAR = "LIDAR"
-    FMV = "FMV"
-
-
-class DetectionType(Enum):
-    """Types of detection a workflow performs.
-
-    A workflow may perform one or more detection types.
-    """
-
-    PHENOMENON_SIGNATURE = "phenomenon_signature"
-    CHARACTERIZATION = "characterization"
-    CLASSIFICATION = "classification"
-
-
-class SegmentationType(Enum):
-    """Types of segmentation a workflow produces."""
-
-    INSTANCE = "instance"
-    SEMANTIC = "semantic"
-    PANOPTIC = "panoptic"
+# Canonical vocabulary — single source of truth lives in grdl
+from grdl.vocabulary import (  # noqa: F401 — re-exported
+    DetectionType,
+    ImageModality,
+    SegmentationType,
+)
 
 
 class ProjectTags:

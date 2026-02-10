@@ -33,8 +33,18 @@ class TestImageModality:
         assert ImageModality.SAR.value == "SAR"
         assert ImageModality.MSI.value == "MSI"
 
+    def test_ir_sub_bands(self):
+        assert ImageModality.SWIR.value == "SWIR"
+        assert ImageModality.MWIR.value == "MWIR"
+        assert ImageModality.LWIR.value == "LWIR"
+
     def test_from_string(self):
         assert ImageModality("SAR") == ImageModality.SAR
+
+    def test_canonical_source_is_grdl(self):
+        """Enums are imported from grdl.vocabulary, not defined locally."""
+        from grdl.vocabulary import ImageModality as canonical
+        assert ImageModality is canonical
 
 
 class TestDetectionType:

@@ -2,10 +2,10 @@
 
 Headless execution engine for GRDL workflows.
 
-**grdl-runtime** sits between [grdl](../grdl/) (the processing library) and
-[grdk](../grdk/) (the GUI toolkit), providing workflow execution, artifact
-catalog management, and GPU orchestration — all without any GUI framework
-dependencies.
+**grdl-runtime** is the reference implementation of a runtime environment for [grdl](../grdl/) components and [grdk](../grdk/) orchestrated processing worklflows. It also includes the base domain model for gdrl component catalog and orchestrated workflow, purely to keep things simple.
+
+grdl-runtime interprets an image processing workflow, determines the optimal execution path given the execution environment (available hardware, image-specific handling, etc) and executes it, handling cross-component hetergenity (ie CPU-GPU, nparray-tensor, etc). 
+
 
 ## Architecture
 
