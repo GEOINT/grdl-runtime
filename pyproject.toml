@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grdl-runtime"
+version = "0.1.0"
+description = "GEOINT Rapid Development Library Runtime — headless execution engine for GRDL workflow orchestration"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Claude Code (Anthropic)"},
+]
+maintainers = [
+    {name = "Steven Siebert"},
+]
+keywords = ["geoint", "image-processing", "workflow", "runtime", "execution-engine"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "grdl>=0.1.0",
+    "pyyaml>=6.0",
+    "requests>=2.25",
+    "packaging>=21.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "cupy-cuda12x>=13.0",
+    "torch>=2.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "mypy>=0.950",
+    "ruff>=0.4.0",
+]
+
+[project.urls]
+Repository = "https://github.com/geoint-org/GRDL"
+
+[tool.setuptools.packages.find]
+include = ["grdl_rt*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
