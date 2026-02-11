@@ -42,6 +42,10 @@ from grdl_rt.execution.dsl import (
 from grdl_rt.execution.project import (
     GrdkProject,
 )
+from grdl_rt.execution.builder import (
+    Workflow,
+    WorkflowStep,
+)
 from grdl_rt.execution.executor import (
     WorkflowExecutor,
 )
@@ -80,6 +84,9 @@ __all__ = [
     "DslCompiler",
     # project
     "GrdkProject",
+    # builder
+    "Workflow",
+    "WorkflowStep",
     # executor
     "WorkflowExecutor",
 ]
