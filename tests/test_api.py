@@ -144,10 +144,10 @@ class TestLoadWorkflow:
 # ---------------------------------------------------------------------------
 
 class TestExecuteWorkflow:
-    @patch("grdl_rt.execution.discovery.discover_processors")
-    def test_execute_basic(self, mock_discover):
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
+    def test_execute_basic(self, mock_resolve):
         """Basic execution with a single-step workflow."""
-        mock_discover.return_value = {"ScaleTransform": _ScaleTransform}
+        mock_resolve.return_value = _ScaleTransform
 
         wf = WorkflowDefinition(
             name="Test",
@@ -158,10 +158,10 @@ class TestExecuteWorkflow:
 
         np.testing.assert_array_almost_equal(result, source * 2.0)
 
-    @patch("grdl_rt.execution.discovery.discover_processors")
-    def test_execute_gpu_off(self, mock_discover):
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
+    def test_execute_gpu_off(self, mock_resolve):
         """Explicit prefer_gpu=False still produces correct results."""
-        mock_discover.return_value = {"ScaleTransform": _ScaleTransform}
+        mock_resolve.return_value = _ScaleTransform
 
         wf = WorkflowDefinition(
             name="Test",
@@ -172,10 +172,10 @@ class TestExecuteWorkflow:
 
         np.testing.assert_array_almost_equal(result, source * 5.0)
 
-    @patch("grdl_rt.execution.discovery.discover_processors")
-    def test_execute_with_progress_callback(self, mock_discover):
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
+    def test_execute_with_progress_callback(self, mock_resolve):
         """Progress callback receives 0.5 and 1.0 for a two-step workflow."""
-        mock_discover.return_value = {"ScaleTransform": _ScaleTransform}
+        mock_resolve.return_value = _ScaleTransform
 
         wf = WorkflowDefinition(
             name="Test",

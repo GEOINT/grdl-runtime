@@ -88,9 +88,9 @@ class TestWorkflowExecutor:
         result = executor.execute(source)
         np.testing.assert_array_equal(result, source)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_single_step_execution(self, mock_discover):
-        mock_discover.return_value = {'FakeTransform': _FakeTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_single_step_execution(self, mock_resolve):
+        mock_resolve.return_value = _FakeTransform
 
         step = ProcessingStep(
             processor_name='FakeTransform',
@@ -104,9 +104,9 @@ class TestWorkflowExecutor:
         result = executor.execute(source)
         np.testing.assert_array_almost_equal(result, np.ones((4, 4)) * 3.0)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_multi_step_pipeline(self, mock_discover):
-        mock_discover.return_value = {'FakeTransform': _FakeTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_multi_step_pipeline(self, mock_resolve):
+        mock_resolve.return_value = _FakeTransform
 
         steps = [
             ProcessingStep('FakeTransform', '1.0', params={'scale': 2.0}),
@@ -119,9 +119,9 @@ class TestWorkflowExecutor:
         result = executor.execute(source)
         np.testing.assert_array_almost_equal(result, np.ones((4, 4)) * 6.0)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_execute_batch(self, mock_discover):
-        mock_discover.return_value = {'FakeTransform': _FakeTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_execute_batch(self, mock_resolve):
+        mock_resolve.return_value = _FakeTransform
 
         step = ProcessingStep('FakeTransform', '1.0', params={'scale': 5.0})
         wf = self._make_workflow([step])
@@ -133,9 +133,9 @@ class TestWorkflowExecutor:
         for i, r in enumerate(results):
             np.testing.assert_array_almost_equal(r, np.ones((2, 2)) * i * 5.0)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_execute_step_by_index(self, mock_discover):
-        mock_discover.return_value = {'FakeTransform': _FakeTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_execute_step_by_index(self, mock_resolve):
+        mock_resolve.return_value = _FakeTransform
 
         steps = [
             ProcessingStep('FakeTransform', '1.0', params={'scale': 2.0}),

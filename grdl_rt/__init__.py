@@ -70,6 +70,7 @@ from grdl_rt.catalog import (
     SqliteArtifactCatalog,
     ArtifactCatalog,
     YamlArtifactCatalog,
+    FederatedArtifactCatalog,
     ArtifactUpdateWorker,
     ThreadExecutorPool,
 )
@@ -122,6 +123,7 @@ __all__ = [
     "SqliteArtifactCatalog",
     "ArtifactCatalog",
     "YamlArtifactCatalog",
+    "FederatedArtifactCatalog",
     "ArtifactUpdateWorker",
     "ThreadExecutorPool",
 ]

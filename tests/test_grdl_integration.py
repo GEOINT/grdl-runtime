@@ -105,9 +105,9 @@ class TestProgressCallback:
             wf.add_step(s)
         return wf
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_progress_callback_called_per_step(self, mock_discover):
-        mock_discover.return_value = {'ScaleTransform': _ScaleTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_progress_callback_called_per_step(self, mock_resolve):
+        mock_resolve.return_value = _ScaleTransform
 
         steps = [
             ProcessingStep('ScaleTransform', '1.0', params={'scale': 2.0}),
@@ -128,9 +128,9 @@ class TestProgressCallback:
         assert 1.0 in progress_values
         np.testing.assert_array_almost_equal(result, np.ones((2, 2)) * 6.0)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_progress_callback_none_is_safe(self, mock_discover):
-        mock_discover.return_value = {'ScaleTransform': _ScaleTransform}
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_progress_callback_none_is_safe(self, mock_resolve):
+        mock_resolve.return_value = _ScaleTransform
 
         step = ProcessingStep('ScaleTransform', '1.0', params={'scale': 5.0})
         wf = self._make_workflow([step])
@@ -141,8 +141,8 @@ class TestProgressCallback:
         result = executor.execute(source, progress_callback=None)
         np.testing.assert_array_almost_equal(result, np.ones((2, 2)) * 5.0)
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_progress_callback_forwarded_to_processor(self, mock_discover):
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_progress_callback_forwarded_to_processor(self, mock_resolve):
         """progress_callback should be passed as kwarg to processor.apply()."""
         received_kwargs = {}
 
@@ -152,7 +152,7 @@ class TestProgressCallback:
                 kwargs.pop('progress_callback', None)
                 return source
 
-        mock_discover.return_value = {'CapturingTransform': CapturingTransform}
+        mock_resolve.return_value = CapturingTransform
 
         step = ProcessingStep('CapturingTransform', '1.0')
         wf = self._make_workflow([step])
@@ -176,13 +176,13 @@ class TestGrdlErrorHandling:
             wf.add_step(s)
         return wf
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_runtime_error_wraps_processor_failure(self, mock_discover):
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_runtime_error_wraps_processor_failure(self, mock_resolve):
         class FailingTransform:
             def apply(self, source, **kwargs):
                 raise ValueError("bad shape")
 
-        mock_discover.return_value = {'FailingTransform': FailingTransform}
+        mock_resolve.return_value = FailingTransform
 
         step = ProcessingStep('FailingTransform', '1.0')
         wf = self._make_workflow([step])
@@ -191,8 +191,8 @@ class TestGrdlErrorHandling:
         with pytest.raises(RuntimeError, match="Pipeline step 'FailingTransform' failed"):
             executor.execute(np.ones((2, 2)))
 
-    @patch('grdl_rt.execution.discovery.discover_processors')
-    def test_grdl_error_logged_distinctly(self, mock_discover):
+    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    def test_grdl_error_logged_distinctly(self, mock_resolve):
         """When GrdlError is available, it should be caught and logged."""
         try:
             from grdl.exceptions import ProcessorError
@@ -201,9 +201,7 @@ class TestGrdlErrorHandling:
                 def apply(self, source, **kwargs):
                     raise ProcessorError("merge failed")
 
-            mock_discover.return_value = {
-                'GrdlFailingTransform': GrdlFailingTransform,
-            }
+            mock_resolve.return_value = GrdlFailingTransform
 
             step = ProcessingStep('GrdlFailingTransform', '1.0')
             wf = self._make_workflow([step])
@@ -233,10 +231,10 @@ class TestProcessorTags:
         assert tags['category'] == 'spatial_filter'
 
     def test_get_processor_tags_without_tags(self):
-        """Class without __processor_tags__ should return version only."""
+        """Class without __processor_tags__ should return empty dict."""
         cls = MagicMock(spec=[])  # no attributes
         tags = get_processor_tags(cls)
-        assert tags == {'processor_version': 'unknown'}
+        assert tags == {}
 
     def test_get_all_modalities_returns_set(self):
         result = get_all_modalities()

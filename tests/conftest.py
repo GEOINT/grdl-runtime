@@ -14,20 +14,6 @@ Created
 2026-02-09
 """
 
-# Stub out the not-yet-created discovery module so the test suite can load.
-import sys
-import types
-
-if "grdl_rt.execution.discovery" not in sys.modules:
-    _discovery = types.ModuleType("grdl_rt.execution.discovery")
-    _discovery.discover_processors = lambda: {}
-    _discovery.resolve_processor_class = lambda name: None
-    _discovery.get_processor_tags = lambda cls: {}
-    _discovery.get_all_modalities = lambda: set()
-    _discovery.get_all_categories = lambda: set()
-    _discovery.filter_processors = lambda **kwargs: {}
-    sys.modules["grdl_rt.execution.discovery"] = _discovery
-
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -154,3 +140,16 @@ class IdentityTransform:
     def apply(self, source, **kwargs):
         kwargs.pop("progress_callback", None)
         return source
+
+
+# ── Discovery reset fixture ──────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _reset_discovery():
+    """Reset the discovery module's catalog state between tests."""
+    from grdl_rt.execution import discovery
+
+    original = discovery._catalog
+    yield
+    discovery._catalog = original
