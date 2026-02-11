@@ -14,10 +14,22 @@ Created
 2026-02-09
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+
+from grdl_rt.execution.context import configure_logging
+
+
+# ── Logging fixture ──────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _configure_structlog():
+    """Configure structlog once for the test session."""
+    configure_logging(json_output=False, level=logging.WARNING)
 
 
 # ── Synthetic image fixtures ──────────────────────────────────────────

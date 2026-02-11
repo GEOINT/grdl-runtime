@@ -37,6 +37,7 @@ import numpy as np
 from grdl_rt.execution.dsl import DslCompiler
 from grdl_rt.execution.executor import WorkflowExecutor
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import WorkflowDefinition
 
 __all__ = ["load_workflow", "execute_workflow"]
@@ -93,7 +94,7 @@ def execute_workflow(
     prefer_gpu: bool = True,
     progress_callback: Optional[Callable[[float], None]] = None,
     **kwargs: Any,
-) -> np.ndarray:
+) -> WorkflowResult:
     """Execute a workflow on a single image.
 
     Convenience wrapper that creates a :class:`GpuBackend` and
@@ -114,8 +115,8 @@ def execute_workflow(
 
     Returns
     -------
-    np.ndarray
-        Processed image.
+    WorkflowResult
+        Result array and execution metrics.
     """
     gpu = GpuBackend(prefer_gpu=prefer_gpu)
     executor = WorkflowExecutor(workflow, gpu=gpu)

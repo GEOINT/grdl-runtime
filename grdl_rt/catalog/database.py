@@ -29,12 +29,14 @@ Modified
 """
 
 # Standard library
-import logging
 import sqlite3
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -179,7 +181,8 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         for target_version, migrate_fn in _MIGRATIONS:
             if target_version > current:
                 logger.info(
-                    "Running migration to schema version %d", target_version
+                    "Running migration to schema version",
+                    target_version=target_version,
                 )
                 migrate_fn(self._conn)
                 self._conn.execute(

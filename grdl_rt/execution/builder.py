@@ -38,19 +38,38 @@ Modified
 # Standard library
 import functools
 import inspect
-import logging
+import time
+import tracemalloc
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # Third-party
 import numpy as np
 
 # grdl-runtime internal
+from grdl_rt.execution.config import get_runtime_config
+from grdl_rt.execution.context import ExecutionContext, get_logger
+from grdl_rt.execution.errors import (
+    MemoryThresholdError,
+    StepRetryExhaustedError,
+    StepTimeoutError,
+)
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
+from grdl_rt.execution.resilience import (
+    RetryPolicy,
+    ShutdownCoordinator,
+    execute_with_retry,
+    execute_with_timeout,
+    run_memory_preflight,
+)
+from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.tags import ImageModality, WorkflowTags
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # GRDL base class (optional — graceful fallback if grdl is unavailable)
 try:
@@ -87,11 +106,29 @@ class WorkflowStep:
         Human-readable step name for logging and error messages.
     gpu_compatible : bool
         Whether this step may be accelerated via CuPy GPU transfer.
+    retry : Optional[RetryPolicy]
+        Per-step retry configuration.
+    timeout_seconds : Optional[float]
+        Maximum wall-clock seconds for this step.
+    id : Optional[str]
+        Unique step identifier for DAG wiring.
+    depends_on : Optional[List[str]]
+        Step IDs this step depends on.
+    condition : Optional[str]
+        Condition expression for conditional execution.
+    phase : Optional[str]
+        Execution phase annotation.
     """
 
     fn: Callable[[np.ndarray], np.ndarray]
     name: str
     gpu_compatible: bool
+    retry: Optional[RetryPolicy] = None
+    timeout_seconds: Optional[float] = None
+    id: Optional[str] = None
+    depends_on: Optional[List[str]] = None
+    condition: Optional[str] = None
+    phase: Optional[str] = None
 
 
 @dataclass
@@ -111,11 +148,139 @@ class DeferredStep:
         Keyword arguments forwarded to the constructor.
     name : str
         Human-readable step name for logging and error messages.
+    retry : Optional[RetryPolicy]
+        Per-step retry configuration.
+    timeout_seconds : Optional[float]
+        Maximum wall-clock seconds for this step.
+    id : Optional[str]
+        Unique step identifier for DAG wiring.
+    depends_on : Optional[List[str]]
+        Step IDs this step depends on.
+    condition : Optional[str]
+        Condition expression for conditional execution.
+    phase : Optional[str]
+        Execution phase annotation.
     """
 
     processor_cls: type
     kwargs: Dict[str, Any] = field(default_factory=dict)
     name: str = ""
+    retry: Optional[RetryPolicy] = None
+    timeout_seconds: Optional[float] = None
+    id: Optional[str] = None
+    depends_on: Optional[List[str]] = None
+    condition: Optional[str] = None
+    phase: Optional[str] = None
+
+
+@dataclass
+class TapOutStep:
+    """A non-processing step that writes current data to disk.
+
+    When encountered in the pipeline, the current array is written to
+    the specified path using the grdl.IO writer abstraction, then
+    passed through unchanged to the next step.
+
+    Attributes
+    ----------
+    path : str
+        Output file path.
+    format : Optional[str]
+        Output format override.  If ``None``, auto-detected from extension.
+    name : str
+        Display name for logging.
+    id : Optional[str]
+        Unique step identifier for DAG wiring.
+    depends_on : Optional[List[str]]
+        Step IDs this step depends on.
+    """
+
+    path: str
+    format: Optional[str] = None
+    name: str = "tap_out"
+    id: Optional[str] = None
+    depends_on: Optional[List[str]] = None
+
+
+class BranchBuilder:
+    """Builder for a single branch in a fan-out pattern.
+
+    Created via ``Workflow.branch("name")`` and used with
+    ``Workflow.branches()`` to define parallel branches.
+
+    Parameters
+    ----------
+    name : str
+        Branch name (used as prefix for step IDs).
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._steps: List[Union[WorkflowStep, DeferredStep, TapOutStep]] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def steps(self) -> List[Union[WorkflowStep, DeferredStep, TapOutStep]]:
+        return list(self._steps)
+
+    def step(
+        self,
+        callable_or_class: Union[Callable, Any],
+        *,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        condition: Optional[str] = None,
+        phase: Optional[str] = None,
+        retry: Optional[RetryPolicy] = None,
+        timeout_seconds: Optional[float] = None,
+        **kwargs: Any,
+    ) -> 'BranchBuilder':
+        """Add a step to this branch.  Same semantics as Workflow.step()."""
+        obj = callable_or_class
+
+        if isinstance(obj, type):
+            step_name = name or obj.__name__
+            self._steps.append(DeferredStep(
+                processor_cls=obj,
+                kwargs=kwargs,
+                name=step_name,
+                retry=retry,
+                timeout_seconds=timeout_seconds,
+                id=id,
+                condition=condition,
+                phase=phase,
+            ))
+            return self
+
+        if kwargs:
+            raise TypeError(
+                "step() keyword arguments are only supported for class-type "
+                "steps (deferred construction)."
+            )
+
+        if ImageTransform is not None and isinstance(obj, ImageTransform):
+            fn = obj.apply
+            step_name = name or type(obj).__name__
+            gpu_ok = getattr(obj, '__gpu_compatible__', False)
+        elif callable(obj):
+            fn = obj
+            step_name = name or _infer_step_name(obj)
+            gpu_ok = _infer_gpu_compatible(obj)
+        else:
+            raise TypeError(
+                f"step() requires a callable, ImageTransform instance, or "
+                f"processor class, got {type(obj).__name__}"
+            )
+
+        self._steps.append(WorkflowStep(
+            fn=fn, name=step_name, gpu_compatible=gpu_ok,
+            retry=retry, timeout_seconds=timeout_seconds,
+            id=id, condition=condition, phase=phase,
+        ))
+        return self
 
 
 class Workflow:
@@ -178,11 +343,15 @@ class Workflow:
         self._name = name
         self._version = version
         self._description = description
-        self._steps: List[Union[WorkflowStep, DeferredStep]] = []
+        self._steps: List[Union[WorkflowStep, DeferredStep, TapOutStep]] = []
         self._source: Optional[Callable[[], np.ndarray]] = None
         self._reader_cls: Optional[type] = None
         self._chip_strategy: Optional[str] = None
         self._chip_kwargs: Dict[str, Any] = {}
+        self._current_phase: Optional[str] = None
+        self._is_dag: bool = False
+        self._branch_terminal_ids: List[str] = []
+        self._step_counter: int = 0
 
         if tags is not None:
             self._tags = tags
@@ -218,7 +387,7 @@ class Workflow:
         return self._tags
 
     @property
-    def steps(self) -> List[Union[WorkflowStep, DeferredStep]]:
+    def steps(self) -> List[Union[WorkflowStep, DeferredStep, TapOutStep]]:
         """Shallow copy of the step list."""
         return list(self._steps)
 
@@ -308,6 +477,12 @@ class Workflow:
         callable_or_class: Union[Callable, Any],
         *,
         name: Optional[str] = None,
+        id: Optional[str] = None,
+        depends_on: Optional[List[str]] = None,
+        condition: Optional[str] = None,
+        phase: Optional[str] = None,
+        retry: Optional[RetryPolicy] = None,
+        timeout_seconds: Optional[float] = None,
         **kwargs: Any,
     ) -> 'Workflow':
         """Add a processing step to the workflow.
@@ -335,6 +510,19 @@ class Workflow:
             The step operation.
         name : str, optional
             Display name for logging and error messages.
+        id : str, optional
+            Unique step identifier for DAG wiring.
+        depends_on : List[str], optional
+            Step IDs this step depends on.
+        condition : str, optional
+            Condition expression for conditional execution.
+        phase : str, optional
+            Execution phase annotation.  Overrides the current
+            phase set by phase-scoped builders.
+        retry : RetryPolicy, optional
+            Per-step retry configuration with exponential backoff.
+        timeout_seconds : float, optional
+            Maximum wall-clock seconds for this step.
         **kwargs
             Constructor arguments for class-type steps.  Not allowed
             for instance or callable steps.
@@ -350,6 +538,10 @@ class Workflow:
             If ``**kwargs`` are provided for a non-class step, or if the
             argument is not callable.
         """
+        step_phase = phase or self._current_phase
+        if depends_on is not None or id is not None:
+            self._is_dag = True
+
         obj = callable_or_class
 
         # Class → deferred construction
@@ -359,6 +551,12 @@ class Workflow:
                 processor_cls=obj,
                 kwargs=kwargs,
                 name=step_name,
+                retry=retry,
+                timeout_seconds=timeout_seconds,
+                id=id,
+                depends_on=depends_on,
+                condition=condition,
+                phase=step_phase,
             ))
             return self
 
@@ -388,7 +586,210 @@ class Workflow:
                 f"processor class, got {type(obj).__name__}"
             )
 
-        self._steps.append(WorkflowStep(fn=fn, name=step_name, gpu_compatible=gpu_ok))
+        self._steps.append(WorkflowStep(
+            fn=fn, name=step_name, gpu_compatible=gpu_ok,
+            retry=retry, timeout_seconds=timeout_seconds,
+            id=id, depends_on=depends_on, condition=condition,
+            phase=step_phase,
+        ))
+        return self
+
+    def tap_out(
+        self,
+        path: Union[str, Path],
+        format: Optional[str] = None,
+    ) -> 'Workflow':
+        """Insert a tap-out point that writes current data to disk.
+
+        The data is written to the specified path and then passed through
+        unchanged to the next step.  This is useful for capturing intermediate
+        results during pipeline development.
+
+        Parameters
+        ----------
+        path : str or Path
+            Output file path.
+        format : str, optional
+            Writer format override.  If ``None``, auto-detected from
+            the file extension.
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        self._steps.append(TapOutStep(
+            path=str(path),
+            format=format,
+            name=f"tap_out({Path(path).name})",
+        ))
+        return self
+
+    # ------------------------------------------------------------------
+    # DAG Builder Methods
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def branch(name: str) -> BranchBuilder:
+        """Create a branch builder for fan-out patterns.
+
+        Parameters
+        ----------
+        name : str
+            Branch name (used as prefix for step IDs).
+
+        Returns
+        -------
+        BranchBuilder
+        """
+        return BranchBuilder(name)
+
+    def branches(self, *branch_builders: BranchBuilder) -> 'Workflow':
+        """Add parallel branches that fan out from the last step.
+
+        All branches depend on the last step added before this call.
+        After calling ``branches()``, use ``merge()`` to converge.
+
+        Parameters
+        ----------
+        *branch_builders : BranchBuilder
+            One or more branch builders created with ``Workflow.branch()``.
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        self._is_dag = True
+
+        # The branch point is the last step added
+        if self._steps:
+            parent_id = self._steps[-1].id
+            if parent_id is None:
+                parent_id = f"_auto_{self._step_counter}"
+                self._steps[-1].id = parent_id
+                self._step_counter += 1
+        else:
+            parent_id = None
+
+        self._branch_terminal_ids = []
+
+        for bb in branch_builders:
+            prev_id = parent_id
+            for i, bstep in enumerate(bb.steps):
+                # Assign ID if not set
+                if bstep.id is None:
+                    bstep.id = f"{bb.name}_{i}"
+                # Wire dependency
+                if bstep.depends_on is None and prev_id is not None:
+                    bstep.depends_on = [prev_id]
+                self._steps.append(bstep)
+                prev_id = bstep.id
+            # Track terminal step of each branch
+            if prev_id is not None:
+                self._branch_terminal_ids.append(prev_id)
+
+        return self
+
+    def merge(
+        self,
+        callable_or_class: Union[Callable, Any],
+        *,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        condition: Optional[str] = None,
+        phase: Optional[str] = None,
+        retry: Optional[RetryPolicy] = None,
+        timeout_seconds: Optional[float] = None,
+        **kwargs: Any,
+    ) -> 'Workflow':
+        """Add a merge step that consumes all preceding branch outputs.
+
+        The merge step depends on the terminal step of every branch
+        added by the preceding ``branches()`` call.
+
+        Parameters
+        ----------
+        callable_or_class : callable, ImageTransform, or class
+            The merge operation.  When called, it receives a dict
+            of ``{branch_terminal_id: array}`` if multiple branches
+            converge.
+        name : str, optional
+            Display name.
+        id : str, optional
+            Step ID.
+        condition : str, optional
+            Condition expression.
+        phase : str, optional
+            Execution phase.
+        retry : RetryPolicy, optional
+            Per-step retry config.
+        timeout_seconds : float, optional
+            Step timeout.
+        **kwargs
+            Constructor arguments for class-type steps.
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        merge_deps = list(self._branch_terminal_ids) if self._branch_terminal_ids else None
+        self._branch_terminal_ids = []
+        return self.step(
+            callable_or_class,
+            name=name,
+            id=id,
+            depends_on=merge_deps,
+            condition=condition,
+            phase=phase,
+            retry=retry,
+            timeout_seconds=timeout_seconds,
+            **kwargs,
+        )
+
+    # ------------------------------------------------------------------
+    # Phase-Scoped Builders
+    # ------------------------------------------------------------------
+
+    def io_phase(self) -> 'Workflow':
+        """Set the current phase to IO for subsequent steps."""
+        self._current_phase = "io"
+        return self
+
+    def processing_phase(self) -> 'Workflow':
+        """Set the current phase to GLOBAL_PROCESSING."""
+        self._current_phase = "global_processing"
+        return self
+
+    def data_prep_phase(self) -> 'Workflow':
+        """Set the current phase to DATA_PREP."""
+        self._current_phase = "data_prep"
+        return self
+
+    def tiling_phase(self) -> 'Workflow':
+        """Set the current phase to TILING."""
+        self._current_phase = "tiling"
+        return self
+
+    def tile_processing_phase(self) -> 'Workflow':
+        """Set the current phase to TILE_PROCESSING."""
+        self._current_phase = "tile_processing"
+        return self
+
+    def extraction_phase(self) -> 'Workflow':
+        """Set the current phase to EXTRACTION."""
+        self._current_phase = "extraction"
+        return self
+
+    def vector_phase(self) -> 'Workflow':
+        """Set the current phase to VECTOR_PROCESSING."""
+        self._current_phase = "vector_processing"
+        return self
+
+    def finalization_phase(self) -> 'Workflow':
+        """Set the current phase to FINALIZATION."""
+        self._current_phase = "finalization"
         return self
 
     # ------------------------------------------------------------------
@@ -402,7 +803,10 @@ class Workflow:
         prefer_gpu: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
         metadata: Optional[Any] = None,
-    ) -> np.ndarray:
+        auto_tap_out: bool = False,
+        tap_out_format: str = 'npy',
+        tap_out_dir: Optional[Union[str, Path]] = None,
+    ) -> WorkflowResult:
         """Execute the workflow pipeline.
 
         Supports three modes of operation:
@@ -435,11 +839,18 @@ class Workflow:
         metadata : optional
             Explicit metadata for resolving deferred steps when
             executing in array mode.
+        auto_tap_out : bool
+            If ``True``, write all intermediates to a timestamped
+            directory alongside workflow params and a manifest.
+        tap_out_format : str
+            Format for auto tap-out files (default ``'npy'``).
+        tap_out_dir : str or Path, optional
+            Override the auto tap-out output directory.
 
         Returns
         -------
-        np.ndarray
-            Result after all steps have been applied.
+        WorkflowResult
+            Result containing the processed array and execution metrics.
 
         Raises
         ------
@@ -448,18 +859,33 @@ class Workflow:
         RuntimeError
             If any step fails.
         """
+        source_path: Optional[Path] = None
+
         # File mode → framework orchestration
         if isinstance(source, (str, Path)):
+            source_path = Path(source)
             return self._execute_from_file(
-                Path(source),
+                source_path,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
                 metadata_override=metadata,
+                auto_tap_out=auto_tap_out,
+                tap_out_format=tap_out_format,
+                tap_out_dir=Path(tap_out_dir) if tap_out_dir else None,
             )
 
         # Array mode → direct pipeline
         if isinstance(source, np.ndarray):
             steps = self._resolve_steps(metadata)
+            if auto_tap_out:
+                return self._run_pipeline_with_auto_tap_out(
+                    source, steps,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                    source_path=None,
+                    tap_out_format=tap_out_format,
+                    tap_out_dir=Path(tap_out_dir) if tap_out_dir else None,
+                )
             return self._run_pipeline(
                 source, steps,
                 prefer_gpu=prefer_gpu,
@@ -471,6 +897,15 @@ class Workflow:
             if self._source is not None:
                 array = self._source()
                 steps = self._resolve_steps(metadata)
+                if auto_tap_out:
+                    return self._run_pipeline_with_auto_tap_out(
+                        array, steps,
+                        prefer_gpu=prefer_gpu,
+                        progress_callback=progress_callback,
+                        source_path=None,
+                        tap_out_format=tap_out_format,
+                        tap_out_dir=Path(tap_out_dir) if tap_out_dir else None,
+                    )
                 return self._run_pipeline(
                     array, steps,
                     prefer_gpu=prefer_gpu,
@@ -492,7 +927,7 @@ class Workflow:
         *,
         prefer_gpu: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> List[np.ndarray]:
+    ) -> List[WorkflowResult]:
         """Execute the workflow on multiple inputs.
 
         Runs the full pipeline on each source array in order.
@@ -509,13 +944,13 @@ class Workflow:
 
         Returns
         -------
-        List[np.ndarray]
+        List[WorkflowResult]
             List of results, one per source.
         """
         n_sources = len(sources)
         n_steps = len(self._steps) or 1
         total_units = n_sources * n_steps
-        results: List[np.ndarray] = []
+        results: List[WorkflowResult] = []
 
         for src_idx, src in enumerate(sources):
             def _batch_progress(
@@ -547,7 +982,10 @@ class Workflow:
         prefer_gpu: bool,
         progress_callback: Optional[Callable[[float], None]],
         metadata_override: Optional[Any],
-    ) -> np.ndarray:
+        auto_tap_out: bool = False,
+        tap_out_format: str = 'npy',
+        tap_out_dir: Optional[Path] = None,
+    ) -> WorkflowResult:
         """Open reader, read chip, resolve steps, and run pipeline."""
         if self._reader_cls is None:
             raise ValueError(
@@ -565,6 +1003,15 @@ class Workflow:
             resolved = self._resolve_steps(meta)
 
             # Run the pipeline
+            if auto_tap_out:
+                return self._run_pipeline_with_auto_tap_out(
+                    chip, resolved,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                    source_path=filepath,
+                    tap_out_format=tap_out_format,
+                    tap_out_dir=tap_out_dir,
+                )
             return self._run_pipeline(
                 chip, resolved,
                 prefer_gpu=prefer_gpu,
@@ -614,8 +1061,10 @@ class Workflow:
     def _resolve_steps(
         self,
         metadata: Optional[Any],
-    ) -> List[WorkflowStep]:
+    ) -> List[Union[WorkflowStep, TapOutStep]]:
         """Resolve deferred steps into callable WorkflowSteps.
+
+        ``TapOutStep`` instances pass through unchanged.
 
         Parameters
         ----------
@@ -624,12 +1073,14 @@ class Workflow:
 
         Returns
         -------
-        List[WorkflowStep]
+        List[Union[WorkflowStep, TapOutStep]]
             Fully resolved step list.
         """
-        resolved: List[WorkflowStep] = []
+        resolved: List[Union[WorkflowStep, TapOutStep]] = []
         for step in self._steps:
-            if isinstance(step, DeferredStep):
+            if isinstance(step, TapOutStep):
+                resolved.append(step)
+            elif isinstance(step, DeferredStep):
                 resolved.append(self._resolve_deferred(step, metadata))
             else:
                 resolved.append(step)
@@ -671,46 +1122,400 @@ class Workflow:
             )
 
         gpu_ok = getattr(instance, '__gpu_compatible__', False)
-        return WorkflowStep(fn=fn, name=ds.name, gpu_compatible=gpu_ok)
+        return WorkflowStep(
+            fn=fn, name=ds.name, gpu_compatible=gpu_ok,
+            retry=ds.retry, timeout_seconds=ds.timeout_seconds,
+        )
 
     def _run_pipeline(
         self,
         source: np.ndarray,
-        steps: List[WorkflowStep],
+        steps: List[Union[WorkflowStep, TapOutStep]],
         *,
         prefer_gpu: bool,
         progress_callback: Optional[Callable[[float], None]],
-    ) -> np.ndarray:
+    ) -> WorkflowResult:
         """Execute resolved steps sequentially on source data.
 
         Parameters
         ----------
         source : np.ndarray
-        steps : List[WorkflowStep]
+        steps : List[Union[WorkflowStep, TapOutStep]]
         prefer_gpu : bool
         progress_callback : optional
 
         Returns
         -------
-        np.ndarray
+        WorkflowResult
         """
+        # Create execution context
+        ctx = ExecutionContext(
+            workflow_id=f"{self._name}:{self._version}",
+            workflow_name=self._name,
+        )
+        cfg = get_runtime_config()
+
+        # Start tracemalloc for peak memory tracking
+        tracemalloc_was_running = tracemalloc.is_tracing()
+        if not tracemalloc_was_running:
+            tracemalloc.start()
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        pipeline_wall_t0 = time.perf_counter()
+        pipeline_cpu_t0 = time.process_time()
+        step_metrics_list: List[StepMetrics] = []
+        overall_peak_rss = 0
+
         if not steps:
-            return source
+            pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
+            pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
+            completed_at = datetime.now(timezone.utc).isoformat()
+
+            wf_metrics = WorkflowMetrics(
+                workflow_id=ctx.workflow_id,
+                run_id=ctx.run_id,
+                workflow_name=self._name,
+                workflow_version=self._version,
+                total_wall_time_s=pipeline_wall_elapsed,
+                total_cpu_time_s=pipeline_cpu_elapsed,
+                peak_rss_bytes=0,
+                step_metrics=[],
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+
+            if not tracemalloc_was_running:
+                tracemalloc.stop()
+
+            return WorkflowResult(result=source, metrics=wf_metrics)
+
+        # Memory pre-flight
+        processing_steps = [s for s in steps if isinstance(s, WorkflowStep)]
+        if processing_steps:
+            run_memory_preflight(
+                source,
+                n_steps=len(processing_steps),
+                multiplier=cfg.memory.estimation_multiplier,
+                warn_threshold=cfg.memory.warn_threshold,
+                abort_threshold=cfg.memory.abort_threshold,
+            )
 
         gpu = GpuBackend(prefer_gpu=prefer_gpu)
         n_steps = len(steps)
         current = source
 
         for i, ws in enumerate(steps):
-            logger.debug(
-                "Workflow '%s' step %d/%d: %s",
-                self._name, i + 1, n_steps, ws.name,
-            )
-            current = self._execute_step_gpu_aware(ws, current, gpu, i, n_steps)
+            if isinstance(ws, TapOutStep):
+                logger.debug(
+                    "tap_out",
+                    workflow_name=self._name,
+                    step_index=i,
+                    tap_out_path=ws.path,
+                )
+                self._execute_tap_out(ws, current)
+            else:
+                logger.debug(
+                    "step_start",
+                    workflow_name=self._name,
+                    step_index=i,
+                    step_name=ws.name,
+                )
+
+                # Capture step-level metrics
+                snapshot_before = tracemalloc.take_snapshot()
+                step_wall_t0 = time.perf_counter()
+                step_cpu_t0 = time.process_time()
+
+                current, gpu_used = self._execute_step_gpu_aware(
+                    ws, current, gpu, i, n_steps,
+                )
+
+                step_wall_elapsed = time.perf_counter() - step_wall_t0
+                step_cpu_elapsed = time.process_time() - step_cpu_t0
+                snapshot_after = tracemalloc.take_snapshot()
+
+                # Compute peak memory delta
+                stats = snapshot_after.compare_to(snapshot_before, 'lineno')
+                step_peak_rss = sum(
+                    s.size_diff for s in stats if s.size_diff > 0
+                )
+                if step_peak_rss > overall_peak_rss:
+                    overall_peak_rss = step_peak_rss
+
+                step_metrics_list.append(StepMetrics(
+                    step_index=i,
+                    processor_name=ws.name,
+                    wall_time_s=step_wall_elapsed,
+                    cpu_time_s=step_cpu_elapsed,
+                    peak_rss_bytes=step_peak_rss,
+                    gpu_used=gpu_used,
+                ))
+
             if progress_callback is not None:
                 progress_callback((i + 1) / n_steps)
 
-        return current
+        pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
+        pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
+        completed_at = datetime.now(timezone.utc).isoformat()
+
+        wf_metrics = WorkflowMetrics(
+            workflow_id=ctx.workflow_id,
+            run_id=ctx.run_id,
+            workflow_name=self._name,
+            workflow_version=self._version,
+            total_wall_time_s=pipeline_wall_elapsed,
+            total_cpu_time_s=pipeline_cpu_elapsed,
+            peak_rss_bytes=overall_peak_rss,
+            step_metrics=step_metrics_list,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+
+        if not tracemalloc_was_running:
+            tracemalloc.stop()
+
+        return WorkflowResult(result=current, metrics=wf_metrics)
+
+    def _run_pipeline_with_auto_tap_out(
+        self,
+        source: np.ndarray,
+        steps: List[Union[WorkflowStep, TapOutStep]],
+        *,
+        prefer_gpu: bool,
+        progress_callback: Optional[Callable[[float], None]],
+        source_path: Optional[Path],
+        tap_out_format: str = 'npy',
+        tap_out_dir: Optional[Path] = None,
+    ) -> WorkflowResult:
+        """Execute pipeline, writing all intermediates to a timestamped directory.
+
+        Creates a directory structure::
+
+            <tap_out_dir>/
+                workflow_params.yaml
+                manifest.json
+                step_001_<name>.<ext>
+                step_002_<name>.<ext>
+                ...
+                final_output.<ext>
+
+        Parameters
+        ----------
+        source : np.ndarray
+        steps : List[Union[WorkflowStep, TapOutStep]]
+        prefer_gpu : bool
+        progress_callback : optional
+        source_path : Path, optional
+            Original source file path (for default directory location).
+        tap_out_format : str
+            File extension for intermediate files (default ``'npy'``).
+        tap_out_dir : Path, optional
+            Override the auto tap-out output directory.
+
+        Returns
+        -------
+        WorkflowResult
+        """
+        import json
+
+        # Create execution context
+        ctx = ExecutionContext(
+            workflow_id=f"{self._name}:{self._version}",
+            workflow_name=self._name,
+        )
+
+        # Start tracemalloc for peak memory tracking
+        tracemalloc_was_running = tracemalloc.is_tracing()
+        if not tracemalloc_was_running:
+            tracemalloc.start()
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        pipeline_wall_t0 = time.perf_counter()
+        pipeline_cpu_t0 = time.process_time()
+        step_metrics_list: List[StepMetrics] = []
+        overall_peak_rss = 0
+
+        # Determine output directory
+        if tap_out_dir is not None:
+            run_dir = tap_out_dir
+        else:
+            base_dir = source_path.parent if source_path else Path.cwd()
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            run_dir = base_dir / f"grdl_run_{timestamp}"
+
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        ext = tap_out_format.lstrip('.')
+        gpu = GpuBackend(prefer_gpu=prefer_gpu)
+        n_steps = len(steps)
+        current = source
+        manifest_entries: List[Dict[str, Any]] = []
+        step_counter = 0
+
+        for i, ws in enumerate(steps):
+            if isinstance(ws, TapOutStep):
+                # Explicit tap-out steps still write to their own path
+                tap_wall_t0 = time.perf_counter()
+                self._execute_tap_out(ws, current)
+                tap_elapsed = time.perf_counter() - tap_wall_t0
+                manifest_entries.append({
+                    'index': i,
+                    'type': 'tap_out',
+                    'name': ws.name,
+                    'path': ws.path,
+                    'elapsed_s': round(tap_elapsed, 4),
+                    'shape': list(current.shape),
+                    'dtype': str(current.dtype),
+                })
+            else:
+                logger.debug(
+                    "step_start",
+                    workflow_name=self._name,
+                    step_index=i,
+                    step_name=ws.name,
+                )
+
+                # Capture step-level metrics
+                snapshot_before = tracemalloc.take_snapshot()
+                step_wall_t0 = time.perf_counter()
+                step_cpu_t0 = time.process_time()
+
+                current, gpu_used = self._execute_step_gpu_aware(
+                    ws, current, gpu, i, n_steps,
+                )
+
+                step_wall_elapsed = time.perf_counter() - step_wall_t0
+                step_cpu_elapsed = time.process_time() - step_cpu_t0
+                snapshot_after = tracemalloc.take_snapshot()
+
+                # Compute peak memory delta
+                stats = snapshot_after.compare_to(snapshot_before, 'lineno')
+                step_peak_rss = sum(
+                    s.size_diff for s in stats if s.size_diff > 0
+                )
+                if step_peak_rss > overall_peak_rss:
+                    overall_peak_rss = step_peak_rss
+
+                step_metrics_list.append(StepMetrics(
+                    step_index=i,
+                    processor_name=ws.name,
+                    wall_time_s=step_wall_elapsed,
+                    cpu_time_s=step_cpu_elapsed,
+                    peak_rss_bytes=step_peak_rss,
+                    gpu_used=gpu_used,
+                ))
+
+                step_counter += 1
+
+                # Write intermediate
+                safe_name = _sanitize_filename(ws.name)
+                filename = f"step_{step_counter:03d}_{safe_name}.{ext}"
+                out_path = run_dir / filename
+                try:
+                    from grdl.IO import write as io_write
+                    io_write(current, out_path)
+                except Exception as e:
+                    logger.warning(
+                        "Auto tap-out write failed for '%s': %s", out_path, e,
+                    )
+
+                manifest_entries.append({
+                    'index': i,
+                    'type': 'processing',
+                    'name': ws.name,
+                    'file': filename,
+                    'elapsed_s': round(step_wall_elapsed, 4),
+                    'shape': list(current.shape),
+                    'dtype': str(current.dtype),
+                })
+
+            if progress_callback is not None:
+                progress_callback((i + 1) / n_steps)
+
+        # Write final output
+        final_filename = f"final_output.{ext}"
+        try:
+            from grdl.IO import write as io_write
+            io_write(current, run_dir / final_filename)
+        except Exception as e:
+            logger.warning("Auto tap-out final output write failed: %s", e)
+
+        # Write workflow_params.yaml
+        try:
+            import yaml
+            params = {
+                'name': self._name,
+                'version': self._version,
+                'description': self._description,
+                'steps': [
+                    ws.name if not isinstance(ws, TapOutStep)
+                    else f"tap_out({ws.path})"
+                    for ws in steps
+                ],
+            }
+            yaml_path = run_dir / "workflow_params.yaml"
+            yaml_path.write_text(
+                yaml.dump(params, default_flow_style=False, sort_keys=False),
+                encoding='utf-8',
+            )
+        except Exception as e:
+            logger.warning("Auto tap-out workflow_params.yaml write failed: %s", e)
+
+        # Write manifest.json
+        try:
+            manifest = {
+                'workflow_name': self._name,
+                'source_path': str(source_path) if source_path else None,
+                'tap_out_format': tap_out_format,
+                'final_output': final_filename,
+                'steps': manifest_entries,
+            }
+            manifest_path = run_dir / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2),
+                encoding='utf-8',
+            )
+        except Exception as e:
+            logger.warning("Auto tap-out manifest.json write failed: %s", e)
+
+        logger.info("Auto tap-out complete: %s", run_dir)
+
+        pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
+        pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
+        completed_at = datetime.now(timezone.utc).isoformat()
+
+        wf_metrics = WorkflowMetrics(
+            workflow_id=ctx.workflow_id,
+            run_id=ctx.run_id,
+            workflow_name=self._name,
+            workflow_version=self._version,
+            total_wall_time_s=pipeline_wall_elapsed,
+            total_cpu_time_s=pipeline_cpu_elapsed,
+            peak_rss_bytes=overall_peak_rss,
+            step_metrics=step_metrics_list,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+
+        if not tracemalloc_was_running:
+            tracemalloc.stop()
+
+        return WorkflowResult(result=current, metrics=wf_metrics)
+
+    def _execute_tap_out(
+        self,
+        tap: TapOutStep,
+        data: np.ndarray,
+    ) -> None:
+        """Write current pipeline data to disk without modifying it."""
+        try:
+            from grdl.IO import write as io_write
+            io_write(data, tap.path, format=tap.format)
+        except Exception as e:
+            logger.warning(
+                "Tap-out to '%s' failed: %s (continuing pipeline)",
+                tap.path, e,
+            )
 
     def _execute_step_gpu_aware(
         self,
@@ -719,39 +1524,64 @@ class Workflow:
         gpu: GpuBackend,
         step_index: int,
         n_steps: int,
-    ) -> np.ndarray:
-        """Execute a single step with optional GPU acceleration."""
-        try:
-            if gpu.cupy_available and ws.gpu_compatible:
-                try:
-                    gpu_source = gpu.to_gpu(source)
-                    result = ws.fn(gpu_source)
-                    return gpu.to_cpu(result)
-                except Exception as gpu_err:
-                    logger.warning(
-                        "GPU execution failed for step '%s', "
-                        "falling back to CPU: %s",
-                        ws.name, gpu_err,
+    ) -> Tuple[np.ndarray, bool]:
+        """Execute a single step with optional GPU acceleration, retry, and timeout.
+
+        Returns
+        -------
+        Tuple[np.ndarray, bool]
+            The result array and a boolean indicating whether GPU was
+            actually used for execution.
+        """
+        def _do_raw_step() -> Tuple[np.ndarray, bool]:
+            try:
+                if gpu.cupy_available and ws.gpu_compatible:
+                    try:
+                        gpu_source = gpu.to_gpu(source)
+                        result = ws.fn(gpu_source)
+                        return gpu.to_cpu(result), True
+                    except Exception as gpu_err:
+                        logger.warning(
+                            "GPU execution failed for step '%s', "
+                            "falling back to CPU: %s",
+                            ws.name, gpu_err,
+                        )
+
+                return ws.fn(source), False
+
+            except Exception as e:
+                if GrdlError is not None and isinstance(e, GrdlError):
+                    logger.error(
+                        "Workflow '%s' step %d/%d '%s' GRDL error (%s): %s",
+                        self._name, step_index + 1, n_steps, ws.name,
+                        type(e).__name__, e,
                     )
+                else:
+                    logger.error(
+                        "Workflow '%s' step %d/%d '%s' failed: %s",
+                        self._name, step_index + 1, n_steps, ws.name, e,
+                    )
+                raise RuntimeError(
+                    f"Workflow '{self._name}' step {step_index + 1}/{n_steps} "
+                    f"'{ws.name}' failed: {e}"
+                ) from e
 
-            return ws.fn(source)
+        timeout = ws.timeout_seconds
+        retry = ws.retry
 
-        except Exception as e:
-            if GrdlError is not None and isinstance(e, GrdlError):
-                logger.error(
-                    "Workflow '%s' step %d/%d '%s' GRDL error (%s): %s",
-                    self._name, step_index + 1, n_steps, ws.name,
-                    type(e).__name__, e,
+        def _step_with_timeout() -> Tuple[np.ndarray, bool]:
+            if timeout is not None:
+                return execute_with_timeout(
+                    _do_raw_step, timeout, ws.name,
                 )
-            else:
-                logger.error(
-                    "Workflow '%s' step %d/%d '%s' failed: %s",
-                    self._name, step_index + 1, n_steps, ws.name, e,
-                )
-            raise RuntimeError(
-                f"Workflow '{self._name}' step {step_index + 1}/{n_steps} "
-                f"'{ws.name}' failed: {e}"
-            ) from e
+            return _do_raw_step()
+
+        if retry is not None and retry.max_retries > 0:
+            return execute_with_retry(
+                _step_with_timeout, retry, ws.name,
+            )
+
+        return _step_with_timeout()
 
 
 # ======================================================================
@@ -822,3 +1652,15 @@ def _infer_gpu_compatible(obj: Any) -> bool:
         return bool(getattr(owner, '__gpu_compatible__', False))
 
     return False
+
+
+def _sanitize_filename(name: str) -> str:
+    """Convert a step name into a safe filename component.
+
+    Replaces spaces, dots, and path separators with underscores,
+    and strips non-alphanumeric characters.
+    """
+    import re
+    safe = re.sub(r'[^\w\-]', '_', name)
+    safe = re.sub(r'_+', '_', safe).strip('_')
+    return safe or 'step'

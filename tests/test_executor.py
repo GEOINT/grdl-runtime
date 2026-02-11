@@ -22,6 +22,7 @@ import pytest
 
 from grdl_rt.execution.executor import WorkflowExecutor
 from grdl_rt.execution.discovery import resolve_processor_class, discover_processors
+from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 
@@ -85,8 +86,8 @@ class TestWorkflowExecutor:
         wf = self._make_workflow()
         executor = WorkflowExecutor(wf)
         source = np.ones((4, 4))
-        result = executor.execute(source)
-        np.testing.assert_array_equal(result, source)
+        wr = executor.execute(source)
+        np.testing.assert_array_equal(wr.result, source)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_single_step_execution(self, mock_resolve):
@@ -101,8 +102,8 @@ class TestWorkflowExecutor:
         executor = WorkflowExecutor(wf)
 
         source = np.ones((4, 4), dtype=np.float64)
-        result = executor.execute(source)
-        np.testing.assert_array_almost_equal(result, np.ones((4, 4)) * 3.0)
+        wr = executor.execute(source)
+        np.testing.assert_array_almost_equal(wr.result, np.ones((4, 4)) * 3.0)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_multi_step_pipeline(self, mock_resolve):
@@ -116,8 +117,8 @@ class TestWorkflowExecutor:
         executor = WorkflowExecutor(wf)
 
         source = np.ones((4, 4), dtype=np.float64)
-        result = executor.execute(source)
-        np.testing.assert_array_almost_equal(result, np.ones((4, 4)) * 6.0)
+        wr = executor.execute(source)
+        np.testing.assert_array_almost_equal(wr.result, np.ones((4, 4)) * 6.0)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_execute_batch(self, mock_resolve):
@@ -130,8 +131,8 @@ class TestWorkflowExecutor:
         sources = [np.ones((2, 2)) * i for i in range(3)]
         results = executor.execute_batch(sources)
         assert len(results) == 3
-        for i, r in enumerate(results):
-            np.testing.assert_array_almost_equal(r, np.ones((2, 2)) * i * 5.0)
+        for i, wr in enumerate(results):
+            np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * i * 5.0)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_execute_step_by_index(self, mock_resolve):
@@ -146,8 +147,8 @@ class TestWorkflowExecutor:
 
         source = np.ones((2, 2))
         # Execute only step 1 (scale=10)
-        result = executor.execute_step(1, source)
-        np.testing.assert_array_almost_equal(result, np.ones((2, 2)) * 10.0)
+        wr = executor.execute_step(1, source)
+        np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * 10.0)
 
     def test_unresolvable_processor_raises(self):
         step = ProcessingStep('NoSuchProcessor999', '1.0')

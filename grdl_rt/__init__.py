@@ -35,8 +35,15 @@ from grdl_rt.execution import (
     Chip,
     ChipSet,
     # config
-    GrdkConfig,
-    load_config,
+    RuntimeConfig,
+    LogConfig,
+    RetryDefaults,
+    MemoryConfig,
+    GpuConfig,
+    TapOutConfig,
+    load_runtime_config,
+    get_runtime_config,
+    reset_runtime_config,
     # gpu
     GpuBackend,
     # discovery
@@ -49,9 +56,11 @@ from grdl_rt.execution import (
     # workflow
     WorkflowState,
     ProcessingStep,
+    TapOutStepDef,
     WorkflowDefinition,
     # dsl
     step,
+    tap_out,
     workflow,
     DslCompiler,
     # project
@@ -59,8 +68,40 @@ from grdl_rt.execution import (
     # builder
     Workflow,
     WorkflowStep,
+    TapOutStep,
     # executor
     WorkflowExecutor,
+    # context
+    ExecutionContext,
+    configure_logging,
+    get_logger,
+    # metrics
+    StepMetrics,
+    WorkflowMetrics,
+    # result
+    WorkflowResult,
+    # validation
+    ValidationError,
+    validate_workflow,
+    # errors
+    StepRetryExhaustedError,
+    StepTimeoutError,
+    MemoryThresholdError,
+    CheckpointError,
+    ResumeError,
+    # resilience
+    RetryPolicy,
+    CircuitBreaker,
+    ShutdownCoordinator,
+    TilingStrategy,
+    # checkpoint
+    CheckpointState,
+    CheckpointManager,
+    compute_workflow_hash,
+    CHECKPOINT_SCHEMA_VERSION,
+    # history
+    ExecutionRecord,
+    ExecutionHistoryDB,
 )
 
 # ── Catalog subpackage ───────────────────────────────────────────────
@@ -94,8 +135,15 @@ __all__ = [
     "Chip",
     "ChipSet",
     # execution: config
-    "GrdkConfig",
-    "load_config",
+    "RuntimeConfig",
+    "LogConfig",
+    "RetryDefaults",
+    "MemoryConfig",
+    "GpuConfig",
+    "TapOutConfig",
+    "load_runtime_config",
+    "get_runtime_config",
+    "reset_runtime_config",
     # execution: gpu
     "GpuBackend",
     # execution: discovery
@@ -108,9 +156,11 @@ __all__ = [
     # execution: workflow
     "WorkflowState",
     "ProcessingStep",
+    "TapOutStepDef",
     "WorkflowDefinition",
     # execution: dsl
     "step",
+    "tap_out",
     "workflow",
     "DslCompiler",
     # execution: project
@@ -118,8 +168,40 @@ __all__ = [
     # execution: builder
     "Workflow",
     "WorkflowStep",
+    "TapOutStep",
     # execution: executor
     "WorkflowExecutor",
+    # execution: context
+    "ExecutionContext",
+    "configure_logging",
+    "get_logger",
+    # execution: metrics
+    "StepMetrics",
+    "WorkflowMetrics",
+    # execution: result
+    "WorkflowResult",
+    # execution: validation
+    "ValidationError",
+    "validate_workflow",
+    # execution: errors
+    "StepRetryExhaustedError",
+    "StepTimeoutError",
+    "MemoryThresholdError",
+    "CheckpointError",
+    "ResumeError",
+    # execution: resilience
+    "RetryPolicy",
+    "CircuitBreaker",
+    "ShutdownCoordinator",
+    "TilingStrategy",
+    # execution: checkpoint
+    "CheckpointState",
+    "CheckpointManager",
+    "compute_workflow_hash",
+    "CHECKPOINT_SCHEMA_VERSION",
+    # execution: history
+    "ExecutionRecord",
+    "ExecutionHistoryDB",
     # catalog
     "Artifact",
     "UpdateResult",

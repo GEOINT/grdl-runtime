@@ -35,13 +35,15 @@ Modified
 
 # Standard library
 import json
-import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 # Third-party
 import numpy as np
@@ -209,7 +211,7 @@ class GrdkProject:
                 json.dump(manifest, f, indent=2)
             os.replace(str(tmp_path), str(manifest_path))
         except Exception:
-            logger.error("Failed to save project manifest to %s", manifest_path)
+            logger.error("Failed to save project manifest", path=str(manifest_path))
             if tmp_path.exists():
                 tmp_path.unlink()
             raise
@@ -268,7 +270,7 @@ class GrdkProject:
                 json.dump(labels_data, f, indent=2)
             os.replace(str(labels_tmp), str(labels_path))
         except Exception:
-            logger.error("Failed to save chip labels to %s", labels_path)
+            logger.error("Failed to save chip labels", path=str(labels_path))
             if labels_tmp.exists():
                 labels_tmp.unlink()
             raise

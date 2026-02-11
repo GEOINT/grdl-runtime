@@ -28,13 +28,13 @@ Created
 
 # Standard library
 import importlib
-import logging
 from typing import Dict, Optional, Set
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
+from grdl_rt.execution.context import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level catalog state
@@ -184,10 +184,10 @@ def discover_processors() -> Dict[str, type]:
             processors[short_name] = cls
         except (ImportError, AttributeError) as exc:
             logger.warning(
-                "Cannot import processor '%s' (%s): %s",
-                artifact.name,
-                artifact.processor_class,
-                exc,
+                "Cannot import processor",
+                artifact_name=artifact.name,
+                processor_class=artifact.processor_class,
+                error=str(exc),
             )
     return processors
 

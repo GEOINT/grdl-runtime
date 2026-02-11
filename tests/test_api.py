@@ -24,6 +24,7 @@ import pytest
 
 from grdl_rt.api import load_workflow, execute_workflow
 from grdl_rt.execution.dsl import DslCompiler
+from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 
@@ -154,9 +155,9 @@ class TestExecuteWorkflow:
             steps=[ProcessingStep("ScaleTransform", "1.0", params={"scale": 2.0})],
         )
         source = np.ones((4, 4), dtype=np.float64)
-        result = execute_workflow(wf, source, prefer_gpu=False)
+        wr = execute_workflow(wf, source, prefer_gpu=False)
 
-        np.testing.assert_array_almost_equal(result, source * 2.0)
+        np.testing.assert_array_almost_equal(wr.result, source * 2.0)
 
     @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_execute_gpu_off(self, mock_resolve):
@@ -168,9 +169,9 @@ class TestExecuteWorkflow:
             steps=[ProcessingStep("ScaleTransform", "1.0", params={"scale": 5.0})],
         )
         source = np.ones((2, 2), dtype=np.float64)
-        result = execute_workflow(wf, source, prefer_gpu=False)
+        wr = execute_workflow(wf, source, prefer_gpu=False)
 
-        np.testing.assert_array_almost_equal(result, source * 5.0)
+        np.testing.assert_array_almost_equal(wr.result, source * 5.0)
 
     @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_execute_with_progress_callback(self, mock_resolve):
@@ -186,7 +187,7 @@ class TestExecuteWorkflow:
         )
         source = np.ones((2, 2), dtype=np.float64)
         progress_values = []
-        result = execute_workflow(
+        wr = execute_workflow(
             wf,
             source,
             prefer_gpu=False,
@@ -195,12 +196,12 @@ class TestExecuteWorkflow:
 
         assert 0.5 in progress_values
         assert 1.0 in progress_values
-        np.testing.assert_array_almost_equal(result, source * 6.0)
+        np.testing.assert_array_almost_equal(wr.result, source * 6.0)
 
     def test_execute_empty_workflow(self):
         """Empty workflow returns the source unchanged."""
         wf = WorkflowDefinition(name="Empty")
         source = np.arange(9, dtype=np.float32).reshape(3, 3)
-        result = execute_workflow(wf, source, prefer_gpu=False)
+        wr = execute_workflow(wf, source, prefer_gpu=False)
 
-        np.testing.assert_array_equal(result, source)
+        np.testing.assert_array_equal(wr.result, source)

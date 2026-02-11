@@ -33,6 +33,7 @@ import pytest
 
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.executor import WorkflowExecutor
+from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.discovery import (
     discover_processors,
     get_processor_tags,
@@ -121,12 +122,12 @@ class TestProgressCallback:
             progress_values.append(round(fraction, 4))
 
         source = np.ones((2, 2), dtype=np.float64)
-        result = executor.execute(source, progress_callback=cb)
+        wr = executor.execute(source, progress_callback=cb)
 
         # Should report 0.5 (step 1 done) and 1.0 (step 2 done)
         assert 0.5 in progress_values
         assert 1.0 in progress_values
-        np.testing.assert_array_almost_equal(result, np.ones((2, 2)) * 6.0)
+        np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * 6.0)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_progress_callback_none_is_safe(self, mock_resolve):
@@ -138,8 +139,8 @@ class TestProgressCallback:
 
         source = np.ones((2, 2))
         # No callback — should not raise
-        result = executor.execute(source, progress_callback=None)
-        np.testing.assert_array_almost_equal(result, np.ones((2, 2)) * 5.0)
+        wr = executor.execute(source, progress_callback=None)
+        np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * 5.0)
 
     @patch('grdl_rt.execution.executor.resolve_processor_class')
     def test_progress_callback_forwarded_to_processor(self, mock_resolve):

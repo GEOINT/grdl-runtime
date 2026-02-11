@@ -27,14 +27,16 @@ Created
 """
 
 # Standard library
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Third-party
 import yaml
 
-logger = logging.getLogger(__name__)
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase

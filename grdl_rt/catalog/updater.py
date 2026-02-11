@@ -35,14 +35,16 @@ Modified
 
 # Standard library
 import json
-import logging
 from typing import List, Optional
 
 # Third-party
 import requests
-
-logger = logging.getLogger(__name__)
 from packaging.version import Version, InvalidVersion
+
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -92,7 +94,7 @@ class ArtifactUpdateWorker:
             data = resp.json()
             return data['info']['version']
         except (requests.RequestException, KeyError, json.JSONDecodeError) as e:
-            logger.warning("PyPI check failed for '%s': %s", package_name, e)
+            logger.warning("PyPI check failed", package=package_name, error=str(e))
             return None
 
     def check_conda(
@@ -138,8 +140,11 @@ class ArtifactUpdateWorker:
                     return str(latest)
             except (requests.RequestException, KeyError, json.JSONDecodeError) as e:
                 logger.warning(
-                    "Conda check failed for '%s' on %s/%s: %s",
-                    package_name, channel, platform, e,
+                    "Conda check failed",
+                    package=package_name,
+                    channel=channel,
+                    platform=platform,
+                    error=str(e),
                 )
                 continue
 

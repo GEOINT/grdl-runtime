@@ -27,14 +27,14 @@ Created
 """
 
 # Standard library
-import logging
 from typing import Dict, List, Optional, Sequence
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.catalog.models import Artifact
+from grdl_rt.execution.context import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class FederatedArtifactCatalog(ArtifactCatalogBase):

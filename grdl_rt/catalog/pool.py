@@ -29,14 +29,16 @@ Modified
 """
 
 # Standard library
-import logging
 import subprocess
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 # grdl-runtime internal
 from grdl_rt.catalog.models import UpdateResult
@@ -151,12 +153,12 @@ class ThreadExecutorPool:
             else:
                 cmd = [sys.executable, '-m', 'pip', 'install', package]
 
-        logger.info("Installing package: %s (cmd=%s)", package, ' '.join(cmd))
+        logger.info("Installing package", package=package, cmd=' '.join(cmd))
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=300
         )
         if result.returncode != 0:
-            logger.error("Install failed for '%s': %s", package, result.stderr)
+            logger.error("Install failed", package=package, stderr=result.stderr)
         else:
-            logger.info("Successfully installed '%s'", package)
+            logger.info("Successfully installed package", package=package)
         return result

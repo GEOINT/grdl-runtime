@@ -36,13 +36,15 @@ Modified
 """
 
 # Standard library
-import logging
 from typing import Any, Dict, Optional, Union
 
 # Third-party
 import numpy as np
 
-logger = logging.getLogger(__name__)
+# grdl-runtime internal
+from grdl_rt.execution.context import get_logger
+
+logger = get_logger(__name__)
 
 
 def _check_cupy() -> bool:
@@ -170,8 +172,8 @@ class GpuBackend:
             gpu_ok = getattr(transform, '__gpu_compatible__', None)
             if gpu_ok is False:
                 logger.debug(
-                    "Skipping GPU for %s (__gpu_compatible__=False)",
-                    type(transform).__name__,
+                    "Skipping GPU (__gpu_compatible__=False)",
+                    transform=type(transform).__name__,
                 )
             else:
                 try:
@@ -180,8 +182,9 @@ class GpuBackend:
                     return self.to_cpu(result)
                 except Exception as e:
                     logger.warning(
-                        "GPU execution failed for %s, falling back to CPU: %s",
-                        type(transform).__name__, e,
+                        "GPU execution failed, falling back to CPU",
+                        transform=type(transform).__name__,
+                        error=str(e),
                     )
 
         return transform.apply(source, **kwargs)

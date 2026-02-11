@@ -39,14 +39,16 @@ Modified
 # Standard library
 import textwrap
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 # Third-party
 import yaml
 
 # grdl-runtime internal
 from grdl_rt.execution.tags import WorkflowTags
-from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition, WorkflowState
+from grdl_rt.execution.workflow import (
+    ProcessingStep, TapOutStepDef, WorkflowDefinition, WorkflowState,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -54,12 +56,17 @@ from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition, Workf
 # ---------------------------------------------------------------------------
 
 # Module-level accumulator for steps during DSL function execution
-_current_steps: List[ProcessingStep] = []
+_current_steps: List = []
 
 
 def step(
     processor: str,
     version: str = "",
+    *,
+    id: Optional[str] = None,
+    depends_on: Optional[List[str]] = None,
+    condition: Optional[str] = None,
+    phase: Optional[str] = None,
     **params: Any,
 ) -> None:
     """Declare a processing step in a Python DSL workflow function.
@@ -72,6 +79,14 @@ def step(
         Processor class name.
     version : str
         Processor version string.
+    id : str, optional
+        Unique step identifier for DAG wiring.
+    depends_on : List[str], optional
+        Step IDs this step depends on.
+    condition : str, optional
+        Condition expression for conditional execution.
+    phase : str, optional
+        Execution phase annotation.
     **params
         Tunable parameter values.
     """
@@ -79,7 +94,30 @@ def step(
         processor_name=processor,
         processor_version=version,
         params=params if params else {},
+        id=id,
+        depends_on=depends_on,
+        condition=condition,
+        phase=phase,
     ))
+
+
+def tap_out(
+    path: str,
+    format: Optional[str] = None,
+) -> None:
+    """Declare a tap-out point in a Python DSL workflow function.
+
+    Must be called inside a function decorated with @workflow.
+    Writes the current intermediate to disk without modifying it.
+
+    Parameters
+    ----------
+    path : str
+        Output file path.
+    format : str, optional
+        Writer format override.
+    """
+    _current_steps.append(TapOutStepDef(path=path, format=format))
 
 
 def workflow(
@@ -237,8 +275,13 @@ class DslCompiler:
             Python source code.
         """
         tags = workflow_def.tags
+        has_tap_out = any(isinstance(s, TapOutStepDef) for s in workflow_def.steps)
+        if has_tap_out:
+            import_line = 'from grdl_rt.execution.dsl import workflow, step, tap_out'
+        else:
+            import_line = 'from grdl_rt.execution.dsl import workflow, step'
         lines = [
-            'from grdl_rt.execution.dsl import workflow, step',
+            import_line,
             '',
             '',
         ]
@@ -281,16 +324,31 @@ class DslCompiler:
             lines.append('    pass')
         else:
             for s in workflow_def.steps:
-                args = [f'"{s.processor_name}"']
-                if s.processor_version:
-                    args.append(f'version="{s.processor_version}"')
-                for k, v in s.params.items():
-                    if isinstance(v, str):
-                        args.append(f'{k}="{v}"')
-                    else:
-                        args.append(f'{k}={v!r}')
-                step_call = f'    step({", ".join(args)})'
-                lines.append(step_call)
+                if isinstance(s, TapOutStepDef):
+                    tap_args = [f'"{s.path}"']
+                    if s.format:
+                        tap_args.append(f'format="{s.format}"')
+                    lines.append(f'    tap_out({", ".join(tap_args)})')
+                else:
+                    args = [f'"{s.processor_name}"']
+                    if s.processor_version:
+                        args.append(f'version="{s.processor_version}"')
+                    if s.id is not None:
+                        args.append(f'id="{s.id}"')
+                    if s.depends_on:
+                        deps_str = ', '.join(f'"{d}"' for d in s.depends_on)
+                        args.append(f'depends_on=[{deps_str}]')
+                    if s.condition is not None:
+                        args.append(f'condition="{s.condition}"')
+                    if s.phase is not None:
+                        args.append(f'phase="{s.phase}"')
+                    for k, v in s.params.items():
+                        if isinstance(v, str):
+                            args.append(f'{k}="{v}"')
+                        else:
+                            args.append(f'{k}={v!r}')
+                    step_call = f'    step({", ".join(args)})'
+                    lines.append(step_call)
 
         lines.append('')
         return '\n'.join(lines)
