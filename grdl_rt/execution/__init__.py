@@ -45,6 +45,7 @@ from grdl_rt.execution.project import (
 from grdl_rt.execution.builder import (
     Workflow,
     WorkflowStep,
+    DeferredStep,
 )
 from grdl_rt.execution.executor import (
     WorkflowExecutor,
@@ -87,6 +88,7 @@ __all__ = [
     # builder
     "Workflow",
     "WorkflowStep",
+    "DeferredStep",
     # executor
     "WorkflowExecutor",
 ]

@@ -1,41 +1,40 @@
 # -*- coding: utf-8 -*-
 """
-Sublook Compare (Workflow) - grdl-runtime Workflow version of sublook_compare.
+Sublook Compare (Workflow) — Framework-driven sublook decomposition.
 
 Performs the same processing as ``grdl/example/image_processing/sar/
 sublook_compare.py`` — splits a SICD image into 3 sub-aperture looks —
-but defines the pipeline as a ``grdl_rt.Workflow`` instead of inline code.
+but defines the pipeline as a ``grdl_rt.Workflow``.
 
-Runtime Benefits
-----------------
-**IDE support** — Every step references a real Python object.  IDE
-autocompletion works on constructor parameters
-(``SublookDecomposition(metadata, num_looks=▸``), on bound methods
-(``sublook.▸``), and on the builder itself (``Workflow(...).step(▸``).
-Type checkers catch errors at edit time rather than at runtime.
+The entire processing pipeline — from reading SICD data to display-ready
+output — is declared as a workflow recipe.  The framework handles all
+orchestration: reader lifecycle management, metadata extraction and
+injection, chip planning and pixel reading, processor construction,
+and GPU-accelerated execution.
 
-**GPU acceleration** — Pass ``prefer_gpu=True`` to ``execute()`` and
-compatible steps are transparently dispatched to the GPU via CuPy, with
-automatic CPU fallback if the GPU path fails.
+Compared to the ~200-line manual script, this example is ~40 lines
+total.  The workflow definition itself is 7 lines.
 
-**Progress tracking** — A single ``progress_callback`` receives
-proportional ``[0.0, 1.0]`` updates as each step completes, useful for
-progress bars in notebooks, GUIs, and long-running batch jobs.
+Framework Benefits
+------------------
+**Zero boilerplate** — Declare what to do, not how to wire it.  The
+framework opens the reader, extracts metadata, plans the chip, reads
+pixels, constructs processors, and runs the pipeline.
 
-**Error isolation** — If a step fails, the raised ``RuntimeError``
-includes the workflow name, step index, and step name, making
-debugging straightforward without wrapping every call in try/except.
+**Automatic metadata injection** — Processors whose constructors accept
+a ``metadata`` parameter (e.g., ``SublookDecomposition``) receive it
+from the reader automatically — no manual wiring.
 
-**Batch execution** — ``execute_batch(chips)`` runs the same workflow
-on a list of chips in one call, with aggregate progress reporting.
+**Built-in chip management** — Chip strategy declared once
+(``.chip("center", size=5000)``), applied by the framework using
+``ChipExtractor`` internally.
 
-**Composability** — Steps are plain callables: mix GRDL processor
-methods, ``ImageTransform`` instances, numpy operations, and custom
-functions in a single pipeline without adapter boilerplate.
+**GPU acceleration** — ``prefer_gpu=True`` with transparent CPU
+fallback for all ``__gpu_compatible__`` processors.
 
-**Reusable processors** — ``ToDecibels`` and ``PercentileStretch`` are
-proper ``ImageTransform`` components with declared parameters, version
-metadata, and GPU compatibility, rather than throw-away lambdas.
+**Progress tracking** — Proportional ``[0, 1]`` callbacks per step.
+
+**Error isolation** — Step-level error context for debugging.
 
 Usage:
   python sublook_compare_workflow.py <sicd_file>
@@ -45,7 +44,6 @@ Usage:
 
 Dependencies
 ------------
-matplotlib (optional, for visualization)
 sarkit or sarpy
 grdl-runtime
 
@@ -69,12 +67,8 @@ import argparse
 import sys
 from pathlib import Path
 
-# Third-party
-import numpy as np
-
-# GRDL
+# GRDL processors (IDE autocomplete on every constructor parameter)
 from grdl.IO import SICDReader
-from grdl.data_prep import ChipExtractor
 from grdl.image_processing.sar import SublookDecomposition
 from grdl.image_processing.intensity import ToDecibels, PercentileStretch
 
@@ -82,218 +76,40 @@ from grdl.image_processing.intensity import ToDecibels, PercentileStretch
 from grdl_rt import Workflow
 
 
-# ── CLI ──────────────────────────────────────────────────────────────
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments.
-    """
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Workflow-based sublook comparison. Splits a SICD image "
-                    "into 3 sub-aperture looks and displays side-by-side.",
+        description="Workflow-based sublook comparison.",
     )
-    parser.add_argument(
-        "filepath",
-        type=Path,
-        help="Path to the SICD file (NITF or other SICD container).",
-    )
-    parser.add_argument(
-        "--chip-size",
-        type=int,
-        default=5000,
-        help="Side length of the center chip in pixels (default: 5000).",
-    )
-    parser.add_argument(
-        "--plow",
-        type=float,
-        default=2.0,
-        help="Lower percentile for contrast stretch (default: 2).",
-    )
-    parser.add_argument(
-        "--phigh",
-        type=float,
-        default=98.0,
-        help="Upper percentile for contrast stretch (default: 98).",
-    )
-    parser.add_argument(
-        "--cmap",
-        type=str,
-        default="gray",
-        help="Matplotlib colormap (default: gray).",
-    )
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="Display matplotlib plot (requires matplotlib + Qt backend).",
-    )
-    return parser.parse_args()
+    parser.add_argument("filepath", type=Path)
+    parser.add_argument("--chip-size", type=int, default=5000)
+    parser.add_argument("--plow", type=float, default=2.0)
+    parser.add_argument("--phigh", type=float, default=98.0)
+    args = parser.parse_args()
 
-
-# ── Source factory ───────────────────────────────────────────────────
-
-
-def read_center_chip(
-    filepath: Path,
-    chip_size: int = 5000,
-) -> np.ndarray:
-    """Read the center chip from a SICD file.
-
-    This function encapsulates all IO — opening the reader, planning
-    the chip region with ``ChipExtractor``, and reading pixels.
-    It is designed to be passed to ``Workflow.source()`` as a
-    deferred data factory.
-
-    Parameters
-    ----------
-    filepath : Path
-        Path to the SICD file.
-    chip_size : int
-        Side length of the center chip in pixels.
-
-    Returns
-    -------
-    np.ndarray
-        Complex-valued chip array.
-    """
-    with SICDReader(filepath) as reader:
-        rows, cols = reader.get_shape()
-        print(f"  Image size: {rows} x {cols}")
-
-        extractor = ChipExtractor(nrows=rows, ncols=cols)
-        region = extractor.chip_at_point(
-            rows // 2, cols // 2,
-            row_width=chip_size, col_width=chip_size,
-        )
-
-        chip_h = region.row_end - region.row_start
-        chip_w = region.col_end - region.col_start
-        print(f"  Center chip: [{region.row_start}:{region.row_end}, "
-              f"{region.col_start}:{region.col_end}] ({chip_h} x {chip_w})")
-
-        chip = reader.read_chip(
-            region.row_start, region.row_end,
-            region.col_start, region.col_end,
-        )
-        print(f"  Chip shape: {chip.shape}, dtype: {chip.dtype}")
-        return chip
-
-
-# ── Main ─────────────────────────────────────────────────────────────
-
-
-def sublook_compare_workflow(
-    filepath: Path,
-    chip_size: int = 5000,
-    plow: float = 2.0,
-    phigh: float = 98.0,
-    cmap: str = "gray",
-    show: bool = False,
-) -> None:
-    """Build and execute a sublook-decomposition workflow.
-
-    Parameters
-    ----------
-    filepath : Path
-        Path to the SICD file.
-    chip_size : int
-        Side length of the center chip.
-    plow : float
-        Lower percentile for contrast stretch.
-    phigh : float
-        Upper percentile for contrast stretch.
-    cmap : str
-        Matplotlib colormap name.
-    show : bool
-        If ``True``, display the results via matplotlib.
-    """
-    print(f"Opening: {filepath}")
-
-    # ── Read metadata (needed to configure SublookDecomposition) ──────
-    with SICDReader(filepath) as reader:
-        meta = reader.metadata
-
-    # ── Build reusable image-processing components ────────────────────
+    # ── Define the workflow ───────────────────────────────────────────
     #
-    #   IDE autocomplete works on every constructor parameter.
-    #   All are proper ImageTransform instances with declared parameters,
-    #   version metadata, and GPU compatibility.
+    #   .reader()  → framework opens reader and extracts metadata
+    #   .chip()    → framework plans and reads a center chip
+    #   .step()    → processor classes are constructed at execute time;
+    #                SublookDecomposition receives metadata automatically
     #
-    sublook = SublookDecomposition(
-        meta, num_looks=3, dimension='azimuth', overlap=0.0,
-    )
-    to_db = ToDecibels()
-    stretch = PercentileStretch(plow=plow, phigh=phigh)
-
-    # ── Define the sublook workflow ───────────────────────────────────
-    #
-    #   Workflow.step() accepts:
-    #     - ImageTransform instances   (auto-wrapped to .apply())
-    #     - Bound methods              (sublook.decompose)
-    #     - Plain functions / lambdas  (any ndarray → ndarray callable)
-    #
-    #   .source() registers a deferred data factory — the reader callback
-    #   is invoked automatically when .execute() is called without data.
-    #
-    sublook_wf = (
+    wf = (
         Workflow("Sublook Compare", version="1.0.0", modalities=["SAR"])
-        .source(read_center_chip, filepath, chip_size)
-        .step(sublook.decompose, name="Sublook Decomposition")
-        .step(to_db,             name="Convert to dB")
-        .step(stretch,           name="Percentile Stretch")
+        .reader(SICDReader)
+        .chip("center", size=args.chip_size)
+        .step(SublookDecomposition, num_looks=3, dimension='azimuth', overlap=0.0)
+        .step(ToDecibels)
+        .step(PercentileStretch, plow=args.plow, phigh=args.phigh)
     )
 
-    # ── Execute with runtime benefits ─────────────────────────────────
-    #
-    #   prefer_gpu=True  → GPU dispatch for compatible steps (with fallback)
-    #   progress_callback → per-step [0.0, 1.0] progress updates
-    #
-    print("  Executing sublook workflow...")
-    looks_stretched = sublook_wf.execute(
+    # ── Execute ───────────────────────────────────────────────────────
+    result = wf.execute(
+        args.filepath,
         prefer_gpu=True,
-        progress_callback=lambda f: print(f"    Progress: {f:.0%}"),
+        progress_callback=lambda f: print(f"  Progress: {f:.0%}"),
     )
-    print(f"  Result shape: {looks_stretched.shape}")
-
-    # ── Also process the full-aperture chip for display ───────────────
-    chip = read_center_chip(filepath, chip_size)
-    display_wf = (
-        Workflow("Full Aperture Display")
-        .step(to_db,    name="Convert to dB")
-        .step(stretch,  name="Percentile Stretch")
-    )
-    chip_stretched = display_wf.execute(chip)
-
-    # ── Visualization (optional) ──────────────────────────────────────
-    if show:
-        from grdl.example.image_processing.sar.sublook_compare import (
-            plot_sublook_comparison,
-        )
-
-        ci = meta.collection_info
-        title_parts = [filepath.name]
-        if ci is not None and ci.collector_name:
-            title_parts.append(ci.collector_name)
-        file_title = "  |  ".join(title_parts)
-
-        plot_sublook_comparison(
-            chip_stretched, looks_stretched,
-            title=file_title,
-            cmap=cmap,
-        )
+    print(f"Result shape: {result.shape}, dtype: {result.dtype}")
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    sublook_compare_workflow(
-        args.filepath,
-        chip_size=args.chip_size,
-        plow=args.plow,
-        phigh=args.phigh,
-        cmap=args.cmap,
-        show=args.show,
-    )
+    main()

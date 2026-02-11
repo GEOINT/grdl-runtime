@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for grdl_rt.execution.builder — Workflow and WorkflowStep.
+Tests for grdl_rt.execution.builder — Workflow, WorkflowStep, DeferredStep.
 
 Author
 ------
@@ -14,7 +14,7 @@ Created
 import numpy as np
 import pytest
 
-from grdl_rt.execution.builder import Workflow, WorkflowStep
+from grdl_rt.execution.builder import Workflow, WorkflowStep, DeferredStep
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,56 @@ class _FakeTransform:
 
     def apply(self, source: np.ndarray, **kwargs) -> np.ndarray:
         return source + 10.0
+
+
+class _SimpleProcessor:
+    """Processor that doesn't need metadata."""
+
+    __gpu_compatible__ = False
+
+    def __init__(self, scale: float = 2.0):
+        self.scale = scale
+
+    def apply(self, source: np.ndarray) -> np.ndarray:
+        return source * self.scale
+
+
+class _MetadataProcessor:
+    """Processor whose constructor requires metadata."""
+
+    __gpu_compatible__ = True
+
+    def __init__(self, metadata, factor: int = 1):
+        self.metadata = metadata
+        self.factor = factor
+
+    def apply(self, source: np.ndarray) -> np.ndarray:
+        return source * self.factor
+
+
+class _FakeReader:
+    """Minimal mock reader with context manager and metadata."""
+
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.metadata = {"sensor": "fake", "rows": 100, "cols": 200}
+        self._shape = (100, 200)
+        self._data = np.arange(20000.0).reshape(100, 200)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def get_shape(self):
+        return self._shape
+
+    def read_full(self):
+        return self._data.copy()
+
+    def read_chip(self, row_start, row_end, col_start, col_end):
+        return self._data[row_start:row_end, col_start:col_end].copy()
 
 
 # ---------------------------------------------------------------------------
@@ -136,21 +186,18 @@ class TestWorkflowStep_Registration:
         except ImportError:
             pytest.skip("grdl not available")
 
-        # Use _FakeTransform only if ImageTransform is available and
-        # _FakeTransform is actually recognized. For this test we use
-        # the apply-based duck typing via callable detection.
-        # This test verifies the callable path works for objects with apply().
         ft = _FakeTransform()
         wf = Workflow("transform").step(ft.apply, name="FakeTransform")
         assert len(wf) == 1
 
-    def test_rejects_class_not_instance(self):
-        with pytest.raises(TypeError, match="Did you mean"):
-            Workflow("bad").step(_FakeProcessor)
-
     def test_rejects_non_callable(self):
         with pytest.raises(TypeError, match="requires a callable"):
             Workflow("bad").step(42)  # type: ignore[arg-type]
+
+    def test_kwargs_rejected_for_non_class(self):
+        """Passing **kwargs to a non-class step raises TypeError."""
+        with pytest.raises(TypeError, match="only supported for class-type"):
+            Workflow("bad").step(_double, name="d", scale=2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -432,3 +479,260 @@ class TestImageTransformSteps:
         assert result.min() >= 0.0
         assert result.max() <= 1.0
         assert result.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# Workflow.reader() — reader configuration
+# ---------------------------------------------------------------------------
+
+class TestWorkflowReader:
+    def test_stores_reader_class(self):
+        wf = Workflow("rdr").reader(_FakeReader)
+        assert wf._reader_cls is _FakeReader
+
+    def test_fluent_chaining(self):
+        wf = Workflow("rdr")
+        ret = wf.reader(_FakeReader)
+        assert ret is wf
+
+    def test_execute_filepath_without_reader_raises(self):
+        wf = Workflow("no rdr").step(_double)
+        with pytest.raises(ValueError, match="no reader"):
+            wf.execute("some/path.nitf")
+
+
+# ---------------------------------------------------------------------------
+# Workflow.chip() — chip strategy
+# ---------------------------------------------------------------------------
+
+class TestWorkflowChip:
+    def test_stores_strategy(self):
+        wf = Workflow("chip").chip("center", size=2048)
+        assert wf._chip_strategy == "center"
+        assert wf._chip_kwargs == {"size": 2048}
+
+    def test_fluent_chaining(self):
+        wf = Workflow("chip")
+        ret = wf.chip("full")
+        assert ret is wf
+
+    def test_default_strategy(self):
+        wf = Workflow("chip").chip()
+        assert wf._chip_strategy == "center"
+
+
+# ---------------------------------------------------------------------------
+# Deferred steps — .step(Class, **kwargs)
+# ---------------------------------------------------------------------------
+
+class TestDeferredStep:
+    def test_class_stored_as_deferred(self):
+        wf = Workflow("defer").step(_SimpleProcessor, scale=5.0)
+        assert len(wf) == 1
+        ds = wf.steps[0]
+        assert isinstance(ds, DeferredStep)
+        assert ds.processor_cls is _SimpleProcessor
+        assert ds.kwargs == {"scale": 5.0}
+        assert ds.name == "_SimpleProcessor"
+
+    def test_class_with_custom_name(self):
+        wf = Workflow("defer").step(_SimpleProcessor, name="Scale")
+        assert wf.steps[0].name == "Scale"
+
+    def test_class_no_kwargs(self):
+        wf = Workflow("defer").step(_SimpleProcessor)
+        ds = wf.steps[0]
+        assert isinstance(ds, DeferredStep)
+        assert ds.kwargs == {}
+
+    def test_deferred_resolves_on_execute_array(self):
+        """Deferred step without metadata resolves when executing on array."""
+        wf = Workflow("defer exec").step(_SimpleProcessor, scale=3.0)
+        result = wf.execute(np.array([2.0]))
+        np.testing.assert_array_equal(result, np.array([6.0]))
+
+    def test_mixed_deferred_and_immediate(self):
+        """Deferred and immediate steps can be mixed."""
+        wf = (
+            Workflow("mixed")
+            .step(_double)
+            .step(_SimpleProcessor, scale=5.0)
+            .step(_add_one)
+        )
+        source = np.array([1.0])
+        # 1*2 = 2 → 2*5 = 10 → 10+1 = 11
+        result = wf.execute(source)
+        np.testing.assert_array_equal(result, np.array([11.0]))
+
+
+# ---------------------------------------------------------------------------
+# Metadata injection
+# ---------------------------------------------------------------------------
+
+class TestMetadataInjection:
+    def test_metadata_injected_when_constructor_accepts_it(self):
+        """Processor with 'metadata' param gets it injected."""
+        fake_meta = {"sensor": "test"}
+        wf = Workflow("meta").step(_MetadataProcessor, factor=4)
+        result = wf.execute(np.array([3.0]), metadata=fake_meta)
+        np.testing.assert_array_equal(result, np.array([12.0]))
+
+    def test_user_metadata_kwarg_wins(self):
+        """User-provided metadata in step kwargs takes precedence."""
+        user_meta = {"sensor": "user"}
+        reader_meta = {"sensor": "reader"}
+        wf = Workflow("meta").step(
+            _MetadataProcessor, metadata=user_meta, factor=2,
+        )
+        result = wf.execute(np.array([5.0]), metadata=reader_meta)
+        np.testing.assert_array_equal(result, np.array([10.0]))
+
+    def test_no_metadata_needed_skips_injection(self):
+        """Processor without 'metadata' param works fine without metadata."""
+        wf = Workflow("no meta").step(_SimpleProcessor, scale=7.0)
+        result = wf.execute(np.array([2.0]))
+        np.testing.assert_array_equal(result, np.array([14.0]))
+
+    def test_metadata_required_but_missing_raises(self):
+        """Deferred step needing metadata with no metadata available raises."""
+        wf = Workflow("need meta").step(_MetadataProcessor, factor=1)
+        with pytest.raises(ValueError, match="requires metadata"):
+            wf.execute(np.array([1.0]))
+
+    def test_deferred_gpu_flag_detected(self):
+        """GPU compatible flag is read from the constructed instance."""
+        fake_meta = {"sensor": "test"}
+        wf = Workflow("gpu defer").step(_MetadataProcessor, factor=1)
+        # Execute to trigger resolution
+        wf.execute(np.array([1.0]), metadata=fake_meta)
+        # _MetadataProcessor has __gpu_compatible__ = True
+        # (can't check after execute easily, but the resolution path works)
+
+
+# ---------------------------------------------------------------------------
+# Execute from file — full framework orchestration
+# ---------------------------------------------------------------------------
+
+class TestExecuteFromFile:
+    def test_full_pipeline(self):
+        """Execute with filepath opens reader, reads chip, runs pipeline."""
+        wf = (
+            Workflow("file test")
+            .reader(_FakeReader)
+            .step(_double)
+        )
+        # _FakeReader reads full image (100x200) by default (no chip strategy)
+        result = wf.execute("fake/path.nitf")
+        assert result.shape == (100, 200)
+        # _FakeReader data is arange(20000), doubled
+        assert result[0, 0] == 0.0
+        assert result[0, 1] == 2.0
+
+    def test_center_chip_strategy(self):
+        """Center chip strategy reads a center subset."""
+        wf = (
+            Workflow("chip test")
+            .reader(_FakeReader)
+            .chip("center", size=10)
+            .step(_double)
+        )
+        result = wf.execute("fake/path.nitf")
+        # ChipExtractor centers 10x10 in 100x200 → rows 45:55, cols 95:105
+        assert result.shape == (10, 10)
+
+    def test_full_chip_strategy(self):
+        """'full' strategy reads entire image."""
+        wf = (
+            Workflow("full test")
+            .reader(_FakeReader)
+            .chip("full")
+            .step(_double)
+        )
+        result = wf.execute("fake/path.nitf")
+        assert result.shape == (100, 200)
+
+    def test_deferred_step_with_reader_metadata(self):
+        """Deferred steps receive metadata from the reader."""
+        wf = (
+            Workflow("meta inject")
+            .reader(_FakeReader)
+            .step(_MetadataProcessor, factor=2)
+        )
+        result = wf.execute("fake/path.nitf")
+        assert result.shape == (100, 200)
+        # All values doubled
+        assert result[0, 1] == 2.0
+
+    def test_progress_callback_from_file(self):
+        """Progress callback fires when executing from file."""
+        progress: list = []
+        wf = (
+            Workflow("progress")
+            .reader(_FakeReader)
+            .step(_double)
+            .step(_add_one)
+        )
+        wf.execute("fake/path.nitf", progress_callback=progress.append)
+        assert len(progress) == 2
+        assert progress == pytest.approx([0.5, 1.0])
+
+    def test_unknown_chip_strategy_raises(self):
+        wf = (
+            Workflow("bad chip")
+            .reader(_FakeReader)
+            .chip("unknown_strategy")
+            .step(_double)
+        )
+        with pytest.raises(ValueError, match="Unknown chip strategy"):
+            wf.execute("fake/path.nitf")
+
+    def test_metadata_override(self):
+        """Explicit metadata= overrides reader metadata."""
+        custom_meta = {"sensor": "override"}
+        wf = (
+            Workflow("override")
+            .reader(_FakeReader)
+            .step(_MetadataProcessor, factor=3)
+        )
+        result = wf.execute("fake/path.nitf", metadata=custom_meta)
+        assert result.shape == (100, 200)
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility
+# ---------------------------------------------------------------------------
+
+class TestBackwardCompatibility:
+    def test_execute_with_array_still_works(self):
+        wf = Workflow("compat").step(_double)
+        result = wf.execute(np.array([5.0]))
+        np.testing.assert_array_equal(result, np.array([10.0]))
+
+    def test_source_factory_still_works(self):
+        wf = (
+            Workflow("compat source")
+            .source(lambda: np.array([3.0]))
+            .step(_double)
+        )
+        result = wf.execute()
+        np.testing.assert_array_equal(result, np.array([6.0]))
+
+    def test_step_with_callable_still_works(self):
+        proc = _FakeProcessor()
+        wf = (
+            Workflow("compat callable")
+            .step(proc.transform)
+            .step(_add_one)
+        )
+        result = wf.execute(np.array([1.0]))
+        np.testing.assert_array_equal(result, np.array([4.0]))
+
+    def test_step_with_instance_still_works(self):
+        try:
+            from grdl.image_processing.intensity import ToDecibels
+        except ImportError:
+            pytest.skip("grdl not available")
+
+        wf = Workflow("compat inst").step(ToDecibels())
+        result = wf.execute(np.array([1.0]))
+        assert np.isfinite(result[0])

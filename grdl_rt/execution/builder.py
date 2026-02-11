@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Workflow Builder - Fluent, IDE-friendly API for typed processing workflows.
+Workflow Builder - Fluent, framework-level API for typed processing workflows.
 
 Provides the ``Workflow`` class, a builder that holds live callable references
-(bound methods, functions, ``ImageTransform`` instances) rather than string
-processor names.  This is the primary Python API for defining workflows in
-code where IDE tooling (IntelliSense, autocomplete, type checking) matters.
+(bound methods, functions, ``ImageTransform`` instances) **or** deferred
+processor classes that are constructed at execute time with automatic metadata
+injection.  This is the primary Python API for defining workflows in code
+where IDE tooling (IntelliSense, autocomplete, type checking) matters.
+
+When a reader and chip strategy are configured, ``Workflow.execute()``
+orchestrates the entire pipeline: opening the reader, extracting metadata,
+planning chips, constructing metadata-dependent processors, and running the
+processing steps — all from a single filepath argument.
 
 For serializable / YAML-based workflows, use ``WorkflowDefinition`` and
 ``ProcessingStep`` from ``grdl_rt.execution.workflow``.
@@ -23,14 +29,19 @@ See LICENSE file for full text.
 Created
 -------
 2026-02-11
+
+Modified
+--------
+2026-02-11
 """
 
 # Standard library
 import functools
 import inspect
 import logging
-from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Union
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Union
 
 # Third-party
 import numpy as np
@@ -52,6 +63,12 @@ try:
     from grdl.exceptions import GrdlError
 except ImportError:
     GrdlError = None  # type: ignore[misc,assignment]
+
+# GRDL chip extractor (optional — only needed for chip strategies)
+try:
+    from grdl.data_prep import ChipExtractor
+except ImportError:
+    ChipExtractor = None  # type: ignore[misc,assignment]
 
 
 @dataclass
@@ -77,13 +94,38 @@ class WorkflowStep:
     gpu_compatible: bool
 
 
-class Workflow:
-    """Fluent builder for typed image processing workflows.
+@dataclass
+class DeferredStep:
+    """A step whose processor is constructed at execute time.
 
-    Unlike :class:`~grdl_rt.execution.workflow.WorkflowDefinition` (which
-    uses string-based processor references for serialization), ``Workflow``
-    holds live callable references providing full IDE support for
-    autocompletion, type checking, and inline documentation.
+    When a processor class is passed to :meth:`Workflow.step` instead of
+    an instance or callable, it is stored as a ``DeferredStep``.  At
+    execution time the framework inspects the constructor and injects
+    ``metadata`` from the reader if the constructor accepts it.
+
+    Attributes
+    ----------
+    processor_cls : type
+        The processor class to instantiate.
+    kwargs : Dict[str, Any]
+        Keyword arguments forwarded to the constructor.
+    name : str
+        Human-readable step name for logging and error messages.
+    """
+
+    processor_cls: type
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+    name: str = ""
+
+
+class Workflow:
+    """Fluent builder and framework for typed image processing workflows.
+
+    ``Workflow`` acts as both a recipe builder and an execution framework.
+    Declare the reader, chip strategy, and processing steps, then call
+    :meth:`execute` with a filepath — the framework handles reader
+    lifecycle, metadata extraction, chip planning, processor construction,
+    and GPU-accelerated pipeline execution.
 
     Parameters
     ----------
@@ -101,20 +143,27 @@ class Workflow:
 
     Examples
     --------
+    Framework-driven (recommended):
+
+    >>> from grdl.IO import SICDReader
     >>> from grdl.image_processing.sar import SublookDecomposition
-    >>> from grdl.data_prep import Normalizer
+    >>> from grdl.image_processing.intensity import ToDecibels, PercentileStretch
     >>> from grdl_rt import Workflow
-    >>>
-    >>> sublook = SublookDecomposition(metadata, num_looks=3)
-    >>> normalizer = Normalizer(method='percentile')
     >>>
     >>> wf = (
     ...     Workflow("Sublook Pipeline", modalities=["SAR"])
-    ...     .step(sublook.decompose, name="Decompose")
-    ...     .step(sublook.to_db, name="To dB")
-    ...     .step(normalizer.normalize, name="Normalize")
+    ...     .reader(SICDReader)
+    ...     .chip("center", size=5000)
+    ...     .step(SublookDecomposition, num_looks=3, dimension='azimuth')
+    ...     .step(ToDecibels)
+    ...     .step(PercentileStretch, plow=2.0, phigh=98.0)
     ... )
-    >>> result = wf.execute(image, prefer_gpu=True)
+    >>> result = wf.execute("image.nitf", prefer_gpu=True)
+
+    Direct array mode (backward compatible):
+
+    >>> wf = Workflow("Display").step(ToDecibels()).step(PercentileStretch())
+    >>> result = wf.execute(my_array)
     """
 
     def __init__(
@@ -129,8 +178,11 @@ class Workflow:
         self._name = name
         self._version = version
         self._description = description
-        self._steps: List[WorkflowStep] = []
+        self._steps: List[Union[WorkflowStep, DeferredStep]] = []
         self._source: Optional[Callable[[], np.ndarray]] = None
+        self._reader_cls: Optional[type] = None
+        self._chip_strategy: Optional[str] = None
+        self._chip_kwargs: Dict[str, Any] = {}
 
         if tags is not None:
             self._tags = tags
@@ -166,7 +218,7 @@ class Workflow:
         return self._tags
 
     @property
-    def steps(self) -> List[WorkflowStep]:
+    def steps(self) -> List[Union[WorkflowStep, DeferredStep]]:
         """Shallow copy of the step list."""
         return list(self._steps)
 
@@ -181,6 +233,50 @@ class Workflow:
     # Builder
     # ------------------------------------------------------------------
 
+    def reader(self, reader_cls: type) -> 'Workflow':
+        """Declare the reader type for this workflow.
+
+        When :meth:`execute` is called with a filepath, the framework
+        opens this reader, extracts metadata, and manages its lifecycle.
+
+        Parameters
+        ----------
+        reader_cls : type
+            An ``ImageReader`` subclass (e.g., ``SICDReader``).
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        self._reader_cls = reader_cls
+        return self
+
+    def chip(self, strategy: str = 'center', **kwargs: Any) -> 'Workflow':
+        """Declare the chip extraction strategy.
+
+        Controls how the framework extracts pixel data from the reader.
+
+        Parameters
+        ----------
+        strategy : str
+            Chip strategy name:
+
+            - ``"center"`` — extract a center chip of the given ``size``
+              (default 5000).
+            - ``"full"`` — read the entire image (no chipping).
+        **kwargs
+            Strategy-specific parameters (e.g., ``size=2048``).
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        self._chip_strategy = strategy
+        self._chip_kwargs = kwargs
+        return self
+
     def source(
         self,
         fn: Callable[..., np.ndarray],
@@ -190,8 +286,7 @@ class Workflow:
         """Set the data source for this workflow.
 
         The source callable is invoked when :meth:`execute` is called
-        without a *source* array.  All positional and keyword arguments
-        are captured and forwarded to *fn* at execution time.
+        without a *source* array and no reader is configured.
 
         Parameters
         ----------
@@ -210,25 +305,39 @@ class Workflow:
 
     def step(
         self,
-        callable_or_transform: Union[Callable, Any],
+        callable_or_class: Union[Callable, Any],
         *,
         name: Optional[str] = None,
+        **kwargs: Any,
     ) -> 'Workflow':
         """Add a processing step to the workflow.
 
-        Accepts any callable that takes a single ``np.ndarray`` and returns
-        an ``np.ndarray``.  Also accepts ``ImageTransform`` instances
-        (auto-wrapped to call ``.apply()``).
+        Accepts three kinds of arguments:
+
+        **Processor class** (deferred construction) — the class is stored
+        and instantiated at execute time.  If the constructor accepts a
+        ``metadata`` parameter, it is automatically injected from the
+        reader.  All ``**kwargs`` are forwarded to the constructor::
+
+            .step(SublookDecomposition, num_looks=3, dimension='azimuth')
+
+        **ImageTransform instance** — auto-wrapped to call ``.apply()``::
+
+            .step(ToDecibels(floor_db=-50.0))
+
+        **Callable** — bound methods, plain functions, lambdas::
+
+            .step(sublook.decompose, name="Decompose")
 
         Parameters
         ----------
-        callable_or_transform : callable or ImageTransform
-            The step operation.  Bound methods (e.g., ``sublook.decompose``),
-            plain functions, lambdas, and ``ImageTransform`` instances are
-            all supported.
+        callable_or_class : callable, ImageTransform, or class
+            The step operation.
         name : str, optional
-            Display name for logging and error messages.  Auto-derived
-            from the callable if not provided.
+            Display name for logging and error messages.
+        **kwargs
+            Constructor arguments for class-type steps.  Not allowed
+            for instance or callable steps.
 
         Returns
         -------
@@ -238,16 +347,27 @@ class Workflow:
         Raises
         ------
         TypeError
-            If *callable_or_transform* is a class (not an instance) or
-            is not callable.
+            If ``**kwargs`` are provided for a non-class step, or if the
+            argument is not callable.
         """
-        obj = callable_or_transform
+        obj = callable_or_class
 
-        # Reject classes passed without instantiation
+        # Class → deferred construction
         if isinstance(obj, type):
+            step_name = name or obj.__name__
+            self._steps.append(DeferredStep(
+                processor_cls=obj,
+                kwargs=kwargs,
+                name=step_name,
+            ))
+            return self
+
+        # Non-class steps must not receive **kwargs
+        if kwargs:
             raise TypeError(
-                f"step() expects an instance or callable, got class "
-                f"'{obj.__name__}'.  Did you mean {obj.__name__}(...)?"
+                "step() keyword arguments are only supported for class-type "
+                "steps (deferred construction).  For instances and callables, "
+                "bind arguments before passing to step()."
             )
 
         # ImageTransform instance → wrap .apply()
@@ -264,8 +384,8 @@ class Workflow:
 
         else:
             raise TypeError(
-                f"step() requires a callable or ImageTransform instance, "
-                f"got {type(obj).__name__}"
+                f"step() requires a callable, ImageTransform instance, or "
+                f"processor class, got {type(obj).__name__}"
             )
 
         self._steps.append(WorkflowStep(fn=fn, name=step_name, gpu_compatible=gpu_ok))
@@ -277,30 +397,44 @@ class Workflow:
 
     def execute(
         self,
-        source: Optional[np.ndarray] = None,
+        source: Optional[Union[np.ndarray, str, Path]] = None,
         *,
         prefer_gpu: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
+        metadata: Optional[Any] = None,
     ) -> np.ndarray:
-        """Execute the workflow pipeline on a single input.
+        """Execute the workflow pipeline.
 
-        Runs each step in sequence, passing the output of one step as
-        the input to the next.  Optionally attempts GPU acceleration
-        for steps that declare compatibility.
+        Supports three modes of operation:
 
-        If *source* is ``None``, the workflow's configured source
-        (set via :meth:`source`) is called to obtain the input array.
+        **File mode** — pass a filepath string or ``Path``.  Requires a
+        reader configured via :meth:`reader`.  The framework opens the
+        reader, extracts metadata, plans chips, constructs deferred
+        processors, and runs the pipeline::
+
+            result = wf.execute("image.nitf")
+
+        **Array mode** — pass an ``np.ndarray`` directly.  Deferred
+        steps are resolved using the *metadata* keyword if provided::
+
+            result = wf.execute(my_array, metadata=meta)
+
+        **Source mode** — call with no arguments to use the configured
+        :meth:`source` factory::
+
+            result = wf.execute()
 
         Parameters
         ----------
-        source : np.ndarray, optional
-            Input array.  If ``None``, uses the configured source.
+        source : np.ndarray, str, Path, or None
+            Input data.
         prefer_gpu : bool
-            If ``True``, attempt GPU acceleration for compatible steps
-            with automatic CPU fallback.  Default ``False``.
+            If ``True``, attempt GPU acceleration for compatible steps.
         progress_callback : callable, optional
-            Called with a float in ``[0.0, 1.0]`` after each step
-            completes.
+            Called with a float in ``[0.0, 1.0]`` after each step.
+        metadata : optional
+            Explicit metadata for resolving deferred steps when
+            executing in array mode.
 
         Returns
         -------
@@ -310,35 +444,47 @@ class Workflow:
         Raises
         ------
         ValueError
-            If no source array is provided and no source is configured.
+            If no source is available.
         RuntimeError
             If any step fails.
         """
-        if source is None:
-            if self._source is None:
-                raise ValueError(
-                    "No source provided.  Pass an array to execute() "
-                    "or set a source with .source()."
-                )
-            source = self._source()
-
-        if not self._steps:
-            return source
-
-        gpu = GpuBackend(prefer_gpu=prefer_gpu)
-        n_steps = len(self._steps)
-        current = source
-
-        for i, ws in enumerate(self._steps):
-            logger.debug(
-                "Workflow '%s' step %d/%d: %s",
-                self._name, i + 1, n_steps, ws.name,
+        # File mode → framework orchestration
+        if isinstance(source, (str, Path)):
+            return self._execute_from_file(
+                Path(source),
+                prefer_gpu=prefer_gpu,
+                progress_callback=progress_callback,
+                metadata_override=metadata,
             )
-            current = self._execute_step_gpu_aware(ws, current, gpu, i, n_steps)
-            if progress_callback is not None:
-                progress_callback((i + 1) / n_steps)
 
-        return current
+        # Array mode → direct pipeline
+        if isinstance(source, np.ndarray):
+            steps = self._resolve_steps(metadata)
+            return self._run_pipeline(
+                source, steps,
+                prefer_gpu=prefer_gpu,
+                progress_callback=progress_callback,
+            )
+
+        # No source → fall back to stored source or reader
+        if source is None:
+            if self._source is not None:
+                array = self._source()
+                steps = self._resolve_steps(metadata)
+                return self._run_pipeline(
+                    array, steps,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                )
+            raise ValueError(
+                "No source provided.  Pass a filepath, array, or "
+                "configure a source with .reader() or .source()."
+            )
+
+        raise TypeError(
+            f"execute() expects a filepath, np.ndarray, or None, "
+            f"got {type(source).__name__}"
+        )
 
     def execute_batch(
         self,
@@ -391,8 +537,180 @@ class Workflow:
         return results
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Framework internals
     # ------------------------------------------------------------------
+
+    def _execute_from_file(
+        self,
+        filepath: Path,
+        *,
+        prefer_gpu: bool,
+        progress_callback: Optional[Callable[[float], None]],
+        metadata_override: Optional[Any],
+    ) -> np.ndarray:
+        """Open reader, read chip, resolve steps, and run pipeline."""
+        if self._reader_cls is None:
+            raise ValueError(
+                f"Workflow '{self._name}' received a filepath but no reader "
+                f"is configured.  Call .reader(ReaderClass) first."
+            )
+
+        with self._reader_cls(filepath) as rdr:
+            meta = metadata_override if metadata_override is not None else rdr.metadata
+
+            # Read chip according to strategy
+            chip = self._read_chip(rdr)
+
+            # Resolve deferred steps with metadata injection
+            resolved = self._resolve_steps(meta)
+
+            # Run the pipeline
+            return self._run_pipeline(
+                chip, resolved,
+                prefer_gpu=prefer_gpu,
+                progress_callback=progress_callback,
+            )
+
+    def _read_chip(self, reader: Any) -> np.ndarray:
+        """Plan and read a chip from the reader.
+
+        Parameters
+        ----------
+        reader
+            An open ``ImageReader`` instance.
+
+        Returns
+        -------
+        np.ndarray
+            The chip pixel data.
+        """
+        rows, cols = reader.get_shape()
+
+        if self._chip_strategy is None or self._chip_strategy == 'full':
+            return reader.read_full()
+
+        if self._chip_strategy == 'center':
+            if ChipExtractor is None:
+                raise ImportError(
+                    "grdl.data_prep.ChipExtractor is required for chip "
+                    "strategies but grdl is not installed."
+                )
+            size = self._chip_kwargs.get('size', 5000)
+            extractor = ChipExtractor(nrows=rows, ncols=cols)
+            region = extractor.chip_at_point(
+                rows // 2, cols // 2,
+                row_width=size, col_width=size,
+            )
+            return reader.read_chip(
+                region.row_start, region.row_end,
+                region.col_start, region.col_end,
+            )
+
+        raise ValueError(
+            f"Unknown chip strategy '{self._chip_strategy}'.  "
+            f"Supported: 'center', 'full'."
+        )
+
+    def _resolve_steps(
+        self,
+        metadata: Optional[Any],
+    ) -> List[WorkflowStep]:
+        """Resolve deferred steps into callable WorkflowSteps.
+
+        Parameters
+        ----------
+        metadata : optional
+            Reader metadata for constructor injection.
+
+        Returns
+        -------
+        List[WorkflowStep]
+            Fully resolved step list.
+        """
+        resolved: List[WorkflowStep] = []
+        for step in self._steps:
+            if isinstance(step, DeferredStep):
+                resolved.append(self._resolve_deferred(step, metadata))
+            else:
+                resolved.append(step)
+        return resolved
+
+    def _resolve_deferred(
+        self,
+        ds: DeferredStep,
+        metadata: Optional[Any],
+    ) -> WorkflowStep:
+        """Construct a processor from a DeferredStep.
+
+        Inspects the processor constructor.  If it has a ``metadata``
+        parameter and one was not provided in the step kwargs, injects
+        the reader metadata automatically.
+
+        Parameters
+        ----------
+        ds : DeferredStep
+        metadata : optional
+
+        Returns
+        -------
+        WorkflowStep
+        """
+        instance = _construct_processor(ds.processor_cls, ds.kwargs, metadata)
+
+        # Determine the callable and GPU flag
+        if ImageTransform is not None and isinstance(instance, ImageTransform):
+            fn = instance.apply
+        elif callable(instance):
+            fn = instance
+        elif hasattr(instance, 'apply') and callable(instance.apply):
+            fn = instance.apply
+        else:
+            raise TypeError(
+                f"Deferred step '{ds.name}' produced a {type(instance).__name__} "
+                f"that is not callable and has no apply() method."
+            )
+
+        gpu_ok = getattr(instance, '__gpu_compatible__', False)
+        return WorkflowStep(fn=fn, name=ds.name, gpu_compatible=gpu_ok)
+
+    def _run_pipeline(
+        self,
+        source: np.ndarray,
+        steps: List[WorkflowStep],
+        *,
+        prefer_gpu: bool,
+        progress_callback: Optional[Callable[[float], None]],
+    ) -> np.ndarray:
+        """Execute resolved steps sequentially on source data.
+
+        Parameters
+        ----------
+        source : np.ndarray
+        steps : List[WorkflowStep]
+        prefer_gpu : bool
+        progress_callback : optional
+
+        Returns
+        -------
+        np.ndarray
+        """
+        if not steps:
+            return source
+
+        gpu = GpuBackend(prefer_gpu=prefer_gpu)
+        n_steps = len(steps)
+        current = source
+
+        for i, ws in enumerate(steps):
+            logger.debug(
+                "Workflow '%s' step %d/%d: %s",
+                self._name, i + 1, n_steps, ws.name,
+            )
+            current = self._execute_step_gpu_aware(ws, current, gpu, i, n_steps)
+            if progress_callback is not None:
+                progress_callback((i + 1) / n_steps)
+
+        return current
 
     def _execute_step_gpu_aware(
         self,
@@ -402,24 +720,8 @@ class Workflow:
         step_index: int,
         n_steps: int,
     ) -> np.ndarray:
-        """Execute a single step with optional GPU acceleration.
-
-        Parameters
-        ----------
-        ws : WorkflowStep
-        source : np.ndarray
-        gpu : GpuBackend
-        step_index : int
-            Zero-based index of this step (for error messages).
-        n_steps : int
-            Total step count (for error messages).
-
-        Returns
-        -------
-        np.ndarray
-        """
+        """Execute a single step with optional GPU acceleration."""
         try:
-            # Attempt GPU path for compatible steps
             if gpu.cupy_available and ws.gpu_compatible:
                 try:
                     gpu_source = gpu.to_gpu(source)
@@ -432,7 +734,6 @@ class Workflow:
                         ws.name, gpu_err,
                     )
 
-            # CPU path (default or fallback)
             return ws.fn(source)
 
         except Exception as e:
@@ -458,19 +759,47 @@ class Workflow:
 # ======================================================================
 
 
-def _infer_step_name(obj: Any) -> str:
-    """Derive a human-readable step name from a callable.
+def _construct_processor(
+    cls: type,
+    kwargs: Dict[str, Any],
+    metadata: Optional[Any],
+) -> Any:
+    """Instantiate a processor class with convention-based metadata injection.
+
+    If the constructor has a ``metadata`` parameter and one was not
+    provided in *kwargs*, injects *metadata* automatically.
 
     Parameters
     ----------
-    obj : callable
-        A bound method, function, or other callable.
+    cls : type
+        Processor class.
+    kwargs : Dict[str, Any]
+        User-provided constructor arguments.
+    metadata : optional
+        Reader metadata to inject.
 
     Returns
     -------
-    str
-        Inferred name.
+    object
+        The instantiated processor.
     """
+    sig = inspect.signature(cls.__init__)
+    params = sig.parameters
+
+    if 'metadata' in params and 'metadata' not in kwargs:
+        if metadata is None:
+            raise ValueError(
+                f"Processor '{cls.__name__}' requires metadata but none is "
+                f"available.  Configure a reader with .reader() and execute "
+                f"from a filepath, or pass metadata= to execute()."
+            )
+        return cls(metadata, **kwargs)
+
+    return cls(**kwargs)
+
+
+def _infer_step_name(obj: Any) -> str:
+    """Derive a human-readable step name from a callable."""
     if inspect.ismethod(obj):
         cls_name = type(obj.__self__).__name__
         return f"{cls_name}.{obj.__name__}"
@@ -487,17 +816,7 @@ def _infer_step_name(obj: Any) -> str:
 
 
 def _infer_gpu_compatible(obj: Any) -> bool:
-    """Check whether a callable's owning instance is GPU-compatible.
-
-    Parameters
-    ----------
-    obj : callable
-
-    Returns
-    -------
-    bool
-    """
-    # Bound method → check __self__
+    """Check whether a callable's owning instance is GPU-compatible."""
     owner = getattr(obj, '__self__', None)
     if owner is not None:
         return bool(getattr(owner, '__gpu_compatible__', False))
