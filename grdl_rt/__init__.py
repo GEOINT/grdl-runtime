@@ -66,7 +66,10 @@ from grdl_rt.catalog import (
     UpdateResult,
     resolve_catalog_path,
     ensure_config_dir,
+    ArtifactCatalogBase,
+    SqliteArtifactCatalog,
     ArtifactCatalog,
+    YamlArtifactCatalog,
     ArtifactUpdateWorker,
     ThreadExecutorPool,
 )
@@ -115,7 +118,10 @@ __all__ = [
     "UpdateResult",
     "resolve_catalog_path",
     "ensure_config_dir",
+    "ArtifactCatalogBase",
+    "SqliteArtifactCatalog",
     "ArtifactCatalog",
+    "YamlArtifactCatalog",
     "ArtifactUpdateWorker",
     "ThreadExecutorPool",
 ]

@@ -2,7 +2,7 @@
 """
 Catalog Database - SQLite-backed artifact catalog for GRDL and GRDK.
 
-Provides the ArtifactCatalog class for storing and querying metadata
+Provides the SqliteArtifactCatalog class for storing and querying metadata
 about GRDL image processing components and GRDK orchestrated workflows.
 
 Author
@@ -37,6 +37,7 @@ from typing import Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # grdl-runtime internal
+from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.catalog.models import Artifact
 from grdl_rt.catalog.resolver import resolve_catalog_path, ensure_config_dir
 
@@ -125,7 +126,7 @@ _MIGRATIONS: List[tuple] = [
 ]
 
 
-class ArtifactCatalog:
+class SqliteArtifactCatalog(ArtifactCatalogBase):
     """SQLite-backed catalog for GRDL and GRDK artifacts.
 
     Parameters
@@ -199,13 +200,6 @@ class ArtifactCatalog:
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()
-
-    def __enter__(self) -> 'ArtifactCatalog':
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        self.close()
-        return False
 
     def add_artifact(self, artifact: Artifact) -> int:
         """Add or replace an artifact in the catalog.
@@ -432,3 +426,7 @@ class ArtifactCatalog:
             python_dsl=row['python_dsl'],
             tags=tags,
         )
+
+
+# Backward-compatibility alias
+ArtifactCatalog = SqliteArtifactCatalog

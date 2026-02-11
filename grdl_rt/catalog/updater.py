@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 from packaging.version import Version, InvalidVersion
 
 # grdl-runtime internal
-from grdl_rt.catalog.database import ArtifactCatalog
+from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.catalog.models import Artifact, UpdateResult
 
 
@@ -58,15 +58,15 @@ class ArtifactUpdateWorker:
 
     Parameters
     ----------
-    catalog : ArtifactCatalog
-        The catalog database to check.
+    catalog : ArtifactCatalogBase
+        The catalog backend to check.
     timeout : float
         HTTP request timeout in seconds. Default 10.0.
     """
 
     def __init__(
         self,
-        catalog: ArtifactCatalog,
+        catalog: ArtifactCatalogBase,
         timeout: float = 10.0,
     ) -> None:
         self._catalog = catalog

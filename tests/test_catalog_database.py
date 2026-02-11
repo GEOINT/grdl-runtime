@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for grdl_rt.catalog.database — ArtifactCatalog SQLite database.
+Tests for grdl_rt.catalog.database — SqliteArtifactCatalog.
 
 Author
 ------
@@ -18,7 +18,8 @@ Created
 import pytest
 from unittest import mock
 
-from grdl_rt.catalog.database import ArtifactCatalog, _MIGRATIONS
+from grdl_rt.catalog.base import ArtifactCatalogBase
+from grdl_rt.catalog.database import SqliteArtifactCatalog, ArtifactCatalog, _MIGRATIONS
 from grdl_rt.catalog.models import Artifact
 
 
@@ -26,42 +27,9 @@ from grdl_rt.catalog.models import Artifact
 def catalog(tmp_path):
     """Create a temporary catalog database."""
     db_path = tmp_path / "test_catalog.db"
-    cat = ArtifactCatalog(db_path=db_path)
+    cat = SqliteArtifactCatalog(db_path=db_path)
     yield cat
     cat.close()
-
-
-@pytest.fixture
-def sample_processor():
-    return Artifact(
-        name="lee-filter",
-        version="1.0.0",
-        artifact_type="grdl_processor",
-        description="Lee speckle filter for SAR imagery",
-        author="Steven Siebert",
-        pypi_package="grdl-lee-filter",
-        conda_package="grdl-lee-filter",
-        conda_channel="conda-forge",
-        processor_class="grdl.image_processing.filters.LeeFilter",
-        processor_version="1.0.0",
-        processor_type="transform",
-    )
-
-
-@pytest.fixture
-def sample_workflow():
-    return Artifact(
-        name="sar-vehicle-detection",
-        version="2.0.0",
-        artifact_type="grdk_workflow",
-        description="SAR vehicle detection and classification",
-        yaml_definition="name: SAR Vehicle Detection\nsteps: []",
-        python_dsl="@workflow(name='SAR')\ndef f(): pass",
-        tags={
-            'modality': ['SAR'],
-            'detection_type': ['classification'],
-        },
-    )
 
 
 class TestArtifactCatalogBasic:
@@ -163,13 +131,13 @@ class TestArtifactCatalogContextManager:
 
     def test_context_manager(self, tmp_path):
         db_path = tmp_path / "ctx_test.db"
-        with ArtifactCatalog(db_path=db_path) as cat:
+        with SqliteArtifactCatalog(db_path=db_path) as cat:
             cat.add_artifact(Artifact(
                 name="test", version="1.0.0",
                 artifact_type="grdl_processor",
             ))
         # Connection should be closed, but we can open a new one
-        with ArtifactCatalog(db_path=db_path) as cat:
+        with SqliteArtifactCatalog(db_path=db_path) as cat:
             assert cat.get_artifact("test", "1.0.0") is not None
 
 
@@ -219,7 +187,7 @@ class TestArtifactCatalogDefaultPath:
         ), mock.patch(
             'grdl_rt.catalog.database.ensure_config_dir',
         ):
-            cat = ArtifactCatalog(db_path=None)
+            cat = SqliteArtifactCatalog(db_path=None)
             try:
                 assert cat._db_path == tmp_path / "resolved.db"
             finally:
@@ -235,9 +203,24 @@ class TestArtifactCatalogMigrations:
             'grdl_rt.catalog.database._MIGRATIONS',
             [(2, migrate_fn)],
         ):
-            cat = ArtifactCatalog(db_path=db_path)
+            cat = SqliteArtifactCatalog(db_path=db_path)
             try:
                 migrate_fn.assert_called_once()
                 assert cat.schema_version == 2
             finally:
                 cat.close()
+
+
+class TestBackwardCompatAlias:
+
+    def test_alias_is_sqlite(self):
+        assert ArtifactCatalog is SqliteArtifactCatalog
+
+
+class TestSqliteSubclassesABC:
+
+    def test_is_subclass(self):
+        assert issubclass(SqliteArtifactCatalog, ArtifactCatalogBase)
+
+    def test_instance_check(self, catalog):
+        assert isinstance(catalog, ArtifactCatalogBase)

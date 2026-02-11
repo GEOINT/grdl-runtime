@@ -3,7 +3,9 @@
 
 from grdl_rt.catalog.models import Artifact, UpdateResult
 from grdl_rt.catalog.resolver import resolve_catalog_path, ensure_config_dir
-from grdl_rt.catalog.database import ArtifactCatalog
+from grdl_rt.catalog.base import ArtifactCatalogBase
+from grdl_rt.catalog.database import SqliteArtifactCatalog, ArtifactCatalog
+from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 from grdl_rt.catalog.updater import ArtifactUpdateWorker
 from grdl_rt.catalog.pool import ThreadExecutorPool
 
@@ -12,7 +14,10 @@ __all__ = [
     "UpdateResult",
     "resolve_catalog_path",
     "ensure_config_dir",
+    "ArtifactCatalogBase",
+    "SqliteArtifactCatalog",
     "ArtifactCatalog",
+    "YamlArtifactCatalog",
     "ArtifactUpdateWorker",
     "ThreadExecutorPool",
 ]

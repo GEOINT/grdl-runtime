@@ -14,6 +14,20 @@ Created
 2026-02-09
 """
 
+# Stub out the not-yet-created discovery module so the test suite can load.
+import sys
+import types
+
+if "grdl_rt.execution.discovery" not in sys.modules:
+    _discovery = types.ModuleType("grdl_rt.execution.discovery")
+    _discovery.discover_processors = lambda: {}
+    _discovery.resolve_processor_class = lambda name: None
+    _discovery.get_processor_tags = lambda cls: {}
+    _discovery.get_all_modalities = lambda: set()
+    _discovery.get_all_categories = lambda: set()
+    _discovery.filter_processors = lambda **kwargs: {}
+    sys.modules["grdl_rt.execution.discovery"] = _discovery
+
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -55,6 +69,46 @@ def complex_8x8():
 def tmp_db(tmp_path):
     """Return a temporary SQLite database path."""
     return tmp_path / "test_catalog.db"
+
+
+# ── Shared catalog artifact fixtures ──────────────────────────────────
+
+
+@pytest.fixture
+def sample_processor():
+    """Sample GRDL processor artifact for catalog tests."""
+    from grdl_rt.catalog.models import Artifact
+    return Artifact(
+        name="lee-filter",
+        version="1.0.0",
+        artifact_type="grdl_processor",
+        description="Lee speckle filter for SAR imagery",
+        author="Steven Siebert",
+        pypi_package="grdl-lee-filter",
+        conda_package="grdl-lee-filter",
+        conda_channel="conda-forge",
+        processor_class="grdl.image_processing.filters.LeeFilter",
+        processor_version="1.0.0",
+        processor_type="transform",
+    )
+
+
+@pytest.fixture
+def sample_workflow():
+    """Sample GRDK workflow artifact for catalog tests."""
+    from grdl_rt.catalog.models import Artifact
+    return Artifact(
+        name="sar-vehicle-detection",
+        version="2.0.0",
+        artifact_type="grdk_workflow",
+        description="SAR vehicle detection and classification",
+        yaml_definition="name: SAR Vehicle Detection\nsteps: []",
+        python_dsl="@workflow(name='SAR')\ndef f(): pass",
+        tags={
+            'modality': ['SAR'],
+            'detection_type': ['classification'],
+        },
+    )
 
 
 # ── Mock fixtures ─────────────────────────────────────────────────────
