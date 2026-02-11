@@ -170,7 +170,7 @@ class TestArtifactModels:
 class TestArtifactCatalogSchemaVersion:
 
     def test_schema_version_property(self, catalog):
-        assert catalog.schema_version == 1
+        assert catalog.schema_version == 2
 
     def test_search_by_tags_empty_returns_all(self, catalog, sample_processor):
         catalog.add_artifact(sample_processor)
@@ -197,18 +197,60 @@ class TestArtifactCatalogDefaultPath:
 class TestArtifactCatalogMigrations:
 
     def test_migration_runs(self, tmp_path):
+        """A pre-existing DB at version 1 triggers the v2 migration."""
+        import sqlite3
         db_path = tmp_path / "migrate_test.db"
-        migrate_fn = mock.MagicMock()
-        with mock.patch(
-            'grdl_rt.catalog.database._MIGRATIONS',
-            [(2, migrate_fn)],
-        ):
-            cat = SqliteArtifactCatalog(db_path=db_path)
-            try:
-                migrate_fn.assert_called_once()
-                assert cat.schema_version == 2
-            finally:
-                cat.close()
+
+        # Seed a v1 database without the requires_global_pass column
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                artifact_type TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                author TEXT DEFAULT '',
+                license TEXT DEFAULT 'MIT',
+                pypi_package TEXT,
+                conda_package TEXT,
+                conda_channel TEXT,
+                processor_class TEXT,
+                processor_version TEXT,
+                processor_type TEXT,
+                yaml_definition TEXT,
+                python_dsl TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(name, version)
+            );
+            CREATE TABLE IF NOT EXISTS workflow_tags (
+                artifact_id INTEGER REFERENCES artifacts(id) ON DELETE CASCADE,
+                tag_key TEXT NOT NULL,
+                tag_value TEXT NOT NULL,
+                PRIMARY KEY (artifact_id, tag_key, tag_value)
+            );
+            CREATE TABLE IF NOT EXISTS remote_versions (
+                artifact_id INTEGER REFERENCES artifacts(id) ON DELETE CASCADE,
+                source TEXT NOT NULL,
+                latest_version TEXT NOT NULL,
+                checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (artifact_id, source)
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version) VALUES (1);
+        """)
+        conn.commit()
+        conn.close()
+
+        # Opening the catalog should run the v2 migration
+        cat = SqliteArtifactCatalog(db_path=db_path)
+        try:
+            assert cat.schema_version == 2
+        finally:
+            cat.close()
 
 
 class TestBackwardCompatAlias:

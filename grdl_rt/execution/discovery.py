@@ -211,6 +211,26 @@ def get_processor_tags(cls: type) -> Dict:
     return getattr(cls, "__processor_tags__", {})
 
 
+def has_global_pass(cls: type) -> bool:
+    """Check whether a processor class requires a global pass.
+
+    Reads the ``__has_global_pass__`` flag set by
+    ``ImageProcessor.__init_subclass__`` when any method is decorated
+    with ``@globalprocessor``.
+
+    Parameters
+    ----------
+    cls : type
+        A processor class.
+
+    Returns
+    -------
+    bool
+        True if the processor has global-pass callbacks.
+    """
+    return bool(getattr(cls, "__has_global_pass__", False))
+
+
 def get_all_modalities() -> Set:
     """Collect all unique modality values from known processors.
 

@@ -284,6 +284,13 @@ class WorkflowExecutor:
                 log=log,
             )
 
+        # Run global pass before main execution (only on fresh runs)
+        global_pass_processors: Dict[int, Any] = {}
+        if not resume_state:
+            global_pass_processors = self._run_global_pass(
+                source, log=log,
+            )
+
         current = source
         step_metrics_list: List[StepMetrics] = list(prior_metrics or [])
         intermediate_files: List[str] = []
@@ -364,8 +371,14 @@ class WorkflowExecutor:
                             f"'{step.processor_name}'"
                         )
 
+                    # Use pre-instantiated processor if global pass ran
+                    gp_info = global_pass_processors.get(i)
+                    pre_inst = gp_info[0] if gp_info else None
+
                     current = self._execute_step_resilient(
-                        step, current, log=log, **step_kwargs
+                        step, current, log=log,
+                        _pre_instantiated=pre_inst,
+                        **step_kwargs,
                     )
 
                     step_wall = time.perf_counter() - step_t0_wall
@@ -381,6 +394,12 @@ class WorkflowExecutor:
                         cpu_time_s=step_cpu,
                         peak_rss_bytes=step_peak,
                         gpu_used=False,
+                        global_pass_duration=(
+                            gp_info[1] if gp_info else None
+                        ),
+                        global_pass_memory=(
+                            gp_info[2] if gp_info else None
+                        ),
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -584,6 +603,9 @@ class WorkflowExecutor:
 
         run_dir.mkdir(parents=True, exist_ok=True)
 
+        # Run global pass before main execution
+        global_pass_processors = self._run_global_pass(source, log=log)
+
         ext = tap_out_format.lstrip('.')
         current = source
         manifest_entries: List[Dict[str, Any]] = []
@@ -645,8 +667,14 @@ class WorkflowExecutor:
                             f"'{step_def.processor_name}'"
                         )
 
+                    # Use pre-instantiated processor if global pass ran
+                    gp_info = global_pass_processors.get(i)
+                    pre_inst = gp_info[0] if gp_info else None
+
                     current = self._execute_step_resilient(
-                        step_def, current, log=log, **step_kwargs
+                        step_def, current, log=log,
+                        _pre_instantiated=pre_inst,
+                        **step_kwargs,
                     )
 
                     step_wall = time.perf_counter() - step_t0_wall
@@ -663,6 +691,12 @@ class WorkflowExecutor:
                         cpu_time_s=step_cpu,
                         peak_rss_bytes=step_peak,
                         gpu_used=False,
+                        global_pass_duration=(
+                            gp_info[1] if gp_info else None
+                        ),
+                        global_pass_memory=(
+                            gp_info[2] if gp_info else None
+                        ),
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -872,6 +906,122 @@ class WorkflowExecutor:
             tracemalloc.stop()
 
     # ------------------------------------------------------------------
+    # Global pass execution
+    # ------------------------------------------------------------------
+
+    def _run_global_pass(
+        self,
+        source: np.ndarray,
+        *,
+        log: Any = None,
+    ) -> Dict[int, Any]:
+        """Run the global pass for processors that require it.
+
+        Scans workflow steps for processors with ``__has_global_pass__``.
+        For each, instantiates the processor, creates a read-only view
+        of the source buffer, and streams it through the global callbacks.
+        Returns a mapping of step index to pre-instantiated processor
+        so the main execution loop can reuse them with accumulated state.
+
+        Parameters
+        ----------
+        source : np.ndarray
+            Full input image array.
+        log : Any
+            Structured logger instance.
+
+        Returns
+        -------
+        Dict[int, Any]
+            Mapping of step index to (processor_instance, global_pass_duration,
+            global_pass_memory) for steps that required a global pass.
+        """
+        log = log or logger
+        pre_instantiated: Dict[int, Any] = {}
+
+        # Identify steps requiring a global pass
+        global_steps: List[tuple] = []
+        for i, step in enumerate(self._workflow.steps):
+            if not isinstance(step, ProcessingStep):
+                continue
+            try:
+                processor_cls = resolve_processor_class(step.processor_name)
+            except (ImportError, Exception):
+                continue
+            if getattr(processor_cls, '__has_global_pass__', False):
+                global_steps.append((i, step, processor_cls))
+
+        if not global_steps:
+            return pre_instantiated
+
+        # Create read-only view of source (no copy — just flips flag)
+        readonly_source = source.view()
+        readonly_source.flags.writeable = False
+
+        # Start tracemalloc for global pass memory tracking
+        tracemalloc.start()
+
+        for i, step, processor_cls in global_steps:
+            log.debug(
+                "global_pass_start",
+                step_index=i,
+                processor_name=step.processor_name,
+            )
+
+            gp_t0 = time.perf_counter()
+            tracemalloc.reset_peak()
+
+            try:
+                processor = processor_cls()
+            except Exception as e:
+                log.warning(
+                    "global_pass_instantiation_failed",
+                    step_index=i,
+                    processor_name=step.processor_name,
+                    error=str(e),
+                )
+                continue
+
+            # Run each global callback on the read-only buffer
+            callbacks = getattr(processor_cls, '__global_callbacks__', ())
+            for cb_name in callbacks:
+                cb = getattr(processor, cb_name, None)
+                if cb is None:
+                    continue
+                try:
+                    cb(readonly_source)
+                except ValueError as exc:
+                    # Mutation attempt on read-only buffer
+                    log.warning(
+                        "global_pass_mutation_blocked",
+                        processor_name=step.processor_name,
+                        method=cb_name,
+                        error=str(exc),
+                    )
+                except Exception as exc:
+                    log.error(
+                        "global_pass_callback_failed",
+                        processor_name=step.processor_name,
+                        method=cb_name,
+                        error=str(exc),
+                    )
+                    raise
+
+            gp_duration = time.perf_counter() - gp_t0
+            _, gp_peak = tracemalloc.get_traced_memory()
+
+            pre_instantiated[i] = (processor, gp_duration, gp_peak)
+            log.debug(
+                "global_pass_complete",
+                step_index=i,
+                processor_name=step.processor_name,
+                duration_s=round(gp_duration, 4),
+            )
+
+        tracemalloc.stop()
+        return pre_instantiated
+
+    # ------------------------------------------------------------------
     # Internal step execution
     # ------------------------------------------------------------------
 
@@ -881,6 +1031,7 @@ class WorkflowExecutor:
         source: np.ndarray,
         *,
         log: Any = None,
+        _pre_instantiated: Any = None,
         **kwargs: Any,
     ) -> np.ndarray:
         """Execute a step with retry and timeout logic.
@@ -904,7 +1055,11 @@ class WorkflowExecutor:
         timeout = step.timeout_seconds
 
         def _do_step() -> np.ndarray:
-            raw_fn = lambda: self._execute_step(step, source, **kwargs)
+            raw_fn = lambda: self._execute_step(
+                step, source,
+                _pre_instantiated=_pre_instantiated,
+                **kwargs,
+            )
             if timeout is not None:
                 return execute_with_timeout(
                     raw_fn, timeout, step.processor_name,
@@ -923,6 +1078,8 @@ class WorkflowExecutor:
         self,
         step: ProcessingStep,
         source: np.ndarray,
+        *,
+        _pre_instantiated: Any = None,
         **kwargs: Any,
     ) -> np.ndarray:
         """Execute a single processing step (no resilience wrapping).
@@ -931,6 +1088,10 @@ class WorkflowExecutor:
         ----------
         step : ProcessingStep
         source : np.ndarray
+        _pre_instantiated : Any, optional
+            If provided, reuse this processor instance (which already
+            has accumulated state from the global pass) instead of
+            creating a new one.
         **kwargs
 
         Returns
@@ -938,14 +1099,19 @@ class WorkflowExecutor:
         np.ndarray
         """
         log = logger.bind(processor_name=step.processor_name)
-        log.debug("step_resolving")
-        try:
-            processor_cls = resolve_processor_class(step.processor_name)
-            processor = processor_cls()
-        except (ImportError, Exception) as e:
-            raise ImportError(
-                f"Failed to resolve processor '{step.processor_name}': {e}"
-            ) from e
+
+        if _pre_instantiated is not None:
+            processor = _pre_instantiated
+            log.debug("step_using_pre_instantiated")
+        else:
+            log.debug("step_resolving")
+            try:
+                processor_cls = resolve_processor_class(step.processor_name)
+                processor = processor_cls()
+            except (ImportError, Exception) as e:
+                raise ImportError(
+                    f"Failed to resolve processor '{step.processor_name}': {e}"
+                ) from e
 
         # Merge step params with kwargs (step params take precedence)
         merged_kwargs = {**kwargs, **step.params}

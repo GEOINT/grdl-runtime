@@ -311,6 +311,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             "yaml_definition": artifact.yaml_definition,
             "python_dsl": artifact.python_dsl,
             "tags": dict(artifact.tags) if artifact.tags else {},
+            "requires_global_pass": artifact.requires_global_pass,
         }
 
     @staticmethod
@@ -333,4 +334,5 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             yaml_definition=entry.get("yaml_definition"),
             python_dsl=entry.get("python_dsl"),
             tags=entry.get("tags") or {},
+            requires_global_pass=bool(entry.get("requires_global_pass", False)),
         )

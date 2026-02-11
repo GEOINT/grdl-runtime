@@ -421,6 +421,7 @@ def _list_processors(args: argparse.Namespace) -> int:
         discover_processors,
         filter_processors,
         get_processor_tags,
+        has_global_pass,
     )
 
     if args.modality or args.category:
@@ -439,6 +440,7 @@ def _list_processors(args: argparse.Namespace) -> int:
                 "name": name,
                 "class": f"{cls.__module__}.{cls.__qualname__}",
                 "tags": tags,
+                "requires_global_pass": has_global_pass(cls),
             })
         print(json_mod.dumps(entries, indent=2, default=str))
     else:
@@ -446,7 +448,9 @@ def _list_processors(args: argparse.Namespace) -> int:
             print("No processors found.")
         else:
             for name in sorted(procs):
-                print(f"  {name}")
+                cls = procs[name]
+                gp_marker = " [global pass]" if has_global_pass(cls) else ""
+                print(f"  {name}{gp_marker}")
             print(f"\n{len(procs)} processor(s) found.")
 
     return EXIT_SUCCESS

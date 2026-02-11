@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     processor_class TEXT,
     processor_version TEXT,
     processor_type TEXT,
+    requires_global_pass INTEGER DEFAULT 0,
 
     yaml_definition TEXT,
     python_dsl TEXT,
@@ -119,12 +120,15 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """
 
-_CURRENT_SCHEMA_VERSION = 1
+_CURRENT_SCHEMA_VERSION = 2
 
 # Migration functions: (target_version, callable)
 # Add new migrations here as schema evolves.
 _MIGRATIONS: List[tuple] = [
-    # (1, lambda conn: None),  # Version 1 is the initial schema
+    (2, lambda conn: conn.execute(
+        "ALTER TABLE artifacts ADD COLUMN requires_global_pass "
+        "INTEGER DEFAULT 0"
+    )),
 ]
 
 
@@ -221,8 +225,9 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
             (name, version, artifact_type, description, author, license,
              pypi_package, conda_package, conda_channel,
              processor_class, processor_version, processor_type,
+             requires_global_pass,
              yaml_definition, python_dsl)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 artifact.name, artifact.version, artifact.artifact_type,
                 artifact.description, artifact.author, artifact.license,
@@ -230,6 +235,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
                 artifact.conda_channel,
                 artifact.processor_class, artifact.processor_version,
                 artifact.processor_type,
+                int(artifact.requires_global_pass),
                 artifact.yaml_definition, artifact.python_dsl,
             ),
         )
@@ -428,6 +434,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
             yaml_definition=row['yaml_definition'],
             python_dsl=row['python_dsl'],
             tags=tags,
+            requires_global_pass=bool(row['requires_global_pass']),
         )
 
 

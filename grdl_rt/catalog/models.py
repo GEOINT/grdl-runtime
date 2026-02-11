@@ -69,6 +69,9 @@ class Artifact:
         Tag key-value pairs (grdk_workflow only).
     id : Optional[int]
         Database row ID (set after insertion).
+    requires_global_pass : bool
+        Whether this processor requires a global pass over the full
+        image before per-chip/per-tile processing (grdl_processor only).
     """
 
     def __init__(
@@ -89,6 +92,7 @@ class Artifact:
         python_dsl: Optional[str] = None,
         tags: Optional[Dict[str, List[str]]] = None,
         id: Optional[int] = None,
+        requires_global_pass: bool = False,
     ) -> None:
         if artifact_type not in ('grdl_processor', 'grdk_workflow'):
             raise ValueError(
@@ -111,6 +115,7 @@ class Artifact:
         self.yaml_definition = yaml_definition
         self.python_dsl = python_dsl
         self.tags = tags or {}
+        self.requires_global_pass = requires_global_pass
 
     def __repr__(self) -> str:
         return (

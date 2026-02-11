@@ -69,6 +69,8 @@ class StepMetrics:
     status: str = "success"
     error_message: Optional[str] = None
     step_id: Optional[str] = None
+    global_pass_duration: Optional[float] = None
+    global_pass_memory: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary.
@@ -89,6 +91,10 @@ class StepMetrics:
         }
         if self.step_id is not None:
             d["step_id"] = self.step_id
+        if self.global_pass_duration is not None:
+            d["global_pass_duration"] = self.global_pass_duration
+        if self.global_pass_memory is not None:
+            d["global_pass_memory"] = self.global_pass_memory
         return d
 
 
