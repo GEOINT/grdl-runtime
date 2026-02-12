@@ -62,13 +62,16 @@ from grdl_rt.execution.discovery import resolve_processor_class
 from grdl_rt.execution.errors import (
     CheckpointError,
     MemoryThresholdError,
+    QuotaExceededError,
     ResumeError,
     StepRetryExhaustedError,
     StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.history import ExecutionHistoryDB
+from grdl_rt.execution.instrumentation import ExecutionHook
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
+from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 from grdl_rt.execution.resilience import (
     CircuitBreaker,
     RetryPolicy,
@@ -77,6 +80,7 @@ from grdl_rt.execution.resilience import (
     execute_with_timeout,
     run_memory_preflight,
 )
+from grdl_rt.execution.lineage import build_lineage
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, TapOutStepDef, WorkflowDefinition
 
@@ -135,6 +139,8 @@ class WorkflowExecutor:
         circuit_breaker: Optional[CircuitBreaker] = None,
         checkpoint_manager: Optional[CheckpointManager] = None,
         history_db: Optional[ExecutionHistoryDB] = None,
+        resource_quota: Optional[ResourceQuota] = None,
+        hooks: Optional[List[ExecutionHook]] = None,
     ) -> None:
         self._workflow = workflow
         self._gpu = gpu or GpuBackend(prefer_gpu=False)
@@ -142,6 +148,8 @@ class WorkflowExecutor:
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
         self._checkpoint_mgr = checkpoint_manager
         self._history_db = history_db
+        self._resource_quota = resource_quota
+        self._hooks: List[ExecutionHook] = list(hooks or [])
 
     def execute(
         self,
@@ -234,6 +242,14 @@ class WorkflowExecutor:
             if enable_shutdown_handler:
                 self._shutdown.unregister()
 
+    def _call_hooks(self, method: str, *args: Any, **kwargs: Any) -> None:
+        """Call a hook method on all registered hooks, swallowing errors."""
+        for hook in self._hooks:
+            try:
+                getattr(hook, method)(*args, **kwargs)
+            except Exception:
+                pass
+
     def _execute_main(
         self,
         source: np.ndarray,
@@ -284,11 +300,28 @@ class WorkflowExecutor:
                 log=log,
             )
 
+        # Resource quota pre-flight and monitoring
+        quota_enforcer: Optional[QuotaEnforcer] = None
+        if self._resource_quota is not None:
+            quota_enforcer = QuotaEnforcer(self._resource_quota)
+            quota_enforcer.check_before_execution(
+                source, len(processing_steps),
+                multiplier=cfg.memory.estimation_multiplier,
+            )
+            quota_enforcer.mark_start()
+            quota_enforcer.start_monitoring()
+
+        # Notify hooks of workflow start
+        self._call_hooks(
+            "on_workflow_start", ctx,
+            self._workflow.name, self._workflow.version,
+        )
+
         # Run global pass before main execution (only on fresh runs)
         global_pass_processors: Dict[int, Any] = {}
         if not resume_state:
             global_pass_processors = self._run_global_pass(
-                source, log=log,
+                source, ctx=ctx, log=log,
             )
 
         current = source
@@ -335,6 +368,11 @@ class WorkflowExecutor:
                         wf_hash=wf_hash,
                     )
 
+                # Quota enforcement between steps
+                if quota_enforcer is not None:
+                    quota_enforcer.check_wall_clock()
+                    quota_enforcer.check_memory_violation()
+
                 if isinstance(step, TapOutStepDef):
                     log.debug("tap_out", step_index=i, path=step.path)
                     try:
@@ -362,6 +400,11 @@ class WorkflowExecutor:
                     log.debug(
                         "step_start", step_index=i,
                         processor_name=step.processor_name,
+                    )
+
+                    # Notify hooks
+                    self._call_hooks(
+                        "on_step_start", ctx, i, step.processor_name,
                     )
 
                     # Check circuit breaker
@@ -408,6 +451,9 @@ class WorkflowExecutor:
                         processor_name=step.processor_name,
                         wall_time_s=round(step_wall, 4),
                     )
+
+                    # Notify hooks of step completion
+                    self._call_hooks("on_step_end", ctx, i, sm)
 
                     # Per-step checkpoint
                     if enable_checkpointing and self._checkpoint_mgr is not None:
@@ -464,6 +510,20 @@ class WorkflowExecutor:
                 completed_at=_iso_now(),
                 status="success",
             )
+            # Notify hooks of successful completion
+            self._call_hooks("on_workflow_end", ctx, wf_metrics)
+
+            # Build data lineage
+            lineage = None
+            try:
+                lineage = build_lineage(
+                    source, current,
+                    self._workflow.steps,
+                    step_metrics_list,
+                )
+            except Exception as e:
+                log.warning("lineage_build_failed", error=str(e))
+
             log.info(
                 "workflow_complete", status="success",
                 total_wall_time_s=round(total_wall, 4),
@@ -488,7 +548,9 @@ class WorkflowExecutor:
                 except Exception as e:
                     log.warning("history_record_completion_failed", error=str(e))
 
-            return WorkflowResult(result=current, metrics=wf_metrics)
+            return WorkflowResult(
+                result=current, metrics=wf_metrics, lineage=lineage,
+            )
 
         except (StepRetryExhaustedError, StepTimeoutError) as exc:
             if isinstance(exc, StepRetryExhaustedError):
@@ -512,6 +574,8 @@ class WorkflowExecutor:
                 error_message=str(exc),
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+            self._call_hooks("on_error", ctx, exc)
+            self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
             raise
 
@@ -535,9 +599,13 @@ class WorkflowExecutor:
                 error_message=str(exc),
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+            self._call_hooks("on_error", ctx, exc)
+            self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
             raise
         finally:
+            if quota_enforcer is not None:
+                quota_enforcer.stop_monitoring()
             tracemalloc.stop()
 
     def _record_failure(
@@ -604,7 +672,7 @@ class WorkflowExecutor:
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Run global pass before main execution
-        global_pass_processors = self._run_global_pass(source, log=log)
+        global_pass_processors = self._run_global_pass(source, ctx=ctx, log=log)
 
         ext = tap_out_format.lstrip('.')
         current = source
@@ -913,6 +981,7 @@ class WorkflowExecutor:
         self,
         source: np.ndarray,
         *,
+        ctx: Optional[ExecutionContext] = None,
         log: Any = None,
     ) -> Dict[int, Any]:
         """Run the global pass for processors that require it.
@@ -927,6 +996,8 @@ class WorkflowExecutor:
         ----------
         source : np.ndarray
             Full input image array.
+        ctx : ExecutionContext, optional
+            Execution context for hook calls.
         log : Any
             Structured logger instance.
 
@@ -967,6 +1038,12 @@ class WorkflowExecutor:
                 step_index=i,
                 processor_name=step.processor_name,
             )
+
+            # Notify hooks
+            if ctx is not None:
+                self._call_hooks(
+                    "on_global_pass_start", ctx, i, step.processor_name,
+                )
 
             gp_t0 = time.perf_counter()
             tracemalloc.reset_peak()
@@ -1011,6 +1088,13 @@ class WorkflowExecutor:
             _, gp_peak = tracemalloc.get_traced_memory()
 
             pre_instantiated[i] = (processor, gp_duration, gp_peak)
+
+            # Notify hooks
+            if ctx is not None:
+                self._call_hooks(
+                    "on_global_pass_end", ctx, i, gp_duration, gp_peak,
+                )
+
             log.debug(
                 "global_pass_complete",
                 step_index=i,

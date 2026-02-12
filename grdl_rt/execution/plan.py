@@ -358,6 +358,8 @@ class AsExecutedManifest:
     total_wall_time_s : float
     total_cpu_time_s : float
     peak_rss_bytes : int
+    data_lineage : Optional[Dict[str, Any]]
+        Serialized data lineage record, or ``None``.
     """
 
     workflow_name: str
@@ -373,10 +375,11 @@ class AsExecutedManifest:
     total_wall_time_s: float
     total_cpu_time_s: float
     peak_rss_bytes: int
+    data_lineage: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
-        return {
+        d: Dict[str, Any] = {
             "workflow_name": self.workflow_name,
             "workflow_version": self.workflow_version,
             "run_id": self.run_id,
@@ -391,3 +394,6 @@ class AsExecutedManifest:
             "total_cpu_time_s": self.total_cpu_time_s,
             "peak_rss_bytes": self.peak_rss_bytes,
         }
+        if self.data_lineage is not None:
+            d["data_lineage"] = self.data_lineage
+        return d

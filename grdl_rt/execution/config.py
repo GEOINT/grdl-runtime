@@ -126,6 +126,54 @@ class TapOutConfig(BaseModel):
     )
 
 
+class QuotaConfig(BaseModel):
+    """Per-workflow resource quota defaults.
+
+    These are absolute limits (not fractions of available RAM).
+    Set to ``None`` to disable a particular quota.
+    """
+
+    max_memory_bytes: Optional[int] = Field(
+        default=None, ge=1, description="Maximum RSS memory in bytes",
+    )
+    max_cpu_percent: Optional[float] = Field(
+        default=None, gt=0, description="Maximum CPU usage percentage",
+    )
+    max_gpu_memory_bytes: Optional[int] = Field(
+        default=None, ge=1, description="Maximum GPU memory in bytes",
+    )
+    max_wall_clock_seconds: Optional[float] = Field(
+        default=None, gt=0, description="Maximum wall-clock seconds for the workflow",
+    )
+
+
+class PrometheusConfig(BaseModel):
+    """Prometheus metrics configuration (opt-in)."""
+
+    enabled: bool = Field(default=False, description="Enable Prometheus metrics collection")
+    prefix: str = Field(default="grdl_rt", description="Metric name prefix")
+
+
+class OtelConfig(BaseModel):
+    """OpenTelemetry tracing configuration (opt-in)."""
+
+    enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
+    exporter: str = Field(
+        default="none", description="Trace exporter: 'otlp', 'console', or 'none'",
+    )
+    service_name: str = Field(
+        default="grdl-runtime", description="Service name for OTel resource",
+    )
+
+    @field_validator("exporter")
+    @classmethod
+    def _validate_exporter(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("otlp", "console", "none"):
+            raise ValueError(f"exporter must be 'otlp', 'console', or 'none', got '{v}'")
+        return v
+
+
 # ======================================================================
 # Top-level RuntimeConfig
 # ======================================================================
@@ -155,6 +203,9 @@ class RuntimeConfig(BaseModel):
         default=None, description="Path to artifact catalog database",
     )
     tap_out: TapOutConfig = Field(default_factory=TapOutConfig)
+    quota: QuotaConfig = Field(default_factory=QuotaConfig)
+    prometheus: PrometheusConfig = Field(default_factory=PrometheusConfig)
+    otel: OtelConfig = Field(default_factory=OtelConfig)
 
 
 # ======================================================================
@@ -176,6 +227,18 @@ _ENV_MAP: Dict[str, tuple] = {
     "GRDL_RT_CATALOG_PATH": (None, "catalog_path"),
     "GRDL_RT_TAP_OUT_FORMAT": ("tap_out", "default_format"),
     "GRDL_RT_TAP_OUT_DIR": ("tap_out", "default_dir"),
+    # Quota
+    "GRDL_RT_QUOTA_MAX_MEMORY_BYTES": ("quota", "max_memory_bytes"),
+    "GRDL_RT_QUOTA_MAX_CPU_PERCENT": ("quota", "max_cpu_percent"),
+    "GRDL_RT_QUOTA_MAX_GPU_MEMORY_BYTES": ("quota", "max_gpu_memory_bytes"),
+    "GRDL_RT_QUOTA_MAX_WALL_CLOCK_SECONDS": ("quota", "max_wall_clock_seconds"),
+    # Prometheus
+    "GRDL_RT_PROMETHEUS_ENABLED": ("prometheus", "enabled"),
+    "GRDL_RT_PROMETHEUS_PREFIX": ("prometheus", "prefix"),
+    # OpenTelemetry
+    "GRDL_RT_OTEL_ENABLED": ("otel", "enabled"),
+    "GRDL_RT_OTEL_EXPORTER": ("otel", "exporter"),
+    "GRDL_RT_OTEL_SERVICE_NAME": ("otel", "service_name"),
 }
 
 _BOOL_TRUTHY = {"1", "true", "yes", "on"}
@@ -185,18 +248,19 @@ _BOOL_FALSY = {"0", "false", "no", "off", ""}
 def _coerce_env_value(raw: str, section: Optional[str], key: str) -> Any:
     """Coerce a string env var value to the appropriate Python type."""
     # Boolean fields
-    if key in ("prefer_gpu",):
+    if key in ("prefer_gpu", "enabled"):
         return raw.lower() in _BOOL_TRUTHY
 
     # Float fields
     if key in (
         "backoff_base", "backoff_max", "warn_threshold",
         "abort_threshold", "estimation_multiplier", "memory_fraction",
+        "max_cpu_percent", "max_wall_clock_seconds",
     ):
         return float(raw)
 
     # Int fields
-    if key in ("max_retries",):
+    if key in ("max_retries", "max_memory_bytes", "max_gpu_memory_bytes"):
         return int(raw)
 
     return raw

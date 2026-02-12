@@ -166,6 +166,28 @@ class FallbackExhaustedError(Exception):
         )
 
 
+class QuotaExceededError(Exception):
+    """A resource quota limit was exceeded during execution.
+
+    Attributes
+    ----------
+    quota_type : str
+        Type of quota that was exceeded (e.g., ``"memory"``, ``"wall_clock"``).
+    limit : object
+        The configured limit value.
+    actual : object
+        The actual value that exceeded the limit.
+    """
+
+    def __init__(self, quota_type: str, limit: object, actual: object) -> None:
+        self.quota_type = quota_type
+        self.limit = limit
+        self.actual = actual
+        super().__init__(
+            f"Quota exceeded: {quota_type} limit={limit}, actual={actual}"
+        )
+
+
 class MemoryThresholdError(Exception):
     """Estimated memory usage exceeds the abort threshold.
 

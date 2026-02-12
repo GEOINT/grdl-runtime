@@ -339,6 +339,12 @@ def _run(args: argparse.Namespace) -> int:
     gpu = GpuBackend(prefer_gpu=args.prefer_gpu)
     executor = WorkflowExecutor(wf, gpu=gpu)
 
+    # Write health probe for Docker readiness
+    try:
+        Path("/tmp/grdl_rt_healthy").touch()
+    except OSError:
+        pass
+
     # Execute
     logger.info(
         "workflow_executing", workflow_name=wf.name,

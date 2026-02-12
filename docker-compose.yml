@@ -1,0 +1,28 @@
+services:
+  grdl-rt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/home/grdl/data
+    environment:
+      - GRDL_RT_LOG_LEVEL=INFO
+      - GRDL_RT_LOG_FORMAT=json
+
+  grdl-rt-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    volumes:
+      - ./data:/home/grdl/data
+    environment:
+      - GRDL_RT_LOG_LEVEL=INFO
+      - GRDL_RT_LOG_FORMAT=json
+      - GRDL_RT_GPU_PREFER_GPU=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

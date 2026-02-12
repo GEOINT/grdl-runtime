@@ -29,14 +29,19 @@ Modified
 """
 
 # Standard library
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 # Third-party
 import numpy as np
 
 # grdl-runtime internal
 from grdl_rt.execution.metrics import WorkflowMetrics
+
+if TYPE_CHECKING:
+    from grdl_rt.execution.lineage import DataLineage
 
 
 @dataclass
@@ -58,8 +63,12 @@ class WorkflowResult:
     step_results : Optional[Dict[str, np.ndarray]]
         For DAG executions, the full results map keyed by step ID.
         ``None`` for linear executions.
+    lineage : Optional[DataLineage]
+        Data lineage record mapping input to output through transforms.
+        ``None`` if lineage tracking was not enabled.
     """
 
     result: np.ndarray
     metrics: WorkflowMetrics
     step_results: Optional[Dict[str, np.ndarray]] = None
+    lineage: Optional[DataLineage] = None

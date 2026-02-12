@@ -42,6 +42,9 @@ from grdl_rt.execution import (
     MemoryConfig,
     GpuConfig,
     TapOutConfig,
+    QuotaConfig,
+    PrometheusConfig,
+    OtelConfig,
     load_runtime_config,
     get_runtime_config,
     reset_runtime_config,
@@ -93,6 +96,7 @@ from grdl_rt.execution import (
     ResumeError,
     ResolutionError,
     FallbackExhaustedError,
+    QuotaExceededError,
     # hardware
     GpuDeviceInfo,
     HardwareContext,
@@ -119,6 +123,17 @@ from grdl_rt.execution import (
     # history
     ExecutionRecord,
     ExecutionHistoryDB,
+    # quota
+    ResourceQuota,
+    QuotaEnforcer,
+    # instrumentation
+    ExecutionHook,
+    # lineage
+    DataLineage,
+    LineageTransform,
+    compute_array_hash,
+    build_lineage,
+    embed_lineage_geotiff,
 )
 
 # ── Catalog subpackage ───────────────────────────────────────────────
@@ -160,6 +175,9 @@ __all__ = [
     "MemoryConfig",
     "GpuConfig",
     "TapOutConfig",
+    "QuotaConfig",
+    "PrometheusConfig",
+    "OtelConfig",
     "load_runtime_config",
     "get_runtime_config",
     "reset_runtime_config",
@@ -211,6 +229,7 @@ __all__ = [
     "ResumeError",
     "ResolutionError",
     "FallbackExhaustedError",
+    "QuotaExceededError",
     # execution: hardware
     "GpuDeviceInfo",
     "HardwareContext",
@@ -237,6 +256,17 @@ __all__ = [
     # execution: history
     "ExecutionRecord",
     "ExecutionHistoryDB",
+    # execution: quota
+    "ResourceQuota",
+    "QuotaEnforcer",
+    # execution: instrumentation
+    "ExecutionHook",
+    # execution: lineage
+    "DataLineage",
+    "LineageTransform",
+    "compute_array_hash",
+    "build_lineage",
+    "embed_lineage_geotiff",
     # catalog
     "Artifact",
     "UpdateResult",

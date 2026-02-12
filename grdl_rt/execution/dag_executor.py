@@ -53,7 +53,10 @@ from grdl_rt.execution.errors import (
     StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.instrumentation import ExecutionHook
+from grdl_rt.execution.lineage import build_lineage
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
+from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 from grdl_rt.execution.plan import (
     AsExecutedManifest,
     ExecutedStepRecord,
@@ -116,14 +119,26 @@ class DAGExecutor:
         catalog: Optional[ArtifactCatalogBase] = None,
         circuit_breaker: Optional[CircuitBreaker] = None,
         max_workers: Optional[int] = None,
+        resource_quota: Optional[ResourceQuota] = None,
+        hooks: Optional[List[ExecutionHook]] = None,
     ) -> None:
         self._workflow = workflow
         self._gpu = gpu or GpuBackend(prefer_gpu=False)
         self._catalog = catalog
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
         self._max_workers = max_workers
+        self._resource_quota = resource_quota
+        self._hooks: List[ExecutionHook] = list(hooks or [])
         self._runtime_substitutions: List[Dict[str, Any]] = []
         self._runtime_subs_lock = threading.Lock()
+
+    def _call_hooks(self, method: str, *args: Any, **kwargs: Any) -> None:
+        """Call a hook method on all registered hooks, swallowing errors."""
+        for hook in self._hooks:
+            try:
+                getattr(hook, method)(*args, **kwargs)
+            except Exception:
+                pass
 
     def execute(
         self,
@@ -294,6 +309,17 @@ class DAGExecutor:
                 status="success",
             )
 
+            # Build data lineage
+            lineage = None
+            try:
+                lineage = build_lineage(
+                    source, final_result,
+                    self._workflow.steps,
+                    step_metrics_list,
+                )
+            except Exception as e:
+                log.warning("lineage_build_failed", error=str(e))
+
             log.info(
                 "dag_workflow_complete", status="success",
                 total_wall_time_s=round(total_wall, 4),
@@ -312,6 +338,9 @@ class DAGExecutor:
                     total_wall=total_wall,
                     total_cpu=total_cpu,
                     total_peak=total_peak,
+                    lineage_dict=(
+                        lineage.to_dict() if lineage else None
+                    ),
                     log=log,
                 )
 
@@ -319,6 +348,7 @@ class DAGExecutor:
                 result=final_result,
                 metrics=wf_metrics,
                 step_results=dict(results),
+                lineage=lineage,
             )
 
         except Exception as exc:
@@ -767,6 +797,7 @@ class DAGExecutor:
         total_cpu: float,
         total_peak: int,
         error_message: Optional[str] = None,
+        lineage_dict: Optional[Dict[str, Any]] = None,
         log: Any = None,
     ) -> None:
         """Write as_executed.json to the run folder."""
@@ -814,6 +845,7 @@ class DAGExecutor:
             total_wall_time_s=total_wall,
             total_cpu_time_s=total_cpu,
             peak_rss_bytes=total_peak,
+            data_lineage=lineage_dict,
         )
 
         run_folder.mkdir(parents=True, exist_ok=True)

@@ -22,6 +22,9 @@ from grdl_rt.execution.config import (
     MemoryConfig,
     GpuConfig,
     TapOutConfig,
+    QuotaConfig,
+    PrometheusConfig,
+    OtelConfig,
     load_runtime_config,
     get_runtime_config,
     reset_runtime_config,
@@ -97,6 +100,7 @@ from grdl_rt.execution.errors import (
     ConditionError,
     ResolutionError,
     FallbackExhaustedError,
+    QuotaExceededError,
 )
 from grdl_rt.execution.hardware import (
     GpuDeviceInfo,
@@ -130,6 +134,20 @@ from grdl_rt.execution.history import (
     ExecutionRecord,
     ExecutionHistoryDB,
 )
+from grdl_rt.execution.quota import (
+    ResourceQuota,
+    QuotaEnforcer,
+)
+from grdl_rt.execution.instrumentation import (
+    ExecutionHook,
+)
+from grdl_rt.execution.lineage import (
+    DataLineage,
+    LineageTransform,
+    compute_array_hash,
+    build_lineage,
+    embed_lineage_geotiff,
+)
 
 __all__ = [
     # tags
@@ -151,6 +169,9 @@ __all__ = [
     "MemoryConfig",
     "GpuConfig",
     "TapOutConfig",
+    "QuotaConfig",
+    "PrometheusConfig",
+    "OtelConfig",
     "load_runtime_config",
     "get_runtime_config",
     "reset_runtime_config",
@@ -239,4 +260,17 @@ __all__ = [
     "AsExecutedManifest",
     # resolver
     "Resolver",
+    # errors (TG9)
+    "QuotaExceededError",
+    # quota
+    "ResourceQuota",
+    "QuotaEnforcer",
+    # instrumentation
+    "ExecutionHook",
+    # lineage
+    "DataLineage",
+    "LineageTransform",
+    "compute_array_hash",
+    "build_lineage",
+    "embed_lineage_geotiff",
 ]
