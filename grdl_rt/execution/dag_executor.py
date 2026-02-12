@@ -27,28 +27,38 @@ Created
 """
 
 # Standard library
+import json
+import threading
 import time
 import tracemalloc
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 # Third-party
 import numpy as np
 
 # grdl-runtime internal
+from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.dag import evaluate_condition
-from grdl_rt.execution.discovery import resolve_processor_class
+from grdl_rt.execution.discovery import get_gpu_capability, resolve_processor_class
 from grdl_rt.execution.errors import (
     ConditionError,
+    FallbackExhaustedError,
     StepRetryExhaustedError,
     StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
+from grdl_rt.execution.plan import (
+    AsExecutedManifest,
+    ExecutedStepRecord,
+    ResolvedExecutionPlan,
+)
 from grdl_rt.execution.resilience import (
     CircuitBreaker,
     RetryPolicy,
@@ -103,13 +113,17 @@ class DAGExecutor:
         workflow: WorkflowDefinition,
         gpu: Optional[GpuBackend] = None,
         *,
+        catalog: Optional[ArtifactCatalogBase] = None,
         circuit_breaker: Optional[CircuitBreaker] = None,
         max_workers: Optional[int] = None,
     ) -> None:
         self._workflow = workflow
         self._gpu = gpu or GpuBackend(prefer_gpu=False)
+        self._catalog = catalog
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
         self._max_workers = max_workers
+        self._runtime_substitutions: List[Dict[str, Any]] = []
+        self._runtime_subs_lock = threading.Lock()
 
     def execute(
         self,
@@ -118,6 +132,8 @@ class DAGExecutor:
         *,
         enable_memory_check: bool = True,
         execution_context: Optional[Dict[str, Any]] = None,
+        resolved_plan: Optional[ResolvedExecutionPlan] = None,
+        run_folder: Optional[Path] = None,
         **kwargs: Any,
     ) -> WorkflowResult:
         """Execute the DAG workflow on a single input.
@@ -181,6 +197,20 @@ class DAGExecutor:
                     abort_threshold=cfg.memory.abort_threshold,
                     log=log,
                 )
+
+        # Write as_planned.json before execution begins
+        if run_folder is not None and resolved_plan is not None:
+            _run_folder = Path(run_folder)
+            _run_folder.mkdir(parents=True, exist_ok=True)
+            planned_path = _run_folder / "as_planned.json"
+            planned_path.write_text(
+                json.dumps(resolved_plan.to_dict(), indent=2, default=str),
+                encoding="utf-8",
+            )
+            log.info("as_planned_written", path=str(planned_path))
+
+        # Reset runtime substitutions for this execution
+        self._runtime_substitutions = []
 
         # Results map: step_id -> output array
         results: Dict[str, np.ndarray] = {}
@@ -270,6 +300,21 @@ class DAGExecutor:
                 step_count=len(step_metrics_list),
             )
 
+            # Write as_executed.json
+            if run_folder is not None:
+                self._write_as_executed(
+                    run_id=run_id,
+                    run_folder=Path(run_folder),
+                    started_at=started_at,
+                    status="success",
+                    resolved_plan=resolved_plan,
+                    step_metrics_list=step_metrics_list,
+                    total_wall=total_wall,
+                    total_cpu=total_cpu,
+                    total_peak=total_peak,
+                    log=log,
+                )
+
             return WorkflowResult(
                 result=final_result,
                 metrics=wf_metrics,
@@ -296,6 +341,26 @@ class DAGExecutor:
                 error_message=str(exc),
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+
+            # Write as_executed.json on failure too
+            if run_folder is not None:
+                try:
+                    self._write_as_executed(
+                        run_id=run_id,
+                        run_folder=Path(run_folder),
+                        started_at=started_at,
+                        status="failed",
+                        resolved_plan=resolved_plan,
+                        step_metrics_list=step_metrics_list,
+                        total_wall=total_wall,
+                        total_cpu=total_cpu,
+                        total_peak=total_peak,
+                        error_message=str(exc),
+                        log=log,
+                    )
+                except Exception:
+                    log.warning("as_executed_write_failed")
+
             raise
 
         finally:
@@ -400,6 +465,7 @@ class DAGExecutor:
                 output = next(iter(step_input.values()))
             else:
                 output = step_input
+            step_status = "success"
 
         elif isinstance(step, ProcessingStep):
             # Circuit breaker check
@@ -409,12 +475,25 @@ class DAGExecutor:
                     f"'{step.processor_name}'"
                 )
 
-            output = self._execute_processor_resilient(
-                step, step_input, log=log, **kwargs,
-            )
-            self._circuit_breaker.record_success(step.processor_name)
+            try:
+                output = self._execute_processor_resilient(
+                    step, step_input, log=log, **kwargs,
+                )
+                self._circuit_breaker.record_success(step.processor_name)
+                step_status = "success"
+            except (StepRetryExhaustedError, RuntimeError) as exc:
+                self._circuit_breaker.record_failure(step.processor_name)
+                fallback_output = self._attempt_fallback(
+                    step, step_input, exc, log=log, **kwargs,
+                )
+                if fallback_output is not None:
+                    output = fallback_output
+                    step_status = "fallback"
+                else:
+                    raise
         else:
             output = step_input
+            step_status = "success"
 
         step_wall = time.perf_counter() - step_t0_wall
         step_cpu = time.process_time() - step_t0_cpu
@@ -435,6 +514,7 @@ class DAGExecutor:
             cpu_time_s=step_cpu,
             peak_rss_bytes=0,
             gpu_used=False,
+            status=step_status,
             step_id=step_id,
         )
 
@@ -543,3 +623,203 @@ class DAGExecutor:
             ) from e
 
         return result
+
+    def _attempt_fallback(
+        self,
+        step: ProcessingStep,
+        step_input: Union[np.ndarray, Dict[str, np.ndarray]],
+        original_error: Exception,
+        *,
+        log: Any = None,
+        **kwargs: Any,
+    ) -> Optional[np.ndarray]:
+        """Attempt to execute a fallback processor for a failed step.
+
+        Queries the catalog for alternatives, tries the first compatible
+        one.  Only one level of fallback is attempted.
+
+        Parameters
+        ----------
+        step : ProcessingStep
+            The step that failed.
+        step_input : np.ndarray or dict
+            The input to the step.
+        original_error : Exception
+            The original error.
+        log
+            Structured logger.
+        **kwargs
+            Extra processor arguments.
+
+        Returns
+        -------
+        Optional[np.ndarray]
+            Fallback output, or None if no fallback succeeded.
+        """
+        log = log or logger
+        alternatives = self._get_step_alternatives(step.processor_name)
+        if not alternatives:
+            log.warning(
+                "step_no_alternatives", step_id=step.id,
+                processor=step.processor_name,
+            )
+            return None
+
+        for alt in alternatives:
+            alt_name = alt.get("processor_name", "")
+            if not alt_name:
+                continue
+
+            log.warning(
+                "step_fallback_attempt", step_id=step.id,
+                original=step.processor_name,
+                fallback=alt_name,
+            )
+
+            try:
+                alt_cls = resolve_processor_class(alt_name)
+                alt_processor = alt_cls()
+                merged_kwargs = {**kwargs, **step.params}
+                output = self._gpu.apply_transform(
+                    alt_processor, step_input, **merged_kwargs,
+                )
+
+                with self._runtime_subs_lock:
+                    self._runtime_substitutions.append({
+                        "step_id": step.id,
+                        "original_processor": step.processor_name,
+                        "replacement_processor": alt_name,
+                        "reason": (
+                            f"Primary processor failed: {original_error}"
+                        ),
+                    })
+
+                log.info(
+                    "step_fallback_success", step_id=step.id,
+                    fallback=alt_name,
+                )
+                return output
+
+            except Exception as fallback_exc:
+                log.warning(
+                    "step_fallback_failed", step_id=step.id,
+                    fallback=alt_name, error=str(fallback_exc),
+                )
+                continue
+
+        log.error(
+            "step_fallback_exhausted", step_id=step.id,
+            processor=step.processor_name,
+            tried=[a.get("processor_name", "") for a in alternatives],
+        )
+        return None
+
+    def _get_step_alternatives(
+        self, processor_name: str,
+    ) -> List[Dict[str, Any]]:
+        """Get alternative processors for a step from the catalog.
+
+        Parameters
+        ----------
+        processor_name : str
+            Name of the processor to find alternatives for.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Alternative entries sorted by priority.
+        """
+        if self._catalog is None:
+            return []
+
+        # Search catalog for artifacts matching this processor
+        for artifact in self._catalog.list_artifacts(
+            artifact_type="grdl_processor",
+        ):
+            if artifact.name == processor_name:
+                alts = list(artifact.alternatives)
+                alts.sort(key=lambda a: a.get("priority", 0))
+                return alts
+            if artifact.processor_class:
+                short = artifact.processor_class.rsplit(".", 1)[-1]
+                if short == processor_name:
+                    alts = list(artifact.alternatives)
+                    alts.sort(key=lambda a: a.get("priority", 0))
+                    return alts
+
+        # Try get_alternatives directly
+        try:
+            alts = self._catalog.get_alternatives(processor_name, "")
+            alts.sort(key=lambda a: a.get("priority", 0))
+            return alts
+        except Exception:
+            return []
+
+    def _write_as_executed(
+        self,
+        run_id: str,
+        run_folder: Path,
+        started_at: str,
+        status: str,
+        resolved_plan: Optional[ResolvedExecutionPlan],
+        step_metrics_list: List[StepMetrics],
+        total_wall: float,
+        total_cpu: float,
+        total_peak: int,
+        error_message: Optional[str] = None,
+        log: Any = None,
+    ) -> None:
+        """Write as_executed.json to the run folder."""
+        log = log or logger
+        executed_records: List[ExecutedStepRecord] = []
+        for sm in step_metrics_list:
+            sub = next(
+                (s for s in self._runtime_substitutions
+                 if s["step_id"] == sm.step_id),
+                None,
+            )
+            executed_records.append(ExecutedStepRecord(
+                step_id=sm.step_id or "",
+                processor_name=sm.processor_name,
+                status=sm.status,
+                wall_time_s=sm.wall_time_s,
+                cpu_time_s=sm.cpu_time_s,
+                peak_rss_bytes=sm.peak_rss_bytes,
+                gpu_used=sm.gpu_used,
+                fallback_processor=(
+                    sub["replacement_processor"] if sub else None
+                ),
+                fallback_reason=sub["reason"] if sub else None,
+                error_message=(
+                    error_message if sm.status == "failed" else None
+                ),
+            ))
+
+        manifest = AsExecutedManifest(
+            workflow_name=self._workflow.name,
+            workflow_version=self._workflow.version,
+            run_id=run_id,
+            started_at=started_at,
+            completed_at=_iso_now(),
+            status=status,
+            hardware_context=(
+                resolved_plan.hardware_context if resolved_plan else {}
+            ),
+            planned_steps=(
+                {k: v.to_dict() for k, v in resolved_plan.steps.items()}
+                if resolved_plan else {}
+            ),
+            executed_steps=executed_records,
+            runtime_substitutions=list(self._runtime_substitutions),
+            total_wall_time_s=total_wall,
+            total_cpu_time_s=total_cpu,
+            peak_rss_bytes=total_peak,
+        )
+
+        run_folder.mkdir(parents=True, exist_ok=True)
+        executed_path = run_folder / "as_executed.json"
+        executed_path.write_text(
+            json.dumps(manifest.to_dict(), indent=2, default=str),
+            encoding="utf-8",
+        )
+        log.info("as_executed_written", path=str(executed_path))

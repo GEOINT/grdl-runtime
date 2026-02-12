@@ -9,6 +9,7 @@ from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 from grdl_rt.catalog.federated import FederatedArtifactCatalog
 from grdl_rt.catalog.updater import ArtifactUpdateWorker
 from grdl_rt.catalog.pool import ThreadExecutorPool
+from grdl_rt.catalog.schema import extract_param_schema
 
 __all__ = [
     "Artifact",
@@ -22,4 +23,5 @@ __all__ = [
     "FederatedArtifactCatalog",
     "ArtifactUpdateWorker",
     "ThreadExecutorPool",
+    "extract_param_schema",
 ]

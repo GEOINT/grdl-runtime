@@ -19,13 +19,14 @@ __version__ = "0.1.0"
 __author__ = "Claude Code (Anthropic)"
 
 # ── API convenience functions ────────────────────────────────────────
-from grdl_rt.api import load_workflow, execute_workflow
+from grdl_rt.api import load_workflow, execute_workflow, resolve_workflow
 
 # ── Execution subpackage ─────────────────────────────────────────────
 from grdl_rt.execution import (
     # tags
     ImageModality,
     DetectionType,
+    GpuCapability,
     SegmentationType,
     ProjectTags,
     WorkflowTags,
@@ -50,6 +51,7 @@ from grdl_rt.execution import (
     discover_processors,
     resolve_processor_class,
     get_processor_tags,
+    get_gpu_capability,
     get_all_modalities,
     get_all_categories,
     filter_processors,
@@ -89,6 +91,21 @@ from grdl_rt.execution import (
     MemoryThresholdError,
     CheckpointError,
     ResumeError,
+    ResolutionError,
+    FallbackExhaustedError,
+    # hardware
+    GpuDeviceInfo,
+    HardwareContext,
+    LocalHardwareContext,
+    # plan
+    ResolvedStep,
+    ParallelGroup,
+    Substitution,
+    ResolvedExecutionPlan,
+    ExecutedStepRecord,
+    AsExecutedManifest,
+    # resolver
+    Resolver,
     # resilience
     RetryPolicy,
     CircuitBreaker,
@@ -123,9 +140,11 @@ __all__ = [
     # api
     "load_workflow",
     "execute_workflow",
+    "resolve_workflow",
     # execution: tags
     "ImageModality",
     "DetectionType",
+    "GpuCapability",
     "SegmentationType",
     "ProjectTags",
     "WorkflowTags",
@@ -150,6 +169,7 @@ __all__ = [
     "discover_processors",
     "resolve_processor_class",
     "get_processor_tags",
+    "get_gpu_capability",
     "get_all_modalities",
     "get_all_categories",
     "filter_processors",
@@ -189,6 +209,21 @@ __all__ = [
     "MemoryThresholdError",
     "CheckpointError",
     "ResumeError",
+    "ResolutionError",
+    "FallbackExhaustedError",
+    # execution: hardware
+    "GpuDeviceInfo",
+    "HardwareContext",
+    "LocalHardwareContext",
+    # execution: plan
+    "ResolvedStep",
+    "ParallelGroup",
+    "Substitution",
+    "ResolvedExecutionPlan",
+    "ExecutedStepRecord",
+    "AsExecutedManifest",
+    # execution: resolver
+    "Resolver",
     # execution: resilience
     "RetryPolicy",
     "CircuitBreaker",

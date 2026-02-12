@@ -34,13 +34,17 @@ from typing import Any, Callable, Dict, Optional, Union
 import numpy as np
 
 # grdl-runtime internal
+from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.execution.dsl import DslCompiler
 from grdl_rt.execution.executor import WorkflowExecutor
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.hardware import HardwareContext, LocalHardwareContext
+from grdl_rt.execution.plan import ResolvedExecutionPlan
+from grdl_rt.execution.resolver import Resolver
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import WorkflowDefinition
 
-__all__ = ["load_workflow", "execute_workflow"]
+__all__ = ["load_workflow", "execute_workflow", "resolve_workflow"]
 
 
 def load_workflow(
@@ -121,3 +125,38 @@ def execute_workflow(
     gpu = GpuBackend(prefer_gpu=prefer_gpu)
     executor = WorkflowExecutor(workflow, gpu=gpu)
     return executor.execute(source, progress_callback=progress_callback, **kwargs)
+
+
+def resolve_workflow(
+    workflow: WorkflowDefinition,
+    hardware: Optional[HardwareContext] = None,
+    catalog: Optional[ArtifactCatalogBase] = None,
+) -> ResolvedExecutionPlan:
+    """Resolve a workflow against available hardware.
+
+    Convenience wrapper that creates a :class:`Resolver`, optionally
+    auto-detects the local hardware context, and returns a
+    :class:`ResolvedExecutionPlan` describing the optimal execution path.
+
+    Parameters
+    ----------
+    workflow : WorkflowDefinition
+        Compiled workflow to resolve.
+    hardware : HardwareContext, optional
+        Hardware to resolve against.  Defaults to
+        :class:`LocalHardwareContext` (auto-detect).
+    catalog : ArtifactCatalogBase, optional
+        Catalog for processor lookup and alternatives.  Defaults to
+        :class:`SqliteArtifactCatalog`.
+
+    Returns
+    -------
+    ResolvedExecutionPlan
+        The resolved execution plan.
+    """
+    if hardware is None:
+        hardware = LocalHardwareContext()
+    if catalog is None:
+        from grdl_rt.catalog.database import SqliteArtifactCatalog
+        catalog = SqliteArtifactCatalog()
+    return Resolver(catalog).resolve(workflow, hardware)

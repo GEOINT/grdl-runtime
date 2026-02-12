@@ -121,6 +121,51 @@ class ConditionError(ValueError):
         )
 
 
+class ResolutionError(Exception):
+    """A workflow step could not be resolved to a runnable processor.
+
+    Attributes
+    ----------
+    step_id : str
+        ID of the step that failed resolution.
+    processor_name : str
+        Name of the processor that could not be resolved.
+    """
+
+    def __init__(self, step_id: str, processor_name: str, reason: str) -> None:
+        self.step_id = step_id
+        self.processor_name = processor_name
+        super().__init__(
+            f"Cannot resolve step '{step_id}' processor "
+            f"'{processor_name}': {reason}"
+        )
+
+
+class FallbackExhaustedError(Exception):
+    """Primary processor and all alternatives failed at runtime.
+
+    Attributes
+    ----------
+    step_id : str
+        ID of the step that failed.
+    original_processor : str
+        Name of the primary processor.
+    tried_alternatives : List[str]
+        Names of alternatives that were attempted.
+    """
+
+    def __init__(
+        self, step_id: str, original: str, tried: List[str],
+    ) -> None:
+        self.step_id = step_id
+        self.original_processor = original
+        self.tried_alternatives = tried
+        super().__init__(
+            f"Step '{step_id}': processor '{original}' failed and "
+            f"all alternatives exhausted: {tried}"
+        )
+
+
 class MemoryThresholdError(Exception):
     """Estimated memory usage exceeds the abort threshold.
 

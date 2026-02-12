@@ -27,7 +27,7 @@ Created
 
 # Standard library
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # grdl-runtime internal
 from grdl_rt.catalog.models import Artifact
@@ -165,6 +165,86 @@ class ArtifactCatalogBase(ABC):
         ...
 
     # --- Default implementations ---
+
+    def get_alternatives(
+        self, name: str, version: str,
+    ) -> List[Dict[str, Any]]:
+        """Return alternative processor entries for the given artifact.
+
+        Default implementation returns an empty list.  Backends that
+        support alternatives override this method.
+
+        Parameters
+        ----------
+        name : str
+            Artifact name.
+        version : str
+            Artifact version.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Each dict has ``processor_name``, ``priority``, and
+            ``compatibility_notes`` keys.
+        """
+        return []
+
+    def set_alternatives(
+        self, name: str, version: str,
+        alternatives: List[Dict[str, Any]],
+    ) -> None:
+        """Set alternative processor entries for the given artifact.
+
+        Default implementation raises ``NotImplementedError``.
+        Backends that support alternatives override this method.
+
+        Parameters
+        ----------
+        name : str
+            Artifact name.
+        version : str
+            Artifact version.
+        alternatives : List[Dict[str, Any]]
+            Each dict must have ``processor_name``, ``priority``,
+            and ``compatibility_notes`` keys.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support set_alternatives"
+        )
+
+    def get_param_schema(
+        self, name: str, version: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the JSON Schema for a processor's tunable parameters.
+
+        Default implementation finds the artifact and returns its
+        ``param_schema`` field.  If *version* is ``None``, returns the
+        schema from the first artifact matching *name*.
+
+        Parameters
+        ----------
+        name : str
+            Processor (artifact) name.
+        version : Optional[str]
+            Artifact version.  If ``None``, picks the first match.
+
+        Returns
+        -------
+        Optional[Dict[str, Any]]
+            JSON Schema dict, or ``None`` if not found or no schema
+            stored.
+        """
+        if version is not None:
+            artifact = self.get_artifact(name, version)
+            if artifact is not None:
+                return artifact.param_schema
+            return None
+
+        # No version specified — pick first matching processor
+        for artifact in self.list_artifacts(artifact_type="grdl_processor"):
+            if artifact.name == name:
+                return artifact.param_schema
+        return None
 
     def __enter__(self) -> 'ArtifactCatalogBase':
         return self

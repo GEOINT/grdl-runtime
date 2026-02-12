@@ -231,6 +231,43 @@ def has_global_pass(cls: type) -> bool:
     return bool(getattr(cls, "__has_global_pass__", False))
 
 
+def get_gpu_capability(cls: type) -> str:
+    """Determine a processor's GPU capability.
+
+    Reads ``__processor_tags__['gpu_capability']`` if present.  Falls
+    back to the legacy ``__gpu_compatible__`` class attribute:
+
+    - ``__gpu_compatible__ = True`` → ``"preferred"``
+    - ``__gpu_compatible__ = False`` → ``"cpu_only"``
+    - No attribute → ``"preferred"`` (optimistic, matching GpuBackend)
+
+    Parameters
+    ----------
+    cls : type
+        A processor class.
+
+    Returns
+    -------
+    str
+        One of ``"required"``, ``"preferred"``, ``"cpu_only"``.
+    """
+    tags = getattr(cls, "__processor_tags__", {})
+    gpu_cap = tags.get("gpu_capability")
+    if gpu_cap is not None:
+        # It's a GpuCapability enum — extract its value
+        return gpu_cap.value if hasattr(gpu_cap, "value") else str(gpu_cap)
+
+    # Legacy fallback: __gpu_compatible__
+    gpu_compat = getattr(cls, "__gpu_compatible__", None)
+    if gpu_compat is True:
+        return "preferred"
+    if gpu_compat is False:
+        return "cpu_only"
+
+    # No information — assume preferred (optimistic)
+    return "preferred"
+
+
 def get_all_modalities() -> Set:
     """Collect all unique modality values from known processors.
 

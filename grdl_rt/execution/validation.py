@@ -6,6 +6,11 @@ Checks that all processors can be resolved, required parameters are present,
 and parameter values satisfy type and constraint checks.  Validation runs
 before any step executes, providing fast feedback on malformed workflows.
 
+When a JSON Schema is available (stored in the catalog or extracted from
+the processor class at validation time), ``jsonschema`` is used for deep
+type and constraint checking.  Falls back to ``__param_specs__`` /
+``__init__`` signature introspection when no schema is available.
+
 Author
 ------
 Claude Code (Anthropic)
@@ -32,7 +37,7 @@ Modified
 # Standard library
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import Any, Dict, TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -87,6 +92,9 @@ def validate_workflow(
        excluded (``metadata`` is injected by the framework).
     4. If the processor class has ``__param_specs__`` (Annotated metadata),
        parameter types and constraint values are checked.
+    5. When a JSON Schema is available (from catalog or extracted from the
+       processor class), ``jsonschema`` validation is used for deep type
+       and constraint checking with detailed error messages.
 
     Parameters
     ----------
@@ -157,14 +165,124 @@ def validate_workflow(
             ))
             continue
 
-        # Check 2: required parameters via __param_specs__ or signature
-        param_specs = getattr(cls, '__param_specs__', None)
-        if param_specs is not None:
-            _validate_via_param_specs(i, step, param_specs, errors)
+        # Check 2: parameter validation — prefer JSON Schema, then
+        # __param_specs__, then __init__ signature.
+        schema = _get_param_schema(step.processor_name, cls, catalog)
+        if schema and schema.get("properties"):
+            _validate_via_json_schema(i, step, schema, errors)
         else:
-            _validate_via_signature(i, step, cls, errors)
+            param_specs = getattr(cls, '__param_specs__', None)
+            if param_specs is not None:
+                _validate_via_param_specs(i, step, param_specs, errors)
+            else:
+                _validate_via_signature(i, step, cls, errors)
 
     return errors
+
+
+def _get_param_schema(
+    processor_name: str,
+    cls: type,
+    catalog: Optional['ArtifactCatalogBase'],
+) -> Optional[Dict[str, Any]]:
+    """Try to obtain a JSON Schema for the processor's parameters.
+
+    Resolution order:
+
+    1. Catalog lookup (``catalog.get_param_schema``).
+    2. Live extraction from the processor class via ``extract_param_schema``.
+    """
+    # 1. Catalog
+    if catalog is not None:
+        try:
+            schema = catalog.get_param_schema(processor_name)
+            if schema:
+                return schema
+        except Exception:
+            pass
+
+    # 2. Live extraction
+    param_specs = getattr(cls, '__param_specs__', None)
+    if param_specs:
+        from grdl_rt.catalog.schema import extract_param_schema
+        return extract_param_schema(cls)
+
+    return None
+
+
+def _validate_via_json_schema(
+    step_index: int,
+    step: ProcessingStep,
+    schema: Dict[str, Any],
+    errors: List[ValidationError],
+) -> None:
+    """Validate step params against a JSON Schema using ``jsonschema``.
+
+    Maps ``jsonschema.ValidationError`` details to the appropriate
+    ``ValidationError`` error codes.
+    """
+    try:
+        import jsonschema
+    except ImportError:
+        # jsonschema not installed — fall back silently
+        return
+
+    validator_cls = jsonschema.Draft202012Validator
+    validator = validator_cls(schema)
+
+    for error in validator.iter_errors(step.params):
+        code, message = _classify_schema_error(error, step.processor_name)
+        errors.append(ValidationError(
+            step_index=step_index,
+            processor_name=step.processor_name,
+            code=code,
+            message=message,
+        ))
+
+
+def _classify_schema_error(
+    error: Any,
+    processor_name: str,
+) -> tuple:
+    """Map a ``jsonschema.ValidationError`` to a ``(code, message)`` pair.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(code, message)`` where *code* is one of
+        ``MISSING_REQUIRED_PARAM``, ``INVALID_PARAM_TYPE``, or
+        ``INVALID_PARAM_VALUE``.
+    """
+    # Required property missing
+    if error.validator == "required":
+        # error.message is like "'sigma' is a required property"
+        param_name = error.message.split("'")[1] if "'" in error.message else "?"
+        return (
+            "MISSING_REQUIRED_PARAM",
+            f"Processor '{processor_name}' requires parameter "
+            f"'{param_name}' but it is not provided.",
+        )
+
+    # Determine which parameter is involved
+    if error.path:
+        param_name = str(error.path[0])
+    else:
+        param_name = "?"
+
+    # Type mismatch
+    if error.validator == "type":
+        return (
+            "INVALID_PARAM_TYPE",
+            f"Parameter '{param_name}' of processor '{processor_name}': "
+            f"{error.message}",
+        )
+
+    # Value constraint violations (minimum, maximum, enum, etc.)
+    return (
+        "INVALID_PARAM_VALUE",
+        f"Parameter '{param_name}' of processor '{processor_name}': "
+        f"{error.message}",
+    )
 
 
 def _validate_via_param_specs(

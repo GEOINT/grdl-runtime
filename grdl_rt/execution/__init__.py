@@ -4,6 +4,7 @@
 from grdl_rt.execution.tags import (
     ImageModality,
     DetectionType,
+    GpuCapability,
     SegmentationType,
     ProjectTags,
     WorkflowTags,
@@ -32,6 +33,7 @@ from grdl_rt.execution.discovery import (
     discover_processors,
     resolve_processor_class,
     get_processor_tags,
+    get_gpu_capability,
     get_all_modalities,
     get_all_categories,
     filter_processors,
@@ -93,6 +95,24 @@ from grdl_rt.execution.errors import (
     ResumeError,
     DAGCycleError,
     ConditionError,
+    ResolutionError,
+    FallbackExhaustedError,
+)
+from grdl_rt.execution.hardware import (
+    GpuDeviceInfo,
+    HardwareContext,
+    LocalHardwareContext,
+)
+from grdl_rt.execution.plan import (
+    ResolvedStep,
+    ParallelGroup,
+    Substitution,
+    ResolvedExecutionPlan,
+    ExecutedStepRecord,
+    AsExecutedManifest,
+)
+from grdl_rt.execution.resolver import (
+    Resolver,
 )
 from grdl_rt.execution.resilience import (
     RetryPolicy,
@@ -115,6 +135,7 @@ __all__ = [
     # tags
     "ImageModality",
     "DetectionType",
+    "GpuCapability",
     "SegmentationType",
     "ProjectTags",
     "WorkflowTags",
@@ -139,6 +160,7 @@ __all__ = [
     "discover_processors",
     "resolve_processor_class",
     "get_processor_tags",
+    "get_gpu_capability",
     "get_all_modalities",
     "get_all_categories",
     "filter_processors",
@@ -201,4 +223,20 @@ __all__ = [
     # errors (TG4)
     "CheckpointError",
     "ResumeError",
+    # errors (TG7)
+    "ResolutionError",
+    "FallbackExhaustedError",
+    # hardware
+    "GpuDeviceInfo",
+    "HardwareContext",
+    "LocalHardwareContext",
+    # plan
+    "ResolvedStep",
+    "ParallelGroup",
+    "Substitution",
+    "ResolvedExecutionPlan",
+    "ExecutedStepRecord",
+    "AsExecutedManifest",
+    # resolver
+    "Resolver",
 ]

@@ -285,6 +285,44 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         })
         self._save()
 
+    def get_alternatives(
+        self, name: str, version: str,
+    ) -> List[Dict[str, Any]]:
+        """Return alternative processor entries for the given artifact.
+
+        Parameters
+        ----------
+        name : str
+        version : str
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+        """
+        for entry in self._artifacts:
+            if entry["name"] == name and entry["version"] == version:
+                return list(entry.get("alternatives") or [])
+        return []
+
+    def set_alternatives(
+        self, name: str, version: str,
+        alternatives: List[Dict[str, Any]],
+    ) -> None:
+        """Set alternative processor entries for the given artifact.
+
+        Parameters
+        ----------
+        name : str
+        version : str
+        alternatives : List[Dict[str, Any]]
+        """
+        for entry in self._artifacts:
+            if entry["name"] == name and entry["version"] == version:
+                entry["alternatives"] = list(alternatives)
+                self._save()
+                return
+        raise KeyError(f"No artifact with name={name!r}, version={version!r}")
+
     def close(self) -> None:
         """Flush any pending state and release resources."""
         self._save()
@@ -312,6 +350,8 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             "python_dsl": artifact.python_dsl,
             "tags": dict(artifact.tags) if artifact.tags else {},
             "requires_global_pass": artifact.requires_global_pass,
+            "alternatives": list(artifact.alternatives),
+            "param_schema": artifact.param_schema,
         }
 
     @staticmethod
@@ -335,4 +375,6 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             python_dsl=entry.get("python_dsl"),
             tags=entry.get("tags") or {},
             requires_global_pass=bool(entry.get("requires_global_pass", False)),
+            alternatives=entry.get("alternatives") or [],
+            param_schema=entry.get("param_schema"),
         )

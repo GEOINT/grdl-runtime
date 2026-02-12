@@ -170,7 +170,7 @@ class TestArtifactModels:
 class TestArtifactCatalogSchemaVersion:
 
     def test_schema_version_property(self, catalog):
-        assert catalog.schema_version == 2
+        assert catalog.schema_version == 4
 
     def test_search_by_tags_empty_returns_all(self, catalog, sample_processor):
         catalog.add_artifact(sample_processor)
@@ -245,10 +245,10 @@ class TestArtifactCatalogMigrations:
         conn.commit()
         conn.close()
 
-        # Opening the catalog should run the v2 migration
+        # Opening the catalog should run all pending migrations (v1→v4)
         cat = SqliteArtifactCatalog(db_path=db_path)
         try:
-            assert cat.schema_version == 2
+            assert cat.schema_version == 4
         finally:
             cat.close()
 

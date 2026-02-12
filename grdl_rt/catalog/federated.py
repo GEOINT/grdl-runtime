@@ -27,7 +27,7 @@ Created
 """
 
 # Standard library
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -122,6 +122,45 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
             "FederatedArtifactCatalog is read-only. "
             "Write directly to a specific backend catalog."
         )
+
+    # -- Alternative processors -------------------------------------------
+
+    def get_alternatives(
+        self, name: str, version: str,
+    ) -> List[Dict[str, Any]]:
+        """Return alternatives from the first backend with the artifact."""
+        for catalog in self._catalogs:
+            result = catalog.get_artifact(name, version)
+            if result is not None:
+                return catalog.get_alternatives(name, version)
+        return []
+
+    def set_alternatives(
+        self, name: str, version: str,
+        alternatives: List[Dict[str, Any]],
+    ) -> None:
+        """Not supported on federated catalogs.
+
+        Raises
+        ------
+        NotImplementedError
+        """
+        raise NotImplementedError(
+            "FederatedArtifactCatalog is read-only. "
+            "Write directly to a specific backend catalog."
+        )
+
+    # -- Parameter schema --------------------------------------------------
+
+    def get_param_schema(
+        self, name: str, version: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return param schema from the first backend that has it."""
+        for catalog in self._catalogs:
+            schema = catalog.get_param_schema(name, version)
+            if schema is not None:
+                return schema
+        return None
 
     # -- Lifecycle ---------------------------------------------------------
 

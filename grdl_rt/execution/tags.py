@@ -40,6 +40,7 @@ from typing import List, Optional, Tuple
 # Canonical vocabulary — single source of truth lives in grdl
 from grdl.vocabulary import (  # noqa: F401 — re-exported
     DetectionType,
+    GpuCapability,
     ImageModality,
     SegmentationType,
 )
