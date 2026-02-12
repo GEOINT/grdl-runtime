@@ -323,6 +323,57 @@ class ExecutionHistoryDB:
     # Internal
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Retention / cleanup
+    # ------------------------------------------------------------------
+
+    def purge_old_records(
+        self,
+        *,
+        max_age_days: Optional[int] = None,
+        max_records: Optional[int] = None,
+    ) -> int:
+        """Remove old execution records based on age or count limits.
+
+        Parameters
+        ----------
+        max_age_days : int, optional
+            Delete records older than this many days.
+        max_records : int, optional
+            Keep at most this many records (most recent first).
+
+        Returns
+        -------
+        int
+            Number of records deleted.
+        """
+        deleted = 0
+
+        if max_age_days is not None:
+            cursor = self._conn.execute(
+                "DELETE FROM executions WHERE start_time < datetime('now', ?)",
+                (f"-{max_age_days} days",),
+            )
+            deleted += cursor.rowcount
+
+        if max_records is not None:
+            cursor = self._conn.execute(
+                "DELETE FROM executions WHERE id NOT IN "
+                "(SELECT id FROM executions ORDER BY start_time DESC LIMIT ?)",
+                (max_records,),
+            )
+            deleted += cursor.rowcount
+
+        if deleted > 0:
+            self._conn.commit()
+            logger.info("history_purged", deleted=deleted)
+
+        return deleted
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> ExecutionRecord:
         return ExecutionRecord(

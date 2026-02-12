@@ -340,8 +340,9 @@ def _run(args: argparse.Namespace) -> int:
     executor = WorkflowExecutor(wf, gpu=gpu)
 
     # Write health probe for Docker readiness
+    _health_file = Path("/tmp/grdl_rt_healthy")
     try:
-        Path("/tmp/grdl_rt_healthy").touch()
+        _health_file.touch()
     except OSError:
         pass
 
@@ -361,6 +362,12 @@ def _run(args: argparse.Namespace) -> int:
     except Exception as e:
         logger.error("execution_failed", error=str(e))
         return EXIT_EXECUTION_FAILURE
+    finally:
+        # Clean up health probe file on exit (DEV-011)
+        try:
+            _health_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # Print metrics summary to stderr
     sys.stderr.write(wr.metrics.to_json() + '\n')

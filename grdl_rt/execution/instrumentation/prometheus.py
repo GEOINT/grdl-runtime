@@ -58,8 +58,8 @@ class PrometheusHook(ExecutionHook):
     - ``{prefix}_errors_total`` — Counter of errors, labeled by
       ``error_type``.
     - ``{prefix}_memory_peak_bytes`` — Gauge of peak RSS memory.
-    - ``{prefix}_gpu_utilization_ratio`` — Gauge of GPU utilization
-      (set to 1.0 when GPU is used, 0.0 otherwise).
+    - ``{prefix}_gpu_used`` — Gauge indicating whether GPU was used
+      for the most recent step (1.0 = yes, 0.0 = no).
 
     Parameters
     ----------
@@ -114,9 +114,9 @@ class PrometheusHook(ExecutionHook):
             "Peak memory usage in bytes",
             registry=self._registry,
         )
-        self.gpu_utilization = _prom.Gauge(
-            f"{prefix}_gpu_utilization_ratio",
-            "GPU utilization ratio (1.0 = used, 0.0 = not used)",
+        self.gpu_used = _prom.Gauge(
+            f"{prefix}_gpu_used",
+            "Whether GPU was used for the most recent step (1 = yes, 0 = no)",
             registry=self._registry,
         )
 
@@ -138,8 +138,7 @@ class PrometheusHook(ExecutionHook):
         if step_metrics.peak_rss_bytes > 0:
             self.memory_peak.set(step_metrics.peak_rss_bytes)
 
-        if step_metrics.gpu_used:
-            self.gpu_utilization.set(1.0)
+        self.gpu_used.set(1.0 if step_metrics.gpu_used else 0.0)
 
     def on_workflow_end(
         self,

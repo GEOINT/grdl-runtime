@@ -28,6 +28,7 @@ Created
 
 # Standard library
 import importlib
+import threading
 from typing import Dict, Optional, Set
 
 # grdl-runtime internal
@@ -41,6 +42,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _catalog: Optional[ArtifactCatalogBase] = None
+_catalog_lock = threading.Lock()
 
 
 def init_discovery(catalog: ArtifactCatalogBase) -> None:
@@ -56,18 +58,20 @@ def init_discovery(catalog: ArtifactCatalogBase) -> None:
         The catalog to use for processor lookup.
     """
     global _catalog
-    _catalog = catalog
+    with _catalog_lock:
+        _catalog = catalog
 
 
 def _get_catalog() -> ArtifactCatalogBase:
     """Return the active catalog, creating a default if needed."""
     global _catalog
-    if _catalog is None:
-        from grdl_rt.catalog.database import SqliteArtifactCatalog
+    with _catalog_lock:
+        if _catalog is None:
+            from grdl_rt.catalog.database import SqliteArtifactCatalog
 
-        _catalog = SqliteArtifactCatalog()
-        logger.info("Discovery initialised with default SqliteArtifactCatalog")
-    return _catalog
+            _catalog = SqliteArtifactCatalog()
+            logger.info("Discovery initialised with default SqliteArtifactCatalog")
+        return _catalog
 
 
 # ---------------------------------------------------------------------------

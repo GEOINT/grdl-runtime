@@ -123,7 +123,7 @@ class TestPrometheusHookCreation:
         assert isinstance(hook.step_duration, prometheus_client.Histogram)
         assert isinstance(hook.errors_total, prometheus_client.Counter)
         assert isinstance(hook.memory_peak, prometheus_client.Gauge)
-        assert isinstance(hook.gpu_utilization, prometheus_client.Gauge)
+        assert isinstance(hook.gpu_used, prometheus_client.Gauge)
 
         # Verify registry is a CollectorRegistry (not the global one)
         assert isinstance(registry, prometheus_client.CollectorRegistry)
@@ -157,7 +157,7 @@ class TestPrometheusHookCreation:
         assert any(n.startswith("myapp_workflow_duration") for n in metric_names)
         assert any(n.startswith("myapp_step_duration") for n in metric_names)
         assert any(n.startswith("myapp_memory_peak") for n in metric_names)
-        assert any(n.startswith("myapp_gpu_utilization") for n in metric_names)
+        assert any(n.startswith("myapp_gpu_used") for n in metric_names)
 
         # And that the default prefix does NOT appear
         assert not any(n.startswith("grdl_rt_") for n in metric_names)
@@ -182,7 +182,7 @@ class TestPrometheusHookCreation:
         assert "grdl_rt_step_duration_seconds" in names
         assert "grdl_rt_errors" in names
         assert "grdl_rt_memory_peak_bytes" in names
-        assert "grdl_rt_gpu_utilization_ratio" in names
+        assert "grdl_rt_gpu_used" in names
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ class TestStepEnd:
         # Gauge defaults to 0.0 and should remain untouched
         assert value == 0.0
 
-    def test_gpu_utilization_set(self):
+    def test_gpu_used_set(self):
         """on_step_end with gpu_used=True sets the gauge to 1.0."""
         hook = PrometheusHook()
         ctx = _make_context()
@@ -255,12 +255,12 @@ class TestStepEnd:
 
         value = _get_sample_value(
             hook.registry,
-            "grdl_rt_gpu_utilization_ratio",
+            "grdl_rt_gpu_used",
         )
         assert value == 1.0
 
-    def test_gpu_utilization_not_set_when_unused(self):
-        """on_step_end with gpu_used=False leaves the gauge at default."""
+    def test_gpu_used_not_set_when_unused(self):
+        """on_step_end with gpu_used=False sets the gauge to 0.0."""
         hook = PrometheusHook()
         ctx = _make_context()
         sm = _make_step_metrics(gpu_used=False)
@@ -269,7 +269,7 @@ class TestStepEnd:
 
         value = _get_sample_value(
             hook.registry,
-            "grdl_rt_gpu_utilization_ratio",
+            "grdl_rt_gpu_used",
         )
         assert value == 0.0
 

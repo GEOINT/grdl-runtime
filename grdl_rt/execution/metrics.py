@@ -54,6 +54,8 @@ class StepMetrics:
         Peak memory delta in bytes (``tracemalloc``).
     gpu_used : bool
         Whether this step ran on GPU.
+    gpu_memory_bytes : Optional[int]
+        GPU memory allocated in bytes during this step, if applicable.
     status : str
         ``"success"`` or ``"failed"``.
     error_message : Optional[str]
@@ -69,6 +71,7 @@ class StepMetrics:
     status: str = "success"
     error_message: Optional[str] = None
     step_id: Optional[str] = None
+    gpu_memory_bytes: Optional[int] = None
     global_pass_duration: Optional[float] = None
     global_pass_memory: Optional[int] = None
 
@@ -91,6 +94,8 @@ class StepMetrics:
         }
         if self.step_id is not None:
             d["step_id"] = self.step_id
+        if self.gpu_memory_bytes is not None:
+            d["gpu_memory_bytes"] = self.gpu_memory_bytes
         if self.global_pass_duration is not None:
             d["global_pass_duration"] = self.global_pass_duration
         if self.global_pass_memory is not None:

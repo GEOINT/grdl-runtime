@@ -80,7 +80,7 @@ from grdl_rt.execution.resilience import (
     execute_with_timeout,
     run_memory_preflight,
 )
-from grdl_rt.execution.lineage import build_lineage
+from grdl_rt.execution.lineage import build_lineage, compute_array_hash
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, TapOutStepDef, WorkflowDefinition
 
@@ -159,6 +159,7 @@ class WorkflowExecutor:
         auto_tap_out: bool = False,
         tap_out_format: str = 'npy',
         tap_out_dir: Optional[Union[str, Path]] = None,
+        run_folder: Optional[Union[str, Path]] = None,
         enable_memory_check: bool = True,
         enable_shutdown_handler: bool = True,
         enable_checkpointing: bool = False,
@@ -234,6 +235,7 @@ class WorkflowExecutor:
                 source,
                 progress_callback=progress_callback,
                 ctx=ctx,
+                run_folder=Path(run_folder) if run_folder else None,
                 enable_memory_check=enable_memory_check,
                 enable_checkpointing=enable_checkpointing,
                 **kwargs,
@@ -256,6 +258,7 @@ class WorkflowExecutor:
         *,
         progress_callback: Optional[Callable[[float], None]],
         ctx: ExecutionContext,
+        run_folder: Optional[Path] = None,
         enable_memory_check: bool,
         enable_checkpointing: bool = False,
         resume_state: Optional[CheckpointState] = None,
@@ -342,6 +345,32 @@ class WorkflowExecutor:
                 )
             except Exception as e:
                 log.warning("history_record_start_failed", error=str(e))
+
+        # Write as_planned.json before execution begins
+        if run_folder is not None:
+            try:
+                run_folder.mkdir(parents=True, exist_ok=True)
+                planned = {
+                    "workflow_name": self._workflow.name,
+                    "workflow_version": self._workflow.version,
+                    "workflow_hash": wf_hash,
+                    "steps": [
+                        {
+                            "index": idx,
+                            "processor_name": getattr(s, "processor_name", type(s).__name__),
+                            "params": dict(getattr(s, "params", {})),
+                        }
+                        for idx, s in enumerate(self._workflow.steps)
+                        if isinstance(s, ProcessingStep)
+                    ],
+                }
+                (run_folder / "as_planned.json").write_text(
+                    json.dumps(planned, indent=2, default=str),
+                    encoding="utf-8",
+                )
+                log.info("as_planned_written", path=str(run_folder / "as_planned.json"))
+            except Exception as e:
+                log.warning("as_planned_write_failed", error=str(e))
 
         tracemalloc.start()
         t0_wall = time.perf_counter()
@@ -436,7 +465,8 @@ class WorkflowExecutor:
                         wall_time_s=step_wall,
                         cpu_time_s=step_cpu,
                         peak_rss_bytes=step_peak,
-                        gpu_used=False,
+                        gpu_used=self._gpu.last_gpu_used,
+                        gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(
                             gp_info[1] if gp_info else None
                         ),
@@ -530,6 +560,16 @@ class WorkflowExecutor:
                 step_count=len(step_metrics_list),
             )
 
+            # Compute output hash for history
+            output_hash_val = None
+            if lineage is not None:
+                output_hash_val = lineage.output_hash
+            else:
+                try:
+                    output_hash_val = compute_array_hash(current)
+                except Exception:
+                    pass
+
             # Record completion in history
             if self._history_db is not None:
                 try:
@@ -543,10 +583,23 @@ class WorkflowExecutor:
                         status="success",
                         step_count=len(step_metrics_list),
                         metrics_json=wf_metrics.to_json(),
+                        output_hash=output_hash_val,
                         checkpoint_path=ckpt_path,
                     )
                 except Exception as e:
                     log.warning("history_record_completion_failed", error=str(e))
+
+            # Write as_executed.json after successful execution
+            if run_folder is not None:
+                try:
+                    self._write_as_executed_linear(
+                        run_folder, ctx, "success",
+                        step_metrics_list, wf_metrics,
+                        lineage_dict=lineage.to_dict() if lineage else None,
+                        log=log,
+                    )
+                except Exception as e:
+                    log.warning("as_executed_write_failed", error=str(e))
 
             return WorkflowResult(
                 result=current, metrics=wf_metrics, lineage=lineage,
@@ -577,6 +630,15 @@ class WorkflowExecutor:
             self._call_hooks("on_error", ctx, exc)
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
+            if run_folder is not None:
+                try:
+                    self._write_as_executed_linear(
+                        run_folder, ctx, "failed",
+                        step_metrics_list, wf_metrics,
+                        error_message=str(exc), log=log,
+                    )
+                except Exception:
+                    pass
             raise
 
         except Exception as exc:
@@ -602,6 +664,15 @@ class WorkflowExecutor:
             self._call_hooks("on_error", ctx, exc)
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
+            if run_folder is not None:
+                try:
+                    self._write_as_executed_linear(
+                        run_folder, ctx, "failed",
+                        step_metrics_list, wf_metrics,
+                        error_message=str(exc), log=log,
+                    )
+                except Exception:
+                    pass
             raise
         finally:
             if quota_enforcer is not None:
@@ -627,6 +698,44 @@ class WorkflowExecutor:
                 )
             except Exception as e:
                 log.warning("history_record_failure_failed", error=str(e))
+
+    def _write_as_executed_linear(
+        self,
+        run_folder: Path,
+        ctx: ExecutionContext,
+        status: str,
+        step_metrics_list: List[StepMetrics],
+        wf_metrics: WorkflowMetrics,
+        *,
+        lineage_dict: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+        log: Any = None,
+    ) -> None:
+        """Write as_executed.json for linear workflow execution."""
+        log = log or logger
+        run_folder.mkdir(parents=True, exist_ok=True)
+        executed = {
+            "workflow_name": self._workflow.name,
+            "workflow_version": self._workflow.version,
+            "run_id": ctx.run_id,
+            "started_at": wf_metrics.started_at,
+            "completed_at": wf_metrics.completed_at,
+            "status": status,
+            "steps": [sm.to_dict() for sm in step_metrics_list],
+            "total_wall_time_s": wf_metrics.total_wall_time_s,
+            "total_cpu_time_s": wf_metrics.total_cpu_time_s,
+            "peak_rss_bytes": wf_metrics.peak_rss_bytes,
+        }
+        if lineage_dict is not None:
+            executed["data_lineage"] = lineage_dict
+        if error_message is not None:
+            executed["error_message"] = error_message
+
+        (run_folder / "as_executed.json").write_text(
+            json.dumps(executed, indent=2, default=str),
+            encoding="utf-8",
+        )
+        log.info("as_executed_written", path=str(run_folder / "as_executed.json"))
 
     def _execute_with_auto_tap_out(
         self,
@@ -758,7 +867,8 @@ class WorkflowExecutor:
                         wall_time_s=step_wall,
                         cpu_time_s=step_cpu,
                         peak_rss_bytes=step_peak,
-                        gpu_used=False,
+                        gpu_used=self._gpu.last_gpu_used,
+                        gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(
                             gp_info[1] if gp_info else None
                         ),
@@ -953,7 +1063,8 @@ class WorkflowExecutor:
                 wall_time_s=step_wall,
                 cpu_time_s=step_cpu,
                 peak_rss_bytes=step_peak,
-                gpu_used=False,
+                gpu_used=self._gpu.last_gpu_used,
+                gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
             )
 
             wf_metrics = WorkflowMetrics(

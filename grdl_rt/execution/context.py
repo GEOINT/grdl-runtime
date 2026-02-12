@@ -31,6 +31,7 @@ Modified
 
 # Standard library
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 
@@ -72,6 +73,7 @@ class ExecutionContext:
 
 
 _configured = False
+_configure_lock = threading.Lock()
 
 
 def configure_logging(
@@ -94,6 +96,16 @@ def configure_logging(
     """
     global _configured
 
+    with _configure_lock:
+        _configure_logging_inner(json_output, level)
+        _configured = True
+
+
+def _configure_logging_inner(
+    json_output: bool,
+    level: int,
+) -> None:
+    """Internal implementation of logging configuration (called under lock)."""
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
@@ -132,8 +144,6 @@ def configure_logging(
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
-
-    _configured = True
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

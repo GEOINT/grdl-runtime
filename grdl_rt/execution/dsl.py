@@ -38,6 +38,7 @@ Modified
 
 # Standard library
 import textwrap
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -55,8 +56,15 @@ from grdl_rt.execution.workflow import (
 # Python DSL decorators and functions
 # ---------------------------------------------------------------------------
 
-# Module-level accumulator for steps during DSL function execution
-_current_steps: List = []
+# Thread-local accumulator for steps during DSL function execution
+_local = threading.local()
+
+
+def _get_current_steps() -> List:
+    """Return the thread-local step accumulator list."""
+    if not hasattr(_local, "steps"):
+        _local.steps = []
+    return _local.steps
 
 
 def step(
@@ -90,7 +98,7 @@ def step(
     **params
         Tunable parameter values.
     """
-    _current_steps.append(ProcessingStep(
+    _get_current_steps().append(ProcessingStep(
         processor_name=processor,
         processor_version=version,
         params=params if params else {},
@@ -117,7 +125,7 @@ def tap_out(
     format : str, optional
         Writer format override.
     """
-    _current_steps.append(TapOutStepDef(path=path, format=format))
+    _get_current_steps().append(TapOutStepDef(path=path, format=format))
 
 
 def workflow(
@@ -165,8 +173,7 @@ def workflow(
     )
 
     def decorator(func: Callable) -> Callable:
-        global _current_steps
-        _current_steps = []
+        _local.steps = []
 
         # Execute the function to capture step() calls
         func()
@@ -188,14 +195,14 @@ def workflow(
             name=name,
             version=version,
             description=description,
-            steps=list(_current_steps),
+            steps=list(_get_current_steps()),
             tags=tags,
             state=WorkflowState.PUBLISHED,
         )
 
         # Attach the workflow definition to the function
         func._workflow_definition = wf
-        _current_steps = []
+        _local.steps = []
         return func
 
     return decorator

@@ -87,6 +87,9 @@ class GpuBackend:
         self._prefer_gpu = prefer_gpu
         self._cupy_available = _check_cupy() if prefer_gpu else False
         self._torch_available = _check_torch() if prefer_gpu else False
+        # Per-call tracking — updated by apply_transform()
+        self.last_gpu_used: bool = False
+        self.last_gpu_memory_bytes: Optional[int] = None
 
     @property
     def cupy_available(self) -> bool:
@@ -166,6 +169,9 @@ class GpuBackend:
         np.ndarray
             Transformed image (always on CPU).
         """
+        self.last_gpu_used = False
+        self.last_gpu_memory_bytes = None
+
         if self._cupy_available:
             # Check GRDL __gpu_compatible__ flag — skip GPU for
             # scipy-dependent processors that will always fail.
@@ -177,9 +183,16 @@ class GpuBackend:
                 )
             else:
                 try:
+                    import cupy as cp
+                    mem_before = cp.cuda.Device().mem_info[0]
                     gpu_source = self.to_gpu(source)
                     result = transform.apply(gpu_source, **kwargs)
-                    return self.to_cpu(result)
+                    cpu_result = self.to_cpu(result)
+                    mem_after = cp.cuda.Device().mem_info[0]
+                    self.last_gpu_used = True
+                    # mem_info returns (free, total) — delta of free = used
+                    self.last_gpu_memory_bytes = max(0, mem_before - mem_after)
+                    return cpu_result
                 except Exception as e:
                     logger.warning(
                         "GPU execution failed, falling back to CPU",
