@@ -232,6 +232,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Output in JSON format.',
     )
 
+    # ── ui subcommand ──────────────────────────────────────────────
+    ui_parser = subparsers.add_parser(
+        'ui',
+        help='Launch the interactive workflow runner GUI.',
+    )
+    ui_parser.add_argument(
+        '--workflow', '-w',
+        type=str,
+        default=None,
+        help='Path to a workflow YAML or component .py file to pre-load.',
+    )
+    ui_parser.add_argument(
+        '--input', '-i',
+        type=str,
+        default=None,
+        help='Path to an input image file to pre-load.',
+    )
+
     return parser
 
 
@@ -679,8 +697,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _history(args)
     elif args.command == 'list-processors':
         return _list_processors(args)
+    elif args.command == 'ui':
+        return _ui(args)
 
     parser.print_help()
+    return EXIT_SUCCESS
+
+
+def _ui(args: argparse.Namespace) -> int:
+    """Launch the interactive runner GUI.
+
+    Returns
+    -------
+    int
+        Exit code.
+    """
+    from grdl_rt.ui import launch
+
+    launch(workflow=args.workflow, input_path=args.input)
     return EXIT_SUCCESS
 
 

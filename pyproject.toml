@@ -40,6 +40,10 @@ dependencies = [
 
 [project.scripts]
 grdl-rt = "grdl_rt.cli:main"
+grdl-rt-ui = "grdl_rt.ui:main"
+
+[project.gui-scripts]
+grdl-rt-ui = "grdl_rt.ui:main"
 
 [project.optional-dependencies]
 gpu = [
