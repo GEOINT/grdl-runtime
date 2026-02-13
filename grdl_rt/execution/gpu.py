@@ -147,60 +147,89 @@ class GpuBackend:
         self,
         transform: Any,
         source: np.ndarray,
+        *,
+        metadata: Any = None,
         **kwargs: Any,
-    ) -> np.ndarray:
-        """Apply a GRDL ImageTransform with optional GPU acceleration.
+    ) -> Any:
+        """Execute a processor with optional GPU acceleration.
 
-        Attempts to run the transform on GPU by converting the source
-        to a CuPy array. If the transform raises an error (e.g., due
-        to scipy usage), falls back to CPU execution.
+        Uses the GRDL ``execute(metadata, source, **kwargs)`` protocol
+        via ``execute_processor()``.  CuPy GPU transfer is only attempted
+        for ``ImageTransform`` instances with ``__gpu_compatible__ = True``.
 
         Parameters
         ----------
-        transform : ImageTransform
-            GRDL image transform instance.
+        transform : Any
+            GRDL ``ImageProcessor`` instance, legacy processor, or callable.
         source : np.ndarray
             Input image array.
+        metadata : ImageMetadata, optional
+            Image metadata.  If ``None``, a minimal synthetic metadata
+            is derived from the source array shape/dtype.
         **kwargs
-            Tunable parameters passed to transform.apply().
+            Additional parameters forwarded to the processor.
 
         Returns
         -------
+        tuple[Any, ImageMetadata]
+            ``(result, updated_metadata)`` when *metadata* was provided.
         np.ndarray
-            Transformed image (always on CPU).
+            Raw result when *metadata* was ``None`` (legacy path).
         """
+        from grdl_rt.execution.dispatch import (
+            execute_processor,
+            supports_gpu_transfer,
+            _minimal_metadata,
+        )
+
         self.last_gpu_used = False
         self.last_gpu_memory_bytes = None
 
-        if self._cupy_available:
-            # Check GRDL __gpu_compatible__ flag — skip GPU for
-            # scipy-dependent processors that will always fail.
+        have_metadata = metadata is not None
+        if not have_metadata:
+            if isinstance(source, np.ndarray):
+                metadata = _minimal_metadata(source)
+            else:
+                # Non-ndarray source (e.g., dict from DAG fan-in) — skip
+                # metadata synthesis, use None placeholder.
+                metadata = None
+
+        if self._cupy_available and supports_gpu_transfer(transform):
+            try:
+                import cupy as cp
+                mem_before = cp.cuda.Device().mem_info[0]
+                gpu_source = self.to_gpu(source)
+                result, updated_meta = execute_processor(
+                    transform, metadata, gpu_source, **kwargs,
+                )
+                cpu_result = self.to_cpu(result)
+                mem_after = cp.cuda.Device().mem_info[0]
+                self.last_gpu_used = True
+                self.last_gpu_memory_bytes = max(0, mem_before - mem_after)
+                if have_metadata:
+                    return cpu_result, updated_meta
+                return cpu_result
+            except Exception as e:
+                logger.warning(
+                    "GPU execution failed, falling back to CPU",
+                    transform=type(transform).__name__,
+                    error=str(e),
+                )
+        elif self._cupy_available:
+            # Log skip for non-GPU-transferable processors
             gpu_ok = getattr(transform, '__gpu_compatible__', None)
             if gpu_ok is False:
                 logger.debug(
                     "Skipping GPU (__gpu_compatible__=False)",
                     transform=type(transform).__name__,
                 )
-            else:
-                try:
-                    import cupy as cp
-                    mem_before = cp.cuda.Device().mem_info[0]
-                    gpu_source = self.to_gpu(source)
-                    result = transform.apply(gpu_source, **kwargs)
-                    cpu_result = self.to_cpu(result)
-                    mem_after = cp.cuda.Device().mem_info[0]
-                    self.last_gpu_used = True
-                    # mem_info returns (free, total) — delta of free = used
-                    self.last_gpu_memory_bytes = max(0, mem_before - mem_after)
-                    return cpu_result
-                except Exception as e:
-                    logger.warning(
-                        "GPU execution failed, falling back to CPU",
-                        transform=type(transform).__name__,
-                        error=str(e),
-                    )
 
-        return transform.apply(source, **kwargs)
+        result, updated_meta = execute_processor(
+            transform, metadata, source, **kwargs,
+        )
+        if have_metadata:
+            return result, updated_meta
+        return result
 
     def apply_torch_model(
         self,

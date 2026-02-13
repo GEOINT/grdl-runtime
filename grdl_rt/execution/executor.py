@@ -82,6 +82,7 @@ from grdl_rt.execution.resilience import (
 )
 from grdl_rt.execution.lineage import build_lineage, compute_array_hash
 from grdl_rt.execution.result import WorkflowResult
+from grdl_rt.execution.band_adaptation import adapt_bands, BandExpansion, BandReduction
 from grdl_rt.execution.workflow import ProcessingStep, TapOutStepDef, WorkflowDefinition
 
 logger = get_logger(__name__)
@@ -1279,6 +1280,10 @@ class WorkflowExecutor:
     ) -> np.ndarray:
         """Execute a single processing step (no resilience wrapping).
 
+        Uses ``GpuBackend.apply_transform()`` which dispatches via the
+        GRDL ``execute()`` protocol, with fallback to ``apply()`` for
+        legacy processors.
+
         Parameters
         ----------
         step : ProcessingStep
@@ -1308,11 +1313,26 @@ class WorkflowExecutor:
                     f"Failed to resolve processor '{step.processor_name}': {e}"
                 ) from e
 
+        # Band adaptation from @processor_tags
+        tags = getattr(type(processor), '__processor_tags__', {})
+        required_bands = tags.get('required_bands')
+        if required_bands is not None and isinstance(source, np.ndarray):
+            exp_str = getattr(step, 'band_expansion', None)
+            red_str = getattr(step, 'band_reduction', None)
+            exp = BandExpansion(exp_str) if exp_str else BandExpansion.REPEAT
+            red = BandReduction(red_str) if red_str else BandReduction.FIRST_N
+            source = adapt_bands(source, required_bands, expansion=exp, reduction=red)
+
         # Merge step params with kwargs (step params take precedence)
         merged_kwargs = {**kwargs, **step.params}
 
         try:
-            result = self._gpu.apply_transform(processor, source, **merged_kwargs)
+            # apply_transform dispatches via execute() protocol.
+            # No metadata in YAML executor path — synthetic metadata
+            # is created internally as needed.
+            result = self._gpu.apply_transform(
+                processor, source, **merged_kwargs,
+            )
         except Exception as e:
             # Distinguish GRDL library errors from general Python errors
             if GrdlError is not None and isinstance(e, GrdlError):

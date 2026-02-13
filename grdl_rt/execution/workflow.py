@@ -125,6 +125,8 @@ class ProcessingStep:
         depends_on: Optional[List[str]] = None,
         condition: Optional[str] = None,
         phase: Optional[str] = None,
+        band_expansion: Optional[str] = None,
+        band_reduction: Optional[str] = None,
     ) -> None:
         self.processor_name = processor_name
         self.processor_version = processor_version
@@ -135,6 +137,8 @@ class ProcessingStep:
         self.depends_on: List[str] = list(depends_on) if depends_on else []
         self.condition = condition
         self.phase = phase
+        self.band_expansion = band_expansion
+        self.band_reduction = band_reduction
 
     def to_dict(self) -> dict:
         """Serialize to dictionary.
@@ -161,6 +165,10 @@ class ProcessingStep:
             d['retry'] = self.retry.to_dict()
         if self.timeout_seconds is not None:
             d['timeout_seconds'] = self.timeout_seconds
+        if self.band_expansion is not None:
+            d['band_expansion'] = self.band_expansion
+        if self.band_reduction is not None:
+            d['band_reduction'] = self.band_reduction
         return d
 
     @classmethod
@@ -188,6 +196,8 @@ class ProcessingStep:
             depends_on=data.get('depends_on'),
             condition=data.get('condition'),
             phase=data.get('phase'),
+            band_expansion=data.get('band_expansion'),
+            band_reduction=data.get('band_reduction'),
         )
 
 

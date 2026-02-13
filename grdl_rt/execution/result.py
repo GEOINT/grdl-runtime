@@ -32,7 +32,7 @@ Modified
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Any, TYPE_CHECKING, Dict, List, Optional
 
 # Third-party
 import numpy as np
@@ -54,21 +54,28 @@ class WorkflowResult:
 
     Attributes
     ----------
-    result : np.ndarray
-        The processed image array.  For DAG workflows with a single
-        terminal node, this is that node's output.  For multiple
-        terminals, this is the last terminal in topological order.
+    result : Any
+        The processed output.  Typically ``np.ndarray`` for transforms,
+        ``DetectionSet`` for detectors, or ``dict`` for decompositions.
+        For DAG workflows with a single terminal node, this is that
+        node's output.  For multiple terminals, this is the last
+        terminal in topological order.
     metrics : WorkflowMetrics
         Timing and resource usage metrics for the run.
-    step_results : Optional[Dict[str, np.ndarray]]
+    step_results : Optional[Dict[str, Any]]
         For DAG executions, the full results map keyed by step ID.
         ``None`` for linear executions.
     lineage : Optional[DataLineage]
         Data lineage record mapping input to output through transforms.
         ``None`` if lineage tracking was not enabled.
+    metadata_trace : List[Dict[str, Any]]
+        Per-step metadata snapshots.  Each entry has ``step_index``,
+        ``step_name``, and ``metadata`` (the ``ImageMetadata`` after
+        that step).  Empty if no metadata was provided.
     """
 
-    result: np.ndarray
+    result: Any
     metrics: WorkflowMetrics
-    step_results: Optional[Dict[str, np.ndarray]] = None
+    step_results: Optional[Dict[str, Any]] = None
     lineage: Optional[DataLineage] = None
+    metadata_trace: List[Dict[str, Any]] = field(default_factory=list)

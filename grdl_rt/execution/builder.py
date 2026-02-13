@@ -67,14 +67,20 @@ from grdl_rt.execution.resilience import (
     run_memory_preflight,
 )
 from grdl_rt.execution.result import WorkflowResult
+from grdl_rt.execution.band_adaptation import (
+    BandExpansion,
+    BandReduction,
+    adapt_bands,
+)
 from grdl_rt.execution.tags import ImageModality, WorkflowTags
 
 logger = get_logger(__name__)
 
-# GRDL base class (optional — graceful fallback if grdl is unavailable)
+# GRDL base classes (optional — graceful fallback if grdl is unavailable)
 try:
-    from grdl.image_processing.base import ImageTransform
+    from grdl.image_processing.base import ImageProcessor, ImageTransform
 except ImportError:
+    ImageProcessor = None  # type: ignore[misc,assignment]
     ImageTransform = None  # type: ignore[misc,assignment]
 
 # GRDL exceptions (optional — graceful fallback if grdl is old)
@@ -94,14 +100,15 @@ except ImportError:
 class WorkflowStep:
     """A single step in a live :class:`Workflow`.
 
-    Holds a callable reference along with display metadata.  The callable
-    is fully bound at construction time — it accepts exactly one positional
-    ``np.ndarray`` argument and returns an ``np.ndarray``.
+    Holds either a processor instance (dispatched via ``execute_processor()``)
+    or a raw callable.  The ``fn`` field stores the processor instance or
+    callable; ``execute_processor()`` handles both transparently.
 
     Attributes
     ----------
-    fn : Callable[[np.ndarray], np.ndarray]
-        The step callable.
+    fn : Any
+        Processor instance (``ImageProcessor`` subclass) or raw callable.
+        Dispatched via ``execute_processor()`` during pipeline execution.
     name : str
         Human-readable step name for logging and error messages.
     gpu_compatible : bool
@@ -120,7 +127,7 @@ class WorkflowStep:
         Execution phase annotation.
     """
 
-    fn: Callable[[np.ndarray], np.ndarray]
+    fn: Any
     name: str
     gpu_compatible: bool
     retry: Optional[RetryPolicy] = None
@@ -129,6 +136,9 @@ class WorkflowStep:
     depends_on: Optional[List[str]] = None
     condition: Optional[str] = None
     phase: Optional[str] = None
+    required_bands: Optional[int] = None
+    band_expansion: Optional[str] = None
+    band_reduction: Optional[str] = None
 
 
 @dataclass
@@ -171,6 +181,9 @@ class DeferredStep:
     depends_on: Optional[List[str]] = None
     condition: Optional[str] = None
     phase: Optional[str] = None
+    required_bands: Optional[int] = None
+    band_expansion: Optional[str] = None
+    band_reduction: Optional[str] = None
 
 
 @dataclass
@@ -339,6 +352,8 @@ class Workflow:
         description: str = "",
         modalities: Optional[List[str]] = None,
         tags: Optional[WorkflowTags] = None,
+        band_expansion: str = "repeat",
+        band_reduction: str = "first_n",
     ) -> None:
         self._name = name
         self._version = version
@@ -352,6 +367,8 @@ class Workflow:
         self._is_dag: bool = False
         self._branch_terminal_ids: List[str] = []
         self._step_counter: int = 0
+        self._band_expansion = BandExpansion(band_expansion)
+        self._band_reduction = BandReduction(band_reduction)
 
         if tags is not None:
             self._tags = tags
@@ -547,6 +564,10 @@ class Workflow:
         # Class → deferred construction
         if isinstance(obj, type):
             step_name = name or obj.__name__
+            # Pop band adaptation kwargs before forwarding to constructor
+            step_band_expansion = kwargs.pop('band_expansion', None)
+            step_band_reduction = kwargs.pop('band_reduction', None)
+            step_required_bands = kwargs.pop('required_bands', None)
             self._steps.append(DeferredStep(
                 processor_cls=obj,
                 kwargs=kwargs,
@@ -557,6 +578,9 @@ class Workflow:
                 depends_on=depends_on,
                 condition=condition,
                 phase=step_phase,
+                required_bands=step_required_bands,
+                band_expansion=step_band_expansion,
+                band_reduction=step_band_reduction,
             ))
             return self
 
@@ -568,9 +592,15 @@ class Workflow:
                 "bind arguments before passing to step()."
             )
 
-        # ImageTransform instance → wrap .apply()
-        if ImageTransform is not None and isinstance(obj, ImageTransform):
-            fn = obj.apply
+        # ImageProcessor instance → store instance for polymorphic dispatch
+        if ImageProcessor is not None and isinstance(obj, ImageProcessor):
+            fn = obj
+            step_name = name or type(obj).__name__
+            gpu_ok = getattr(obj, '__gpu_compatible__', False)
+
+        # ImageTransform instance (fallback if ImageProcessor not available)
+        elif ImageTransform is not None and isinstance(obj, ImageTransform):
+            fn = obj
             step_name = name or type(obj).__name__
             gpu_ok = getattr(obj, '__gpu_compatible__', False)
 
@@ -890,6 +920,7 @@ class Workflow:
                 source, steps,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
+                metadata=metadata,
             )
 
         # No source → fall back to stored source or reader
@@ -910,6 +941,7 @@ class Workflow:
                     array, steps,
                     prefer_gpu=prefer_gpu,
                     progress_callback=progress_callback,
+                    metadata=metadata,
                 )
             raise ValueError(
                 "No source provided.  Pass a filepath, array, or "
@@ -1016,6 +1048,7 @@ class Workflow:
                 chip, resolved,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
+                metadata=meta,
             )
 
     def _read_chip(self, reader: Any) -> np.ndarray:
@@ -1108,23 +1141,34 @@ class Workflow:
         """
         instance = _construct_processor(ds.processor_cls, ds.kwargs, metadata)
 
-        # Determine the callable and GPU flag
-        if ImageTransform is not None and isinstance(instance, ImageTransform):
-            fn = instance.apply
-        elif callable(instance):
+        # Store the processor instance — execute_processor() handles dispatch.
+        # Accepts: ImageProcessor subclass, callable instance, or object
+        # with apply()/detect()/decompose().
+        if (
+            (ImageProcessor is not None and isinstance(instance, ImageProcessor))
+            or hasattr(instance, 'execute')
+            or hasattr(instance, 'apply')
+            or callable(instance)
+        ):
             fn = instance
-        elif hasattr(instance, 'apply') and callable(instance.apply):
-            fn = instance.apply
         else:
             raise TypeError(
                 f"Deferred step '{ds.name}' produced a {type(instance).__name__} "
-                f"that is not callable and has no apply() method."
+                f"that has no execute(), apply(), or __call__ method."
             )
 
         gpu_ok = getattr(instance, '__gpu_compatible__', False)
+
+        # Resolve required_bands: explicit step override > @processor_tags
+        tags = getattr(ds.processor_cls, '__processor_tags__', {})
+        required_bands = ds.required_bands or tags.get('required_bands')
+
         return WorkflowStep(
             fn=fn, name=ds.name, gpu_compatible=gpu_ok,
             retry=ds.retry, timeout_seconds=ds.timeout_seconds,
+            required_bands=required_bands,
+            band_expansion=ds.band_expansion,
+            band_reduction=ds.band_reduction,
         )
 
     def _run_pipeline(
@@ -1134,6 +1178,7 @@ class Workflow:
         *,
         prefer_gpu: bool,
         progress_callback: Optional[Callable[[float], None]],
+        metadata: Optional[Any] = None,
     ) -> WorkflowResult:
         """Execute resolved steps sequentially on source data.
 
@@ -1143,6 +1188,8 @@ class Workflow:
         steps : List[Union[WorkflowStep, TapOutStep]]
         prefer_gpu : bool
         progress_callback : optional
+        metadata : optional
+            Image metadata threaded through the pipeline.
 
         Returns
         -------
@@ -1203,6 +1250,8 @@ class Workflow:
         gpu = GpuBackend(prefer_gpu=prefer_gpu)
         n_steps = len(steps)
         current = source
+        current_meta = metadata
+        metadata_trace: List[Dict[str, Any]] = []
 
         for i, ws in enumerate(steps):
             if isinstance(ws, TapOutStep):
@@ -1221,14 +1270,45 @@ class Workflow:
                     step_name=ws.name,
                 )
 
+                # Band adaptation (only for ndarray inputs)
+                if (
+                    ws.required_bands is not None
+                    and isinstance(current, np.ndarray)
+                ):
+                    exp = (
+                        BandExpansion(ws.band_expansion)
+                        if ws.band_expansion
+                        else self._band_expansion
+                    )
+                    red = (
+                        BandReduction(ws.band_reduction)
+                        if ws.band_reduction
+                        else self._band_reduction
+                    )
+                    current = adapt_bands(
+                        current, ws.required_bands,
+                        expansion=exp, reduction=red,
+                    )
+
                 # Capture step-level metrics
                 snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
-                current, gpu_used = self._execute_step_gpu_aware(
-                    ws, current, gpu, i, n_steps,
+                current, current_meta, gpu_used = (
+                    self._execute_step_gpu_aware(
+                        ws, current, gpu, i, n_steps,
+                        metadata=current_meta,
+                    )
                 )
+
+                # Record metadata snapshot for trace
+                if current_meta is not None:
+                    metadata_trace.append({
+                        'step_index': i,
+                        'step_name': ws.name,
+                        'metadata': current_meta,
+                    })
 
                 step_wall_elapsed = time.perf_counter() - step_wall_t0
                 step_cpu_elapsed = time.process_time() - step_cpu_t0
@@ -1274,7 +1354,10 @@ class Workflow:
         if not tracemalloc_was_running:
             tracemalloc.stop()
 
-        return WorkflowResult(result=current, metrics=wf_metrics)
+        return WorkflowResult(
+            result=current, metrics=wf_metrics,
+            metadata_trace=metadata_trace,
+        )
 
     def _run_pipeline_with_auto_tap_out(
         self,
@@ -1375,12 +1458,29 @@ class Workflow:
                     step_name=ws.name,
                 )
 
+                # Band adaptation
+                if ws.required_bands is not None:
+                    exp = (
+                        BandExpansion(ws.band_expansion)
+                        if ws.band_expansion
+                        else self._band_expansion
+                    )
+                    red = (
+                        BandReduction(ws.band_reduction)
+                        if ws.band_reduction
+                        else self._band_reduction
+                    )
+                    current = adapt_bands(
+                        current, ws.required_bands,
+                        expansion=exp, reduction=red,
+                    )
+
                 # Capture step-level metrics
                 snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
-                current, gpu_used = self._execute_step_gpu_aware(
+                current, _meta, gpu_used = self._execute_step_gpu_aware(
                     ws, current, gpu, i, n_steps,
                 )
 
@@ -1520,26 +1620,59 @@ class Workflow:
     def _execute_step_gpu_aware(
         self,
         ws: WorkflowStep,
-        source: np.ndarray,
+        source: Any,
         gpu: GpuBackend,
         step_index: int,
         n_steps: int,
-    ) -> Tuple[np.ndarray, bool]:
+        *,
+        metadata: Optional[Any] = None,
+    ) -> Tuple[Any, Any, bool]:
         """Execute a single step with optional GPU acceleration, retry, and timeout.
+
+        Uses ``execute_processor()`` for polymorphic dispatch — works with
+        ``ImageTransform``, ``ImageDetector``, ``PolarimetricDecomposition``,
+        ``WorkflowOperator``, and raw callables.
+
+        Parameters
+        ----------
+        ws : WorkflowStep
+        source : Any
+        gpu : GpuBackend
+        step_index : int
+        n_steps : int
+        metadata : optional
+            Current pipeline metadata.
 
         Returns
         -------
-        Tuple[np.ndarray, bool]
-            The result array and a boolean indicating whether GPU was
-            actually used for execution.
+        Tuple[Any, Any, bool]
+            ``(result, updated_metadata, gpu_used)``
         """
-        def _do_raw_step() -> Tuple[np.ndarray, bool]:
+        from grdl_rt.execution.dispatch import (
+            execute_processor,
+            supports_gpu_transfer,
+            _minimal_metadata,
+        )
+
+        step_meta = metadata
+        if step_meta is None:
+            if isinstance(source, np.ndarray):
+                step_meta = _minimal_metadata(source)
+
+        def _do_raw_step() -> Tuple[Any, Any, bool]:
             try:
-                if gpu.cupy_available and ws.gpu_compatible:
+                if (
+                    gpu.cupy_available
+                    and ws.gpu_compatible
+                    and supports_gpu_transfer(ws.fn)
+                    and isinstance(source, np.ndarray)
+                ):
                     try:
                         gpu_source = gpu.to_gpu(source)
-                        result = ws.fn(gpu_source)
-                        return gpu.to_cpu(result), True
+                        result, out_meta = execute_processor(
+                            ws.fn, step_meta, gpu_source,
+                        )
+                        return gpu.to_cpu(result), out_meta, True
                     except Exception as gpu_err:
                         logger.warning(
                             "GPU execution failed for step '%s', "
@@ -1547,7 +1680,10 @@ class Workflow:
                             ws.name, gpu_err,
                         )
 
-                return ws.fn(source), False
+                result, out_meta = execute_processor(
+                    ws.fn, step_meta, source,
+                )
+                return result, out_meta, False
 
             except Exception as e:
                 if GrdlError is not None and isinstance(e, GrdlError):
@@ -1569,7 +1705,7 @@ class Workflow:
         timeout = ws.timeout_seconds
         retry = ws.retry
 
-        def _step_with_timeout() -> Tuple[np.ndarray, bool]:
+        def _step_with_timeout() -> Tuple[Any, Any, bool]:
             if timeout is not None:
                 return execute_with_timeout(
                     _do_raw_step, timeout, ws.name,
