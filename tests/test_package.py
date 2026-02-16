@@ -45,5 +45,5 @@ class TestNoGuiDependencies:
         import grdl_rt
 
         source = inspect.getsource(grdl_rt)
-        for forbidden in ("PySide6", "orange", "napari", "QWidget", "QApplication"):
+        for forbidden in ("PyQt6", "PySide6", "orange", "napari", "QWidget", "QApplication"):
             assert forbidden not in source, f"Found forbidden GUI reference: {forbidden}"

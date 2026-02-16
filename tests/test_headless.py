@@ -3,7 +3,7 @@
 Tests for headless guarantee — no GUI framework imports in grdl_rt/.
 
 Ensures that the grdl-runtime package can be used in headless server
-environments without requiring PySide6, Orange, napari, or any other
+environments without requiring PyQt6, Orange, napari, or any other
 GUI framework.
 
 Author
@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Forbidden GUI framework tokens
 FORBIDDEN_GUI_TOKENS = [
+    "PyQt6",
     "PySide6",
     "from orange",
     "import orange",
