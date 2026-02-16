@@ -118,7 +118,7 @@ grdl-runtime depends on grdl. grdl does **not** depend on grdl-runtime. All fram
 
 ### No GUI Dependencies
 
-grdl-runtime must run headless. No Qt, no PySide6, no display requirements. All visualization and GUI concerns belong in grdk.
+grdl-runtime must run headless. No Qt, no PyQt6, no display requirements. All visualization and GUI concerns belong in grdk.
 
 ### Graceful GRDL Fallbacks
 
