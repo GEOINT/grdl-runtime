@@ -178,7 +178,10 @@ class LocalHardwareContext(HardwareContext):
             mem = _psutil.virtual_memory()
             return mem.total, mem.available
         # Fallback: unknown memory
-        logger.debug("psutil not available; memory stats unavailable")
+        logger.warning(
+            "psutil not installed; RAM will report as 0. "
+            "Install psutil for accurate memory detection."
+        )
         return 0, 0
 
     @staticmethod
@@ -194,12 +197,14 @@ class LocalHardwareContext(HardwareContext):
                     props = torch.cuda.get_device_properties(i)
                     devices.append(GpuDeviceInfo(
                         name=props.name,
-                        memory_bytes=props.total_mem,
+                        memory_bytes=props.total_memory,
                         device_index=i,
                     ))
                 return devices
         except ImportError:
             pass
+        except Exception as exc:
+            logger.warning("PyTorch GPU detection failed: %s", exc)
 
         # Fallback to CuPy
         try:
@@ -207,15 +212,16 @@ class LocalHardwareContext(HardwareContext):
             for i in range(cp.cuda.runtime.getDeviceCount()):
                 with cp.cuda.Device(i):
                     free, total = cp.cuda.runtime.memGetInfo()
-                    dev = cp.cuda.Device(i)
                     devices.append(GpuDeviceInfo(
-                        name=str(dev),
+                        name=f"CUDA Device {i}",
                         memory_bytes=total,
                         device_index=i,
                     ))
-                return devices
+            return devices
         except ImportError:
             pass
+        except Exception as exc:
+            logger.warning("CuPy GPU detection failed: %s", exc)
 
         return devices
 
