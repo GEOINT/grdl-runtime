@@ -80,7 +80,7 @@ Repository = "https://github.com/geoint-org/GRDL"
 include = ["grdl_rt*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "grdl_rt"]
 addopts = "-v --mypy"
 
 [tool.black]
