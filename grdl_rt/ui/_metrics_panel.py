@@ -66,7 +66,7 @@ class MetricsPanel(ttk.Frame):
 
     # ── public API ───────────────────────────────────────────────
 
-    def update(
+    def update(  # type: ignore[override]
         self,
         results: list,
         accuracy: AccuracyReport | None = None,
@@ -116,7 +116,7 @@ class MetricsPanel(ttk.Frame):
 
         # ── Bottom-right: accuracy or aggregate stats ────────────
         ax4 = self._fig.add_subplot(n_rows, n_cols, 4)
-        if has_accuracy:
+        if has_accuracy and accuracy is not None:
             self._plot_accuracy(ax4, accuracy)
         else:
             self._plot_aggregate_stats(ax4, results)

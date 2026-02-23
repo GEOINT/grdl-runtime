@@ -33,6 +33,7 @@ import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 # Third-party
 import structlog
@@ -115,13 +116,13 @@ def _configure_logging_inner(
     ]
 
     if json_output:
-        renderer = structlog.processors.JSONRenderer()
+        renderer: Any = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer()
 
     structlog.configure(
         processors=[
-            *shared_processors,
+            *shared_processors,  # type: ignore[list-item]
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

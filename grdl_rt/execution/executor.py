@@ -643,7 +643,7 @@ class WorkflowExecutor:
                 status="failed",
                 error_message=str(exc),
             )
-            exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+            exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
@@ -679,7 +679,7 @@ class WorkflowExecutor:
                 status="failed",
                 error_message=str(exc),
             )
-            exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+            exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
@@ -1012,7 +1012,7 @@ class WorkflowExecutor:
                 status="failed",
                 error_message=str(exc),
             )
-            exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
+            exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             raise
         finally:
             tracemalloc.stop()
@@ -1079,7 +1079,7 @@ class WorkflowExecutor:
             if isinstance(step, ProcessingStep):
                 result = self._execute_step_resilient(step, source, **kwargs)
             else:
-                result = self._execute_step(step, source, **kwargs)
+                result = self._execute_step(step, source, **kwargs)  # type: ignore[arg-type]
 
             step_wall = time.perf_counter() - t0_wall
             step_cpu = time.process_time() - t0_cpu

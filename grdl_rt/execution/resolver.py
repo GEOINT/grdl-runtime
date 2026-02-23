@@ -133,10 +133,10 @@ class Resolver:
                 substitutions,
                 warnings,
             )
-            resolved_steps[step.id] = resolved
+            resolved_steps[step.id] = resolved  # type: ignore[index]
 
             if resolved.requires_global_pass:
-                global_pass_steps.append(step.id)
+                global_pass_steps.append(step.id)  # type: ignore[arg-type]
 
         # Build parallel groups from topological levels
         parallel_groups: list[ParallelGroup] = []
@@ -217,7 +217,7 @@ class Resolver:
             processor_cls = resolve_processor_class(step.processor_name)
         except ImportError as exc:
             raise ResolutionError(
-                step.id,
+                step.id,  # type: ignore[arg-type]
                 step.processor_name,
                 f"Processor not found: {exc}",
             ) from exc
@@ -244,7 +244,7 @@ class Resolver:
                 )
                 substitutions.append(
                     Substitution(
-                        step_id=step.id,
+                        step_id=step.id,  # type: ignore[arg-type]
                         original_processor=step.processor_name,
                         replacement_processor=alt_name,
                         reason=substitution_reason,
@@ -257,7 +257,7 @@ class Resolver:
                 global_pass = has_global_pass(alt_cls)
             else:
                 raise ResolutionError(
-                    step.id,
+                    step.id,  # type: ignore[arg-type]
                     step.processor_name,
                     "GPU required but not available, and no "
                     "compatible alternative exists in the catalog",
@@ -277,7 +277,7 @@ class Resolver:
         retry_dict = step.retry.to_dict() if step.retry else None
 
         return ResolvedStep(
-            step_id=step.id,
+            step_id=step.id,  # type: ignore[arg-type]
             original_processor=step.processor_name,
             resolved_processor=resolved_name,
             processor_class_fqn=fqn,

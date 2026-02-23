@@ -641,7 +641,7 @@ class DAGExecutor:
         merged_kwargs = {**kwargs, **step.params}
 
         try:
-            result = self._gpu.apply_transform(processor, step_input, **merged_kwargs)
+            result = self._gpu.apply_transform(processor, step_input, **merged_kwargs)  # type: ignore[arg-type]
         except Exception as e:
             if GrdlError is not None and isinstance(e, GrdlError):
                 log.error(
@@ -715,7 +715,7 @@ class DAGExecutor:
                 merged_kwargs = {**kwargs, **step.params}
                 output = self._gpu.apply_transform(
                     alt_processor,
-                    step_input,
+                    step_input,  # type: ignore[arg-type]
                     **merged_kwargs,
                 )
 

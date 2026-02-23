@@ -295,9 +295,9 @@ def _reduce_luminance(
     weights = np.array([0.2126, 0.7152, 0.0722], dtype=np.float64)
 
     # Build the weighted sum along the band axis
-    slices_r = [slice(None)] * source.ndim
-    slices_g = [slice(None)] * source.ndim
-    slices_b = [slice(None)] * source.ndim
+    slices_r: list[int | slice] = [slice(None)] * source.ndim
+    slices_g: list[int | slice] = [slice(None)] * source.ndim
+    slices_b: list[int | slice] = [slice(None)] * source.ndim
     slices_r[axis] = 0
     slices_g[axis] = 1
     slices_b[axis] = 2

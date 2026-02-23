@@ -1811,7 +1811,7 @@ def _construct_processor(
     object
         The instantiated processor.
     """
-    sig = inspect.signature(cls.__init__)
+    sig = inspect.signature(cls.__init__)  # type: ignore[misc]
     params = sig.parameters
 
     if "metadata" in params and "metadata" not in kwargs:

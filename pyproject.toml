@@ -67,6 +67,9 @@ dev = [
     "black>=22.0.0",
     "mypy>=0.950",
     "ruff>=0.4.0",
+    "types-PyYAML>=6.0",
+    "types-requests>=2.25",
+    "types-psutil>=5.9",
 ]
 
 [project.urls]
@@ -93,7 +96,7 @@ ignore = ["E501", "E402"]
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true

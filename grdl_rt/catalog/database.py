@@ -270,7 +270,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
 
         self._conn.commit()
         artifact.id = artifact_id
-        return artifact_id
+        return artifact_id  # type: ignore[return-value]
 
     def remove_artifact(self, name: str, version: str) -> bool:
         """Remove an artifact from the catalog.

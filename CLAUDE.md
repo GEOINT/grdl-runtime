@@ -216,6 +216,9 @@ Tests live in `tests/` and follow `test_<module>.py` naming.
 pytest tests/ -p no:napari -x -q          # Quick run
 pytest tests/ -v                           # Verbose
 pytest tests/test_builder.py -v            # Workflow builder tests only
+ruff check grdl_rt/                        # Lint
+black --check grdl_rt/ tests/             # Format check
+mypy grdl_rt/                              # Type check
 ```
 
 ### Test Approach

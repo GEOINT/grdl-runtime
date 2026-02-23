@@ -31,7 +31,7 @@ Created
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from grdl_rt.execution.instrumentation import ExecutionHook
 
@@ -76,7 +76,7 @@ class PrometheusHook(ExecutionHook):
 
     def __init__(
         self,
-        registry: object = None,
+        registry: Any = None,
         prefix: str = "grdl_rt",
     ) -> None:
         if _prom is None:

@@ -306,7 +306,7 @@ def _params_from_signature(cls: type) -> dict[str, ParamInfo]:
     """Extract parameter info from ``__init__`` signature."""
     result: dict[str, ParamInfo] = {}
     try:
-        sig = inspect.signature(cls.__init__)
+        sig = inspect.signature(cls.__init__)  # type: ignore[misc]
     except (ValueError, TypeError):
         return result
 

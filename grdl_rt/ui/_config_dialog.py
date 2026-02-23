@@ -147,7 +147,7 @@ class _ParamForm(ttk.Frame):
         combo = ttk.Combobox(
             self,
             textvariable=var,
-            values=[str(c) for c in info.choices],
+            values=[str(c) for c in info.choices] if info.choices else [],
             state="readonly",
             width=20,
         )
@@ -173,8 +173,8 @@ class _ParamForm(ttk.Frame):
 
         scale = ttk.Scale(
             frame,
-            from_=info.min_value,
-            to=info.max_value,
+            from_=info.min_value or 0.0,
+            to=info.max_value or 1.0,
             orient="horizontal",
             variable=var,
             length=160,
@@ -304,7 +304,7 @@ class ConfigDialog(tk.Toplevel):
         # Build content
         if len(steps) == 1:
             step_name, params, current = steps[0]
-            form = _ParamForm(self, params, current)
+            form = _ParamForm(self, params, current)  # type: ignore[arg-type]
             form.pack(fill="both", expand=True, padx=8, pady=4)
             self._forms[step_name] = form
         else:
@@ -338,7 +338,7 @@ class ConfigDialog(tk.Toplevel):
         ).pack(side="right")
 
         # Modal behaviour
-        self.transient(parent)
+        self.transient(parent)  # type: ignore[arg-type, call-overload]
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 

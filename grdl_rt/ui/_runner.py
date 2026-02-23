@@ -263,7 +263,7 @@ class WorkflowRunner:
             for step in wf_def.steps:
                 step_key = getattr(step, "processor_name", None) or getattr(step, "id", None)
                 if step_key and step_key in req.params:
-                    step.params.update(req.params[step_key])
+                    step.params.update(req.params[step_key])  # type: ignore[union-attr]
 
             gpu = GpuBackend(prefer_gpu=req.prefer_gpu)
             executor = WorkflowExecutor(wf_def, gpu=gpu)
@@ -288,7 +288,7 @@ class WorkflowRunner:
                 else:
                     # WorkflowDefinition from @workflow decorator
                     gpu = GpuBackend(prefer_gpu=req.prefer_gpu)
-                    executor = WorkflowExecutor(wf, gpu=gpu)
+                    executor = WorkflowExecutor(wf, gpu=gpu)  # type: ignore[arg-type]
                     workflow_results = self._run_images(
                         req,
                         executor=executor,

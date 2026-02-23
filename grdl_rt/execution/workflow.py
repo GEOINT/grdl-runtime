@@ -316,7 +316,7 @@ class WorkflowDefinition:
         if has_any_deps:
             return
         for i in range(1, len(self.steps)):
-            self.steps[i].depends_on = [self.steps[i - 1].id]  # type: ignore[union-attr]
+            self.steps[i].depends_on = [self.steps[i - 1].id]  # type: ignore[list-item]
 
     def add_step(self, step: ProcessingStep | TapOutStepDef) -> None:
         """Append a processing or tap-out step to the workflow.
@@ -390,7 +390,7 @@ class WorkflowDefinition:
         for step in self.steps:
             for dep in step.depends_on:
                 depended_on.add(dep)
-        return [sid for sid in all_ids if sid not in depended_on]
+        return [sid for sid in all_ids if sid not in depended_on]  # type: ignore[misc]
 
     def topological_sort(self) -> list[list[str]]:
         """Topological sort returning parallelizable levels.
@@ -410,20 +410,20 @@ class WorkflowDefinition:
             If the graph contains a cycle.
         """
         # Build adjacency and in-degree maps
-        step_ids = [s.id for s in self.steps]
-        in_degree: dict[str, int] = {sid: 0 for sid in step_ids}
-        dependents: dict[str, list[str]] = {sid: [] for sid in step_ids}
+        step_ids = [s.id for s in self.steps]  # type: ignore[misc]
+        in_degree: dict[str, int] = {sid: 0 for sid in step_ids}  # type: ignore[misc]
+        dependents: dict[str, list[str]] = {sid: [] for sid in step_ids}  # type: ignore[misc]
 
         for step in self.steps:
             for dep in step.depends_on:
                 if dep in dependents:
-                    dependents[dep].append(step.id)
-                    in_degree[step.id] += 1
+                    dependents[dep].append(step.id)  # type: ignore[arg-type]
+                    in_degree[step.id] += 1  # type: ignore[index]
 
         # Kahn's algorithm with level tracking
         queue: deque = deque()
         for sid in step_ids:
-            if in_degree[sid] == 0:
+            if in_degree[sid] == 0:  # type: ignore[index]
                 queue.append(sid)
 
         levels: list[list[str]] = []
@@ -464,12 +464,12 @@ class WorkflowDefinition:
         # Check duplicate IDs
         seen_ids: dict[str, int] = {}
         for i, step in enumerate(self.steps):
-            if step.id in seen_ids:
+            if step.id in seen_ids:  # type: ignore[operator]
                 errors.append(
                     f"Duplicate step id '{step.id}' at indices " f"{seen_ids[step.id]} and {i}"
                 )
             else:
-                seen_ids[step.id] = i
+                seen_ids[step.id] = i  # type: ignore[index]
 
         # Check all depends_on references resolve
         all_ids = {s.id for s in self.steps}

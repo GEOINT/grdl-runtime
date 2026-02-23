@@ -249,7 +249,7 @@ class QuotaEnforcer:
         while not self._stop_event.is_set():
             try:
                 rss = process.memory_info().rss
-                if rss > limit:
+                if limit is not None and rss > limit:
                     self._violation_detail = str(rss)
                     self._violation_event.set()
                     logger.warning(

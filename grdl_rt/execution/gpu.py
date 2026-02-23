@@ -317,7 +317,7 @@ class GpuBackend:
 
             info["torch_device"] = {
                 "name": torch.cuda.get_device_name(0),
-                "memory_total": torch.cuda.get_device_properties(0).total_mem,
+                "memory_total": torch.cuda.get_device_properties(0).total_memory,
             }
 
         return info

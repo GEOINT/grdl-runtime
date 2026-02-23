@@ -485,7 +485,7 @@ class App(tk.Tk):
                     params = extract_tunable_params(cls)
                     step_key = proc_name
                     self._step_param_info[step_key] = params
-                    self._current_params[step_key] = dict(step.params)
+                    self._current_params[step_key] = dict(step.params)  # type: ignore[union-attr]
                 except Exception:
                     pass
 
@@ -529,7 +529,7 @@ class App(tk.Tk):
                 else:
                     # Selection dialog
                     names = [n for n, _ in processors]
-                    name = self._show_processor_selection(names)
+                    name = self._show_processor_selection(names)  # type: ignore[assignment]
                     if name is None:
                         return
                     cls = dict(processors)[name]
@@ -567,7 +567,7 @@ class App(tk.Tk):
         tk.StringVar(value=names[0])
         listbox = tk.Listbox(
             dialog,
-            listvariable=tk.StringVar(value=names),
+            listvariable=tk.StringVar(value=names),  # type: ignore[arg-type]
             height=min(len(names), 10),
             width=40,
             bg="#3c3c3c",
@@ -638,7 +638,7 @@ class App(tk.Tk):
             current = self._current_params.get(step_name, {})
             steps.append((step_name, params, current))
 
-        dialog = ConfigDialog(self, steps)
+        dialog = ConfigDialog(self, steps)  # type: ignore[arg-type]
         self.wait_window(dialog)
 
         if dialog.result is not None:

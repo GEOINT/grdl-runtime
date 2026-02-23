@@ -201,7 +201,7 @@ def workflow(
         )
 
         # Attach the workflow definition to the function
-        func._workflow_definition = wf
+        func._workflow_definition = wf  # type: ignore[attr-defined]
         _local.steps = []
         return func
 

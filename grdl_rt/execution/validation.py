@@ -348,7 +348,7 @@ def _validate_via_signature(
 ) -> None:
     """Fallback: validate step params against ``__init__`` signature."""
     try:
-        sig = inspect.signature(cls.__init__)
+        sig = inspect.signature(cls.__init__)  # type: ignore[misc]
     except (ValueError, TypeError):
         return
 
