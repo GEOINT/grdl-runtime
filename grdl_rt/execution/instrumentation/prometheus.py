@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Prometheus Metrics Hook — workflow and step duration, errors, memory, GPU.
 
@@ -32,7 +31,7 @@ Created
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from grdl_rt.execution.instrumentation import ExecutionHook
 
@@ -152,7 +151,7 @@ class PrometheusHook(ExecutionHook):
         self,
         ctx: ExecutionContext,
         error: Exception,
-        step_index: Optional[int] = None,
+        step_index: int | None = None,
     ) -> None:
         self.errors_total.labels(
             error_type=type(error).__name__,

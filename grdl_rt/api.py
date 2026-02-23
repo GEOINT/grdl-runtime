@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 API — High-level convenience functions for grdl-runtime.
 
@@ -27,8 +26,9 @@ Created
 
 # Standard library
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any
 
 # Third-party
 import numpy as np
@@ -48,7 +48,7 @@ __all__ = ["load_workflow", "execute_workflow", "resolve_workflow"]
 
 
 def load_workflow(
-    source: Union[str, Path, Dict[str, Any]],
+    source: str | Path | dict[str, Any],
 ) -> WorkflowDefinition:
     """Load a workflow definition from a YAML file, YAML string, or dict.
 
@@ -86,9 +86,7 @@ def load_workflow(
             return compiler.compile_yaml(Path(source))
         return compiler.compile_yaml_string(source)
 
-    raise TypeError(
-        f"source must be str, Path, or dict, got {type(source).__name__}"
-    )
+    raise TypeError(f"source must be str, Path, or dict, got {type(source).__name__}")
 
 
 def execute_workflow(
@@ -96,7 +94,7 @@ def execute_workflow(
     source: np.ndarray,
     *,
     prefer_gpu: bool = True,
-    progress_callback: Optional[Callable[[float], None]] = None,
+    progress_callback: Callable[[float], None] | None = None,
     **kwargs: Any,
 ) -> WorkflowResult:
     """Execute a workflow on a single image.
@@ -129,8 +127,8 @@ def execute_workflow(
 
 def resolve_workflow(
     workflow: WorkflowDefinition,
-    hardware: Optional[HardwareContext] = None,
-    catalog: Optional[ArtifactCatalogBase] = None,
+    hardware: HardwareContext | None = None,
+    catalog: ArtifactCatalogBase | None = None,
 ) -> ResolvedExecutionPlan:
     """Resolve a workflow against available hardware.
 
@@ -158,5 +156,6 @@ def resolve_workflow(
         hardware = LocalHardwareContext()
     if catalog is None:
         from grdl_rt.catalog.database import SqliteArtifactCatalog
+
         catalog = SqliteArtifactCatalog()
     return Resolver(catalog).resolve(workflow, hardware)

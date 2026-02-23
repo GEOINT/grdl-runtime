@@ -35,7 +35,6 @@ from grdl_rt.execution.checkpoint import (
 )
 from grdl_rt.execution.errors import CheckpointError, ResumeError
 
-
 # ======================================================================
 # compute_workflow_hash
 # ======================================================================
@@ -50,11 +49,13 @@ class TestComputeWorkflowHash:
 
     def test_different_steps_different_hash(self):
         wf1 = {
-            "name": "Test", "version": "1.0",
+            "name": "Test",
+            "version": "1.0",
             "steps": [{"processor": "A", "version": "1.0"}],
         }
         wf2 = {
-            "name": "Test", "version": "1.0",
+            "name": "Test",
+            "version": "1.0",
             "steps": [{"processor": "B", "version": "1.0"}],
         }
         assert compute_workflow_hash(wf1) != compute_workflow_hash(wf2)
@@ -62,12 +63,14 @@ class TestComputeWorkflowHash:
     def test_description_change_does_not_change_hash(self):
         """Documentation-only changes must not invalidate checkpoints."""
         wf1 = {
-            "name": "Test", "version": "1.0",
+            "name": "Test",
+            "version": "1.0",
             "description": "Original",
             "steps": [{"processor": "A"}],
         }
         wf2 = {
-            "name": "Test", "version": "1.0",
+            "name": "Test",
+            "version": "1.0",
             "description": "Updated description",
             "steps": [{"processor": "A"}],
         }
@@ -194,10 +197,15 @@ class TestCheckpointManagerLoad:
             step_index=step_index,
             intermediate_files=files,
             metrics_so_far=[
-                {"step_index": i, "processor_name": "Proc",
-                 "wall_time_s": 0.1, "cpu_time_s": 0.1,
-                 "peak_rss_bytes": 100, "gpu_used": False,
-                 "status": "success"}
+                {
+                    "step_index": i,
+                    "processor_name": "Proc",
+                    "wall_time_s": 0.1,
+                    "cpu_time_s": 0.1,
+                    "peak_rss_bytes": 100,
+                    "gpu_used": False,
+                    "status": "success",
+                }
                 for i in range(step_index + 1)
             ],
             execution_context={"run_id": run_id},
@@ -288,6 +296,7 @@ class TestCheckpointManagerLoad:
 
 class _CountingTransform:
     """Processor that tracks which steps have been called."""
+
     call_log = []
 
     def apply(self, source, **kwargs):
@@ -299,6 +308,7 @@ class _CountingTransform:
 
 class _FailAtStepTransform:
     """Processor that fails at a specific call count."""
+
     call_count = 0
     fail_at = 3  # 0-indexed: fail on the 4th call
 
@@ -315,12 +325,13 @@ class TestCheckpointResumeLifecycle:
 
     def _make_workflow(self, n_steps=10):
         from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
+
         wf = WorkflowDefinition(name="MultiStep", version="1.0.0")
         for i in range(n_steps):
             wf.add_step(ProcessingStep(f"Transform", "1.0.0"))
         return wf
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_run_with_checkpointing(self, mock_resolve, tmp_path):
         """Each step produces a checkpoint file."""
         mock_resolve.return_value = _CountingTransform
@@ -330,6 +341,7 @@ class TestCheckpointResumeLifecycle:
         mgr = CheckpointManager(tmp_path)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, checkpoint_manager=mgr)
 
         source = np.ones((4, 4), dtype=np.float64)
@@ -344,17 +356,16 @@ class TestCheckpointResumeLifecycle:
         assert len(_CountingTransform.call_log) == 5
         # Result: source * 2^5 = 32
         np.testing.assert_array_almost_equal(
-            wr.result, np.ones((4, 4)) * 32.0,
+            wr.result,
+            np.ones((4, 4)) * 32.0,
         )
         # Checkpoint file exists
         run_dirs = list(tmp_path.glob("grdl_checkpoint_*"))
         assert len(run_dirs) == 1
-        ckpt = json.loads(
-            (run_dirs[0] / "checkpoint.json").read_text()
-        )
+        ckpt = json.loads((run_dirs[0] / "checkpoint.json").read_text())
         assert ckpt["step_index"] == 4  # last step index
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_fail_at_step_then_resume(self, mock_resolve, tmp_path):
         """Run 10 steps, fail at step 3, resume and complete 4-9."""
         # Phase 1: Run and fail at step 3
@@ -366,6 +377,7 @@ class TestCheckpointResumeLifecycle:
         mgr = CheckpointManager(tmp_path)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, checkpoint_manager=mgr)
 
         source = np.ones((4, 4), dtype=np.float64)
@@ -384,9 +396,7 @@ class TestCheckpointResumeLifecycle:
         run_dirs = list(tmp_path.glob("grdl_checkpoint_*"))
         assert len(run_dirs) == 1
         ckpt_dir = run_dirs[0]
-        ckpt = json.loads(
-            (ckpt_dir / "checkpoint.json").read_text()
-        )
+        ckpt = json.loads((ckpt_dir / "checkpoint.json").read_text())
         assert ckpt["step_index"] == 2  # steps 0, 1, 2 completed
 
         # Phase 2: Resume — use a transform that always succeeds
@@ -415,7 +425,7 @@ class TestCheckpointResumeLifecycle:
         assert len(wr.metrics.step_metrics) == 10
         assert wr.metrics.status == "success"
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_resume_rejects_modified_workflow(self, mock_resolve, tmp_path):
         """Modifying the workflow YAML and attempting resume fails."""
         mock_resolve.return_value = _CountingTransform
@@ -425,6 +435,7 @@ class TestCheckpointResumeLifecycle:
         mgr = CheckpointManager(tmp_path)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf_original, checkpoint_manager=mgr)
 
         source = np.ones((2, 2), dtype=np.float64)
@@ -449,7 +460,7 @@ class TestCheckpointResumeLifecycle:
                 enable_shutdown_handler=False,
             )
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_checkpoint_files_are_valid_json(self, mock_resolve, tmp_path):
         """Checkpoint files contain all required fields as valid JSON."""
         mock_resolve.return_value = _CountingTransform
@@ -459,6 +470,7 @@ class TestCheckpointResumeLifecycle:
         mgr = CheckpointManager(tmp_path)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, checkpoint_manager=mgr)
 
         source = np.ones((2, 2), dtype=np.float64)

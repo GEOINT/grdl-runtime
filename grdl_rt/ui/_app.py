@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 App — Main application window for the grdl-rt workflow runner GUI.
 
@@ -32,13 +31,15 @@ import os
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
-from typing import Any, Dict, List, Optional
-
-import numpy as np
+from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 import matplotlib
+import numpy as np
+
 matplotlib.use("TkAgg")
+import contextlib
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
@@ -54,16 +55,15 @@ from grdl_rt.ui._importer import (
 from grdl_rt.ui._metrics_panel import MetricsPanel
 from grdl_rt.ui._runner import RunRequest, RunResult, WorkflowRunner
 from grdl_rt.ui._widgets import (
+    GEOJSON_FILETYPES,
     IMAGE_EXTENSIONS,
     IMAGE_FILETYPES,
-    GEOJSON_FILETYPES,
     WORKFLOW_FILETYPES,
     FilePickerRow,
     LabeledEntry,
     LogConsole,
     ProgressBar,
 )
-
 
 # ── History persistence ──────────────────────────────────────────────
 
@@ -72,11 +72,11 @@ _HISTORY_FILE = _HISTORY_DIR / "ui_history.json"
 _MAX_HISTORY = 20
 
 
-def _load_history() -> List[Dict]:
+def _load_history() -> list[dict]:
     """Load run history from disk."""
     try:
         if _HISTORY_FILE.exists():
-            with open(_HISTORY_FILE, "r", encoding="utf-8") as fh:
+            with open(_HISTORY_FILE, encoding="utf-8") as fh:
                 data = json.load(fh)
                 return data if isinstance(data, list) else []
     except Exception:
@@ -84,7 +84,7 @@ def _load_history() -> List[Dict]:
     return []
 
 
-def _save_history(history: List[Dict]) -> None:
+def _save_history(history: list[dict]) -> None:
     """Persist run history to disk."""
     try:
         _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
@@ -103,9 +103,9 @@ class _FileWatcher:
     def __init__(self, root: tk.Tk, callback) -> None:
         self._root = root
         self._callback = callback
-        self._path: Optional[Path] = None
-        self._mtime: Optional[float] = None
-        self._after_id: Optional[str] = None
+        self._path: Path | None = None
+        self._mtime: float | None = None
+        self._after_id: str | None = None
 
     def watch(self, path: Path) -> None:
         self.stop()
@@ -153,8 +153,8 @@ class App(tk.Tk):
 
     def __init__(
         self,
-        workflow_path: Optional[str] = None,
-        input_path: Optional[str] = None,
+        workflow_path: str | None = None,
+        input_path: str | None = None,
     ) -> None:
         super().__init__()
 
@@ -164,32 +164,36 @@ class App(tk.Tk):
 
         # Apply ttk theme
         style = ttk.Style(self)
-        try:
+        with contextlib.suppress(tk.TclError):
             style.theme_use("clam")
-        except tk.TclError:
-            pass
 
         # Dark-ish overrides for clam
-        style.configure(".", background="#2b2b2b", foreground="#d4d4d4",
-                        fieldbackground="#3c3c3c", bordercolor="#555555")
+        style.configure(
+            ".",
+            background="#2b2b2b",
+            foreground="#d4d4d4",
+            fieldbackground="#3c3c3c",
+            bordercolor="#555555",
+        )
         style.configure("TLabel", background="#2b2b2b", foreground="#d4d4d4")
         style.configure("TFrame", background="#2b2b2b")
         style.configure("TButton", background="#3c3c3c", foreground="#d4d4d4")
         style.configure("TNotebook", background="#2b2b2b")
-        style.configure("TNotebook.Tab", background="#3c3c3c", foreground="#d4d4d4",
-                        padding=[8, 2])
-        style.map("TNotebook.Tab",
-                  background=[("selected", "#4a4a4a")],
-                  foreground=[("selected", "#ffffff")])
+        style.configure("TNotebook.Tab", background="#3c3c3c", foreground="#d4d4d4", padding=[8, 2])
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", "#4a4a4a")],
+            foreground=[("selected", "#ffffff")],
+        )
         style.configure("Accent.TButton", background="#0078d4", foreground="#ffffff")
 
         # State
-        self._current_params: Dict[str, Dict[str, Any]] = {}
-        self._step_param_info: Dict[str, Dict[str, ParamInfo]] = {}
-        self._last_results: List = []
-        self._last_accuracy: Optional[AccuracyReport] = None
-        self._selected_component: Optional[str] = None
-        self._history: List[Dict] = _load_history()
+        self._current_params: dict[str, dict[str, Any]] = {}
+        self._step_param_info: dict[str, dict[str, ParamInfo]] = {}
+        self._last_results: list = []
+        self._last_accuracy: AccuracyReport | None = None
+        self._selected_component: str | None = None
+        self._history: list[dict] = _load_history()
 
         # Runner
         self._runner = WorkflowRunner(
@@ -222,46 +226,45 @@ class App(tk.Tk):
     # ── Menu bar ─────────────────────────────────────────────────
 
     def _build_menu(self) -> None:
-        menubar = tk.Menu(self, bg="#2b2b2b", fg="#d4d4d4",
-                          activebackground="#4a4a4a", activeforeground="#ffffff")
+        menubar = tk.Menu(
+            self, bg="#2b2b2b", fg="#d4d4d4", activebackground="#4a4a4a", activeforeground="#ffffff"
+        )
 
         # File menu
-        file_menu = tk.Menu(menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4",
-                            activebackground="#4a4a4a")
-        file_menu.add_command(label="Open Workflow\u2026  Ctrl+O",
-                              command=self._on_browse_workflow)
-        file_menu.add_command(label="Open Image(s)\u2026  Ctrl+I",
-                              command=self._on_browse_input)
-        file_menu.add_command(label="Open Folder\u2026",
-                              command=self._on_browse_folder)
-        file_menu.add_command(label="Set Output Dir\u2026",
-                              command=self._on_browse_output)
+        file_menu = tk.Menu(
+            menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4", activebackground="#4a4a4a"
+        )
+        file_menu.add_command(label="Open Workflow\u2026  Ctrl+O", command=self._on_browse_workflow)
+        file_menu.add_command(label="Open Image(s)\u2026  Ctrl+I", command=self._on_browse_input)
+        file_menu.add_command(label="Open Folder\u2026", command=self._on_browse_folder)
+        file_menu.add_command(label="Set Output Dir\u2026", command=self._on_browse_output)
         file_menu.add_separator()
-        file_menu.add_command(label="Export Results\u2026",
-                              command=self._on_export)
+        file_menu.add_command(label="Export Results\u2026", command=self._on_export)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.destroy)
         menubar.add_cascade(label="File", menu=file_menu)
 
         # Run menu
-        run_menu = tk.Menu(menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4",
-                           activebackground="#4a4a4a")
+        run_menu = tk.Menu(
+            menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4", activebackground="#4a4a4a"
+        )
         run_menu.add_command(label="Execute  Ctrl+R", command=self._on_run)
         run_menu.add_command(label="Cancel  Esc", command=self._on_cancel)
         run_menu.add_separator()
-        run_menu.add_command(label="Re-run with Same Params",
-                              command=self._on_rerun)
+        run_menu.add_command(label="Re-run with Same Params", command=self._on_rerun)
         menubar.add_cascade(label="Run", menu=run_menu)
 
         # View menu
-        view_menu = tk.Menu(menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4",
-                            activebackground="#4a4a4a")
+        view_menu = tk.Menu(
+            menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4", activebackground="#4a4a4a"
+        )
         view_menu.add_command(label="Clear Results", command=self._on_clear)
         menubar.add_cascade(label="View", menu=view_menu)
 
         # Help menu
-        help_menu = tk.Menu(menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4",
-                            activebackground="#4a4a4a")
+        help_menu = tk.Menu(
+            menubar, tearoff=0, bg="#2b2b2b", fg="#d4d4d4", activebackground="#4a4a4a"
+        )
         help_menu.add_command(label="Keyboard Shortcuts", command=self._show_shortcuts)
         help_menu.add_command(label="About", command=self._show_about)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -281,36 +284,47 @@ class App(tk.Tk):
 
         # Workflow file picker
         self._wf_picker = FilePickerRow(
-            left, "Workflow / Component:", mode="file",
+            left,
+            "Workflow / Component:",
+            mode="file",
             filetypes=WORKFLOW_FILETYPES,
         )
         self._wf_picker.pack(fill="x", pady=(0, 4))
         self._wf_picker.var.trace_add(
-            "write", lambda *_: self._on_workflow_selected(self._wf_picker.get()),
+            "write",
+            lambda *_: self._on_workflow_selected(self._wf_picker.get()),
         )
 
         # Input images (multi-file)
         self._input_picker = FilePickerRow(
-            left, "Input Image(s):", mode="files",
+            left,
+            "Input Image(s):",
+            mode="files",
             filetypes=IMAGE_FILETYPES,
         )
         self._input_picker.pack(fill="x", pady=(0, 4))
 
         # Input folder
         self._folder_picker = FilePickerRow(
-            left, "Input Folder:", mode="directory",
+            left,
+            "Input Folder:",
+            mode="directory",
         )
         self._folder_picker.pack(fill="x", pady=(0, 4))
 
         # Output directory
         self._output_picker = FilePickerRow(
-            left, "Output Directory:", mode="directory",
+            left,
+            "Output Directory:",
+            mode="directory",
         )
         self._output_picker.pack(fill="x", pady=(0, 4))
 
         # Ground truth GeoJSON
         self._gt_picker = FilePickerRow(
-            left, "Ground Truth (GeoJSON):", mode="file",
+            left,
+            "Ground Truth (GeoJSON):",
+            mode="file",
             filetypes=GEOJSON_FILETYPES,
         )
         self._gt_picker.pack(fill="x", pady=(0, 8))
@@ -335,7 +349,8 @@ class App(tk.Tk):
 
         # Configure Params button
         self._config_btn = ttk.Button(
-            left, text="Configure Parameters\u2026",
+            left,
+            text="Configure Parameters\u2026",
             command=self._on_configure_params,
         )
         self._config_btn.pack(fill="x", pady=(0, 4))
@@ -345,13 +360,18 @@ class App(tk.Tk):
         btn_frame.pack(fill="x", pady=(0, 4))
 
         self._run_btn = ttk.Button(
-            btn_frame, text="  Run  ", command=self._on_run,
+            btn_frame,
+            text="  Run  ",
+            command=self._on_run,
             style="Accent.TButton",
         )
         self._run_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
         self._cancel_btn = ttk.Button(
-            btn_frame, text="Cancel", command=self._on_cancel, state="disabled",
+            btn_frame,
+            text="Cancel",
+            command=self._on_cancel,
+            state="disabled",
         )
         self._cancel_btn.pack(side="left")
 
@@ -387,7 +407,9 @@ class App(tk.Tk):
 
         ttk.Label(top, text="Image:").pack(side="left")
         self._preview_selector = ttk.Combobox(
-            top, state="readonly", width=30,
+            top,
+            state="readonly",
+            width=30,
         )
         self._preview_selector.pack(side="left", padx=4)
         self._preview_selector.bind("<<ComboboxSelected>>", self._on_preview_select)
@@ -406,8 +428,11 @@ class App(tk.Tk):
         """Status bar at the bottom of the window."""
         self._status_var = tk.StringVar(value="Ready")
         status = ttk.Label(
-            self, textvariable=self._status_var,
-            relief="sunken", anchor="w", padding=(4, 2),
+            self,
+            textvariable=self._status_var,
+            relief="sunken",
+            anchor="w",
+            padding=(4, 2),
         )
         status.pack(side="bottom", fill="x")
 
@@ -436,10 +461,10 @@ class App(tk.Tk):
     def _load_yaml_workflow(self, path: Path) -> None:
         try:
             from grdl_rt.api import load_workflow
+
             wf_def = load_workflow(path)
             self._component_label.configure(
-                text=f"Workflow: {wf_def.name} v{wf_def.version} "
-                     f"({len(wf_def.steps)} steps)",
+                text=f"Workflow: {wf_def.name} v{wf_def.version} " f"({len(wf_def.steps)} steps)",
             )
             self._log.append(f"Loaded workflow: {wf_def.name}", "info")
 
@@ -450,6 +475,7 @@ class App(tk.Tk):
 
             # Extract params for each step
             from grdl_rt.execution.discovery import resolve_processor_class
+
             for step in wf_def.steps:
                 proc_name = getattr(step, "processor_name", None)
                 if proc_name is None:
@@ -492,7 +518,8 @@ class App(tk.Tk):
                         text="No processors found in file.",
                     )
                     self._log.append(
-                        f"No processors found in {path.name}", "warn",
+                        f"No processors found in {path.name}",
+                        "warn",
                     )
                     return
 
@@ -511,8 +538,7 @@ class App(tk.Tk):
                 params = extract_tunable_params(cls)
                 self._step_param_info[self._selected_component] = params
                 self._current_params[self._selected_component] = {
-                    p.name: p.default for p in params.values()
-                    if p.default is not None
+                    p.name: p.default for p in params.values() if p.default is not None
                 }
                 self._component_label.configure(
                     text=f"Component: {self._selected_component}",
@@ -525,7 +551,7 @@ class App(tk.Tk):
         except Exception as exc:
             self._log.append(f"Failed to load file: {exc}", "error")
 
-    def _show_processor_selection(self, names: List[str]) -> Optional[str]:
+    def _show_processor_selection(self, names: list[str]) -> str | None:
         """Show a simple dialog to select one processor from a list."""
         dialog = tk.Toplevel(self)
         dialog.title("Select Processor")
@@ -534,17 +560,24 @@ class App(tk.Tk):
         dialog.resizable(False, False)
 
         ttk.Label(dialog, text="Multiple processors found. Select one:").pack(
-            padx=12, pady=(12, 4),
+            padx=12,
+            pady=(12, 4),
         )
 
-        var = tk.StringVar(value=names[0])
-        listbox = tk.Listbox(dialog, listvariable=tk.StringVar(value=names),
-                             height=min(len(names), 10), width=40,
-                             bg="#3c3c3c", fg="#d4d4d4", selectbackground="#0078d4")
+        tk.StringVar(value=names[0])
+        listbox = tk.Listbox(
+            dialog,
+            listvariable=tk.StringVar(value=names),
+            height=min(len(names), 10),
+            width=40,
+            bg="#3c3c3c",
+            fg="#d4d4d4",
+            selectbackground="#0078d4",
+        )
         listbox.pack(padx=12, pady=4)
         listbox.selection_set(0)
 
-        result: List[Optional[str]] = [None]
+        result: list[str | None] = [None]
 
         def _ok():
             sel = listbox.curselection()
@@ -614,9 +647,9 @@ class App(tk.Tk):
 
     # ── Run / Cancel ─────────────────────────────────────────────
 
-    def _collect_input_paths(self) -> List[Path]:
+    def _collect_input_paths(self) -> list[Path]:
         """Gather input paths from both file and folder pickers."""
-        paths: List[Path] = []
+        paths: list[Path] = []
 
         # From multi-file picker
         for p in self._input_picker.get_paths():
@@ -638,14 +671,14 @@ class App(tk.Tk):
     def _on_run(self) -> None:
         wf_path = self._wf_picker.get()
         if not wf_path:
-            messagebox.showwarning("Missing Input", "Select a workflow or component file.",
-                                   parent=self)
+            messagebox.showwarning(
+                "Missing Input", "Select a workflow or component file.", parent=self
+            )
             return
 
         input_paths = self._collect_input_paths()
         if not input_paths:
-            messagebox.showwarning("Missing Input", "Select at least one input image.",
-                                   parent=self)
+            messagebox.showwarning("Missing Input", "Select at least one input image.", parent=self)
             return
 
         # Parse worker count
@@ -656,10 +689,7 @@ class App(tk.Tk):
 
         wf_source = Path(wf_path)
         suffix = wf_source.suffix.lower()
-        is_component = (
-            suffix == ".py"
-            and classify_py_file(wf_source) == "component"
-        )
+        is_component = suffix == ".py" and classify_py_file(wf_source) == "component"
 
         output_dir = None
         out_str = self._output_picker.get()
@@ -686,8 +716,7 @@ class App(tk.Tk):
 
         self._log.clear()
         self._log.append(
-            f"Starting run: {len(input_paths)} image(s), "
-            f"workflow={wf_source.name}",
+            f"Starting run: {len(input_paths)} image(s), " f"workflow={wf_source.name}",
             "info",
         )
         self._progress.reset()
@@ -725,9 +754,7 @@ class App(tk.Tk):
             self._log.append(f"Run failed: {result.error}", "error")
         else:
             n = len(result.workflow_results)
-            self._status_var.set(
-                f"Complete \u2014 {n} image(s) in {result.elapsed_seconds:.2f}s"
-            )
+            self._status_var.set(f"Complete \u2014 {n} image(s) in {result.elapsed_seconds:.2f}s")
             self._log.append(
                 f"Run complete: {n} results in {result.elapsed_seconds:.2f}s",
                 "success",
@@ -793,13 +820,18 @@ class App(tk.Tk):
                 ax.imshow(img, aspect="equal")
             ax.set_title(
                 f"shape={data.shape}  dtype={data.dtype}",
-                fontsize=9, color="#cccccc",
+                fontsize=9,
+                color="#cccccc",
             )
         else:
             ax.text(
-                0.5, 0.5,
+                0.5,
+                0.5,
                 f"Result type: {type(data).__name__}\n(not displayable as image)",
-                ha="center", va="center", fontsize=10, color="#888888",
+                ha="center",
+                va="center",
+                fontsize=10,
+                color="#888888",
                 transform=ax.transAxes,
             )
 
@@ -830,8 +862,7 @@ class App(tk.Tk):
 
     def _on_export(self) -> None:
         if not self._last_results:
-            messagebox.showinfo("Nothing to Export", "Run a workflow first.",
-                                parent=self)
+            messagebox.showinfo("Nothing to Export", "Run a workflow first.", parent=self)
             return
 
         out_dir = filedialog.askdirectory(title="Export Results To", parent=self)
@@ -856,8 +887,10 @@ class App(tk.Tk):
 
         # Save preview image
         self._preview_fig.savefig(
-            str(out_path / "preview.png"), dpi=150,
-            facecolor="#2b2b2b", bbox_inches="tight",
+            str(out_path / "preview.png"),
+            dpi=150,
+            facecolor="#2b2b2b",
+            bbox_inches="tight",
         )
 
         self._log.append(f"Results exported to {out_path}", "success")
@@ -881,6 +914,7 @@ class App(tk.Tk):
     def _show_about(self) -> None:
         try:
             from grdl_rt import __version__
+
             ver = __version__
         except ImportError:
             ver = "unknown"
@@ -935,9 +969,6 @@ def _prepare_display_array(arr: np.ndarray) -> np.ndarray:
     # Normalise to [0, 1]
     arr = arr.astype(np.float64)
     vmin, vmax = np.nanmin(arr), np.nanmax(arr)
-    if vmax - vmin > 0:
-        arr = (arr - vmin) / (vmax - vmin)
-    else:
-        arr = np.zeros_like(arr)
+    arr = (arr - vmin) / (vmax - vmin) if vmax - vmin > 0 else np.zeros_like(arr)
 
     return arr

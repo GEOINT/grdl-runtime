@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Dynamic Importer — Discover processors and workflows in Python files.
 
@@ -31,9 +30,9 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal
 
 # grdl base classes — optional graceful fallback
 try:
@@ -45,7 +44,6 @@ except ImportError:
 # grdl-runtime types used for workflow detection
 from grdl_rt.execution.builder import Workflow
 from grdl_rt.execution.workflow import WorkflowDefinition
-
 
 # ── ParamInfo ────────────────────────────────────────────────────────
 
@@ -79,9 +77,9 @@ class ParamInfo:
     default: Any = None
     required: bool = False
     description: str = ""
-    choices: Optional[list] = None
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
+    choices: list | None = None
+    min_value: float | None = None
+    max_value: float | None = None
 
 
 # ── Module loading ───────────────────────────────────────────────────
@@ -128,17 +126,15 @@ def _is_processor_class(obj: Any) -> bool:
     if ImageTransform is not None and issubclass(obj, ImageTransform):
         return obj is not ImageTransform
     # Duck-typing: has apply() method
-    if hasattr(obj, "apply") and callable(getattr(obj, "apply")):
+    if hasattr(obj, "apply") and callable(obj.apply):
         return True
     # Has param specs (decorated processor)
-    if hasattr(obj, "__param_specs__"):
-        return True
-    return False
+    return bool(hasattr(obj, "__param_specs__"))
 
 
 def discover_processors_in_module(
     path: Path,
-) -> List[Tuple[str, type]]:
+) -> list[tuple[str, type]]:
     """Import a ``.py`` file and find processor classes within it.
 
     Parameters
@@ -152,13 +148,11 @@ def discover_processors_in_module(
         Each discovered processor class with its name.
     """
     module = _load_module(path)
-    processors: List[Tuple[str, type]] = []
+    processors: list[tuple[str, type]] = []
     for name in dir(module):
         obj = getattr(module, name)
-        if _is_processor_class(obj):
-            # Only include classes actually defined in this file
-            if getattr(obj, "__module__", None) == module.__name__:
-                processors.append((name, obj))
+        if _is_processor_class(obj) and getattr(obj, "__module__", None) == module.__name__:
+            processors.append((name, obj))
     return processors
 
 
@@ -167,7 +161,7 @@ def discover_processors_in_module(
 
 def discover_workflow_in_module(
     path: Path,
-) -> Optional[Union[WorkflowDefinition, Workflow]]:
+) -> WorkflowDefinition | Workflow | None:
     """Import a ``.py`` file and check if it defines a workflow.
 
     Detection priority:
@@ -248,7 +242,7 @@ _TYPE_NAMES = {
 }
 
 
-def extract_tunable_params(cls: type) -> Dict[str, ParamInfo]:
+def extract_tunable_params(cls: type) -> dict[str, ParamInfo]:
     """Extract tunable parameters from a processor class.
 
     Tries ``extract_param_schema()`` from the catalog first (uses
@@ -282,11 +276,11 @@ def extract_tunable_params(cls: type) -> Dict[str, ParamInfo]:
 
 
 def _params_from_schema(
-    properties: Dict[str, Any],
+    properties: dict[str, Any],
     required_names: set,
-) -> Dict[str, ParamInfo]:
+) -> dict[str, ParamInfo]:
     """Convert JSON Schema properties to ParamInfo dict."""
-    result: Dict[str, ParamInfo] = {}
+    result: dict[str, ParamInfo] = {}
     schema_type_map = {
         "integer": "int",
         "number": "float",
@@ -308,9 +302,9 @@ def _params_from_schema(
     return result
 
 
-def _params_from_signature(cls: type) -> Dict[str, ParamInfo]:
+def _params_from_signature(cls: type) -> dict[str, ParamInfo]:
     """Extract parameter info from ``__init__`` signature."""
-    result: Dict[str, ParamInfo] = {}
+    result: dict[str, ParamInfo] = {}
     try:
         sig = inspect.signature(cls.__init__)
     except (ValueError, TypeError):

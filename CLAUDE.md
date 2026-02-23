@@ -57,7 +57,7 @@ This is the core of the framework. Key modules and their responsibilities:
 | `dsl.py` | Python ↔ YAML DSL compilation | `DslCompiler`, `@step`, `@workflow` |
 | `discovery.py` | Processor scanning and filtering | `discover_processors()`, `filter_processors()` |
 | `gpu.py` | CuPy GPU dispatch with CPU fallback | `GpuBackend` |
-| `tags.py` | Taxonomy enums | `ImageModality`, `WorkflowTags`, `ProjectTags` |
+| `tags.py` | Taxonomy enums (re-exported from `grdl.vocabulary`) | `ImageModality`, `ExecutionPhase`, `OutputFormat`, `WorkflowTags`, `ProjectTags` |
 | `chip.py` | Chip data models | `Chip`, `ChipSet`, `ChipLabel`, `PolygonRegion` |
 | `config.py` | Runtime configuration | `GrdkConfig`, `load_config()` |
 | `project.py` | Project directory structure | `GrdkProject` |
@@ -96,12 +96,16 @@ execute(source) →
 4. `_resolve_deferred()` → `_construct_processor()` — inspects `__init__` signature, injects metadata if parameter exists
 5. `_run_pipeline()` — sequential execution with GPU dispatch and progress callbacks
 
-### Metadata Injection Convention
+### Processor Dispatch Protocol
 
-The framework inspects `cls.__init__` via `inspect.signature()`. If a parameter named `metadata` exists and the user didn't provide it in kwargs, the framework injects it:
+At runtime, each step is dispatched via `execute_processor()` (in `dispatch.py`), which uses grdl's `ImageProcessor.execute(metadata, source, **kwargs)` protocol. This is the **primary execution path** — it handles `ImageTransform`, `ImageDetector`, `PolarimetricDecomposition`, `WorkflowOperator`, and raw callables polymorphically.
+
+### Metadata Injection Convention (Deferred Construction)
+
+When a processor **class** (not instance) is passed to `.step()`, it becomes a `DeferredStep`. At execute time, `_resolve_deferred()` → `_construct_processor()` inspects `cls.__init__` via `inspect.signature()`. If a parameter named `metadata` exists and the user didn't provide it in kwargs, the framework injects it from the reader:
 
 ```python
-# This constructor signature → metadata will be injected
+# This constructor signature → metadata will be injected at construction
 class SublookDecomposition:
     def __init__(self, metadata: SICDMetadata, num_looks=2, ...): ...
 
@@ -110,7 +114,7 @@ class ToDecibels:
     def __init__(self, floor_db=-60.0): ...
 ```
 
-User-provided `metadata` in kwargs always takes precedence over injection.
+User-provided `metadata` in kwargs always takes precedence over injection. This convention-based injection is a **secondary path** used only during deferred construction — the primary execution protocol is `execute(metadata, source, **kwargs)`.
 
 ### No Circular Dependencies
 

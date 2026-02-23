@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Accuracy Module — Ground truth comparison for detection workflows.
 
@@ -31,10 +30,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
-
 
 # ── Data models ──────────────────────────────────────────────────────
 
@@ -71,11 +69,11 @@ class AccuracyReport:
     precision: float = 0.0
     recall: float = 0.0
     f1: float = 0.0
-    iou_scores: List[float] = field(default_factory=list)
+    iou_scores: list[float] = field(default_factory=list)
     mean_iou: float = 0.0
-    details: List[Dict] = field(default_factory=list)
+    details: list[dict] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dict (JSON-safe)."""
         return {
             "true_positives": self.true_positives,
@@ -93,7 +91,7 @@ class AccuracyReport:
 # ── GeoJSON loading ──────────────────────────────────────────────────
 
 
-def load_geojson(path: Path) -> List[Dict]:
+def load_geojson(path: Path) -> list[dict]:
     """Load features from a GeoJSON file.
 
     Supports both ``FeatureCollection`` and single ``Feature`` objects.
@@ -109,7 +107,7 @@ def load_geojson(path: Path) -> List[Dict]:
         Each dict is a GeoJSON Feature with ``geometry`` and optional
         ``properties``.
     """
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
 
     if data.get("type") == "FeatureCollection":
@@ -125,7 +123,7 @@ def load_geojson(path: Path) -> List[Dict]:
 # ── Bounding box helpers ─────────────────────────────────────────────
 
 
-def _geometry_to_bbox(geometry: Dict) -> Optional[Tuple[float, float, float, float]]:
+def _geometry_to_bbox(geometry: dict) -> tuple[float, float, float, float] | None:
     """Extract an axis-aligned bounding box from a GeoJSON geometry.
 
     Returns ``(min_x, min_y, max_x, max_y)`` or ``None`` if the
@@ -143,30 +141,36 @@ def _geometry_to_bbox(geometry: Dict) -> Optional[Tuple[float, float, float, flo
     if gtype == "Polygon":
         ring = np.array(coords[0])
         return (
-            float(ring[:, 0].min()), float(ring[:, 1].min()),
-            float(ring[:, 0].max()), float(ring[:, 1].max()),
+            float(ring[:, 0].min()),
+            float(ring[:, 1].min()),
+            float(ring[:, 0].max()),
+            float(ring[:, 1].max()),
         )
 
     if gtype == "MultiPolygon":
         all_pts = np.concatenate([np.array(poly[0]) for poly in coords])
         return (
-            float(all_pts[:, 0].min()), float(all_pts[:, 1].min()),
-            float(all_pts[:, 0].max()), float(all_pts[:, 1].max()),
+            float(all_pts[:, 0].min()),
+            float(all_pts[:, 1].min()),
+            float(all_pts[:, 0].max()),
+            float(all_pts[:, 1].max()),
         )
 
     if gtype in ("LineString", "MultiPoint"):
         pts = np.array(coords)
         return (
-            float(pts[:, 0].min()), float(pts[:, 1].min()),
-            float(pts[:, 0].max()), float(pts[:, 1].max()),
+            float(pts[:, 0].min()),
+            float(pts[:, 1].min()),
+            float(pts[:, 0].max()),
+            float(pts[:, 1].max()),
         )
 
     return None
 
 
 def _bbox_iou(
-    box_a: Tuple[float, float, float, float],
-    box_b: Tuple[float, float, float, float],
+    box_a: tuple[float, float, float, float],
+    box_b: tuple[float, float, float, float],
 ) -> float:
     """Compute IoU between two axis-aligned bounding boxes.
 
@@ -219,12 +223,16 @@ def _polygon_iou(
     except ImportError:
         # Cannot compute polygon IoU without matplotlib — fall back to bbox
         bbox_a = (
-            float(poly_a[:, 0].min()), float(poly_a[:, 1].min()),
-            float(poly_a[:, 0].max()), float(poly_a[:, 1].max()),
+            float(poly_a[:, 0].min()),
+            float(poly_a[:, 1].min()),
+            float(poly_a[:, 0].max()),
+            float(poly_a[:, 1].max()),
         )
         bbox_b = (
-            float(poly_b[:, 0].min()), float(poly_b[:, 1].min()),
-            float(poly_b[:, 0].max()), float(poly_b[:, 1].max()),
+            float(poly_b[:, 0].min()),
+            float(poly_b[:, 1].min()),
+            float(poly_b[:, 0].max()),
+            float(poly_b[:, 1].max()),
         )
         return _bbox_iou(bbox_a, bbox_b)
 
@@ -256,7 +264,7 @@ def _polygon_iou(
 # ── Detection extraction ─────────────────────────────────────────────
 
 
-def _extract_detections(results: List[Any]) -> List[Dict]:
+def _extract_detections(results: list[Any]) -> list[dict]:
     """Pull detection geometries out of workflow results.
 
     Handles several common result shapes:
@@ -265,7 +273,7 @@ def _extract_detections(results: List[Any]) -> List[Dict]:
     * Objects with ``.geometry`` or ``.bbox`` attributes
     * ``WorkflowResult`` whose ``.result`` is one of the above
     """
-    detections: List[Dict] = []
+    detections: list[dict] = []
 
     for r in results:
         # Unwrap WorkflowResult
@@ -285,7 +293,7 @@ def _extract_detections(results: List[Any]) -> List[Dict]:
     return detections
 
 
-def _coerce_detection(item: Any) -> Optional[Dict]:
+def _coerce_detection(item: Any) -> dict | None:
     """Coerce a single item to a detection dict with ``geometry``."""
     if isinstance(item, dict):
         if "geometry" in item:
@@ -295,21 +303,22 @@ def _coerce_detection(item: Any) -> Optional[Dict]:
             return {
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[
-                        [bbox[0], bbox[1]],
-                        [bbox[2], bbox[1]],
-                        [bbox[2], bbox[3]],
-                        [bbox[0], bbox[3]],
-                        [bbox[0], bbox[1]],
-                    ]],
+                    "coordinates": [
+                        [
+                            [bbox[0], bbox[1]],
+                            [bbox[2], bbox[1]],
+                            [bbox[2], bbox[3]],
+                            [bbox[0], bbox[3]],
+                            [bbox[0], bbox[1]],
+                        ]
+                    ],
                 },
                 "properties": item.get("properties", {}),
             }
     # Object with attributes
     geom = getattr(item, "geometry", None)
-    if geom is not None:
-        if isinstance(geom, dict):
-            return {"geometry": geom, "properties": {}}
+    if geom is not None and isinstance(geom, dict):
+        return {"geometry": geom, "properties": {}}
     bbox = getattr(item, "bbox", None)
     if bbox is not None:
         return _coerce_detection({"bbox": bbox})
@@ -320,8 +329,8 @@ def _coerce_detection(item: Any) -> Optional[Dict]:
 
 
 def _build_iou_matrix(
-    det_bboxes: List[Tuple[float, float, float, float]],
-    gt_bboxes: List[Tuple[float, float, float, float]],
+    det_bboxes: list[tuple[float, float, float, float]],
+    gt_bboxes: list[tuple[float, float, float, float]],
 ) -> np.ndarray:
     """Build an (N_det, N_gt) IoU matrix."""
     n_det = len(det_bboxes)
@@ -336,7 +345,7 @@ def _build_iou_matrix(
 def _match_hungarian(
     iou_matrix: np.ndarray,
     iou_threshold: float,
-) -> List[Tuple[int, int, float]]:
+) -> list[tuple[int, int, float]]:
     """Hungarian matching on a cost matrix derived from IoU.
 
     Falls back to greedy matching if ``scipy`` is unavailable.
@@ -353,7 +362,7 @@ def _match_hungarian(
         cost = 1.0 - iou_matrix
         row_ind, col_ind = linear_sum_assignment(cost)
         matches = []
-        for r, c in zip(row_ind, col_ind):
+        for r, c in zip(row_ind, col_ind, strict=False):
             iou_val = float(iou_matrix[r, c])
             if iou_val >= iou_threshold:
                 matches.append((int(r), int(c), iou_val))
@@ -365,10 +374,10 @@ def _match_hungarian(
 def _match_greedy(
     iou_matrix: np.ndarray,
     iou_threshold: float,
-) -> List[Tuple[int, int, float]]:
+) -> list[tuple[int, int, float]]:
     """Greedy matching: iteratively pick the highest IoU pair."""
     mat = iou_matrix.copy()
-    matches: List[Tuple[int, int, float]] = []
+    matches: list[tuple[int, int, float]] = []
     used_dets: set = set()
     used_gts: set = set()
 
@@ -393,7 +402,7 @@ def _match_greedy(
 
 
 def compute_accuracy(
-    results: List[Any],
+    results: list[Any],
     ground_truth_path: Path,
     iou_threshold: float = 0.5,
 ) -> AccuracyReport:
@@ -416,7 +425,7 @@ def compute_accuracy(
     """
     # Load ground truth
     gt_features = load_geojson(ground_truth_path)
-    gt_bboxes: List[Tuple[float, float, float, float]] = []
+    gt_bboxes: list[tuple[float, float, float, float]] = []
     for feat in gt_features:
         geom = feat.get("geometry")
         if geom is None:
@@ -427,7 +436,7 @@ def compute_accuracy(
 
     # Extract detections from all results
     det_features = _extract_detections(results)
-    det_bboxes: List[Tuple[float, float, float, float]] = []
+    det_bboxes: list[tuple[float, float, float, float]] = []
     for det in det_features:
         geom = det.get("geometry")
         if geom is None:
@@ -461,10 +470,7 @@ def compute_accuracy(
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
     mean_iou = float(np.mean(iou_scores)) if iou_scores else 0.0
 
-    details = [
-        {"det_idx": m[0], "gt_idx": m[1], "iou": m[2]}
-        for m in matches
-    ]
+    details = [{"det_idx": m[0], "gt_idx": m[1], "iou": m[2]} for m in matches]
 
     return AccuracyReport(
         true_positives=tp,

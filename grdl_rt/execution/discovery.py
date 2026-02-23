@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Processor Discovery - Catalog-backed processor lookup and filtering.
 
@@ -29,7 +28,6 @@ Created
 # Standard library
 import importlib
 import threading
-from typing import Dict, Optional, Set
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -41,7 +39,7 @@ logger = get_logger(__name__)
 # Module-level catalog state
 # ---------------------------------------------------------------------------
 
-_catalog: Optional[ArtifactCatalogBase] = None
+_catalog: ArtifactCatalogBase | None = None
 _catalog_lock = threading.Lock()
 
 
@@ -165,7 +163,7 @@ def resolve_processor_class(name: str) -> type:
     raise ImportError(f"Cannot resolve processor '{name}': not found in catalog.")
 
 
-def discover_processors() -> Dict[str, type]:
+def discover_processors() -> dict[str, type]:
     """Discover all known processor classes from the catalog.
 
     Returns a mapping of processor short class name to its Python class.
@@ -178,7 +176,7 @@ def discover_processors() -> Dict[str, type]:
         Mapping of short name to class.
     """
     catalog = _get_catalog()
-    processors: Dict[str, type] = {}
+    processors: dict[str, type] = {}
     for artifact in catalog.list_artifacts(artifact_type="grdl_processor"):
         if not artifact.processor_class:
             continue
@@ -196,7 +194,7 @@ def discover_processors() -> Dict[str, type]:
     return processors
 
 
-def get_processor_tags(cls: type) -> Dict:
+def get_processor_tags(cls: type) -> dict:
     """Get tag metadata from a processor class.
 
     Reads the ``__processor_tags__`` attribute typically set by the
@@ -272,7 +270,7 @@ def get_gpu_capability(cls: type) -> str:
     return "preferred"
 
 
-def get_all_modalities() -> Set:
+def get_all_modalities() -> set:
     """Collect all unique modality values from known processors.
 
     Returns
@@ -280,14 +278,14 @@ def get_all_modalities() -> Set:
     Set
         Set of modality values found across all discoverable processors.
     """
-    modalities: Set = set()
+    modalities: set = set()
     for _name, cls in discover_processors().items():
         tags = get_processor_tags(cls)
         modalities.update(tags.get("modalities", ()))
     return modalities
 
 
-def get_all_categories() -> Set:
+def get_all_categories() -> set:
     """Collect all unique category values from known processors.
 
     Returns
@@ -295,7 +293,7 @@ def get_all_categories() -> Set:
     Set
         Set of category values found across all discoverable processors.
     """
-    categories: Set = set()
+    categories: set = set()
     for _name, cls in discover_processors().items():
         tags = get_processor_tags(cls)
         cat = tags.get("category")
@@ -306,10 +304,10 @@ def get_all_categories() -> Set:
 
 def filter_processors(
     *,
-    modality: Optional[str] = None,
-    category: Optional[str] = None,
-    processor_type: Optional[str] = None,
-) -> Dict[str, type]:
+    modality: str | None = None,
+    category: str | None = None,
+    processor_type: str | None = None,
+) -> dict[str, type]:
     """Filter known processors by tag criteria.
 
     Parameters
@@ -328,7 +326,7 @@ def filter_processors(
         Filtered mapping of processor short name to class.
     """
     catalog = _get_catalog()
-    result: Dict[str, type] = {}
+    result: dict[str, type] = {}
 
     for artifact in catalog.list_artifacts(artifact_type="grdl_processor"):
         if not artifact.processor_class:
@@ -346,8 +344,7 @@ def filter_processors(
 
         if modality:
             modality_values = {
-                m.value if hasattr(m, "value") else m
-                for m in tags.get("modalities", ())
+                m.value if hasattr(m, "value") else m for m in tags.get("modalities", ())
             }
             if modality not in modality_values:
                 continue

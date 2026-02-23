@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Execution Metrics — Structured timing and resource usage data.
 
@@ -33,7 +32,7 @@ Modified
 # Standard library
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -69,13 +68,13 @@ class StepMetrics:
     peak_rss_bytes: int
     gpu_used: bool
     status: str = "success"
-    error_message: Optional[str] = None
-    step_id: Optional[str] = None
-    gpu_memory_bytes: Optional[int] = None
-    global_pass_duration: Optional[float] = None
-    global_pass_memory: Optional[int] = None
+    error_message: str | None = None
+    step_id: str | None = None
+    gpu_memory_bytes: int | None = None
+    global_pass_duration: float | None = None
+    global_pass_memory: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
 
         Returns
@@ -142,13 +141,13 @@ class WorkflowMetrics:
     total_wall_time_s: float
     total_cpu_time_s: float
     peak_rss_bytes: int
-    step_metrics: List[StepMetrics] = field(default_factory=list)
+    step_metrics: list[StepMetrics] = field(default_factory=list)
     started_at: str = ""
     completed_at: str = ""
     status: str = "success"
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
 
         Returns

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 YAML Catalog - Lightweight YAML-file-backed artifact catalog.
 
@@ -28,7 +27,7 @@ Created
 
 # Standard library
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Third-party
 import yaml
@@ -60,7 +59,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         ``~/.grdl/catalog.yaml``.
     """
 
-    def __init__(self, file_path: Optional[Path] = None) -> None:
+    def __init__(self, file_path: Path | None = None) -> None:
         if file_path is None:
             config_dir = Path.home() / _CONFIG_DIR
             config_dir.mkdir(parents=True, exist_ok=True)
@@ -69,9 +68,9 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         self._file_path = Path(file_path)
         self._file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._meta: Dict[str, Any] = {"format_version": 1, "next_id": 1}
-        self._artifacts: List[Dict[str, Any]] = []
-        self._remote_versions: List[Dict[str, Any]] = []
+        self._meta: dict[str, Any] = {"format_version": 1, "next_id": 1}
+        self._artifacts: list[dict[str, Any]] = []
+        self._remote_versions: list[dict[str, Any]] = []
 
         self._load()
 
@@ -80,7 +79,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         if not self._file_path.exists():
             return
 
-        with open(self._file_path, "r", encoding="utf-8") as f:
+        with open(self._file_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         if not data:
@@ -99,7 +98,8 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         }
         with open(self._file_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(
-                data, f,
+                data,
+                f,
                 default_flow_style=False,
                 sort_keys=False,
                 allow_unicode=True,
@@ -153,15 +153,11 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             for entry in self._artifacts
             if entry["name"] == name and entry["version"] == version
         }
-        self._artifacts = [
-            entry for entry in self._artifacts
-            if entry["id"] not in removed_ids
-        ]
+        self._artifacts = [entry for entry in self._artifacts if entry["id"] not in removed_ids]
 
         if removed_ids:
             self._remote_versions = [
-                rv for rv in self._remote_versions
-                if rv["artifact_id"] not in removed_ids
+                rv for rv in self._remote_versions if rv["artifact_id"] not in removed_ids
             ]
 
         removed = len(self._artifacts) < original_len
@@ -169,7 +165,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             self._save()
         return removed
 
-    def get_artifact(self, name: str, version: str) -> Optional[Artifact]:
+    def get_artifact(self, name: str, version: str) -> Artifact | None:
         """Retrieve a specific artifact by name and version.
 
         Parameters
@@ -188,8 +184,9 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         return None
 
     def list_artifacts(
-        self, artifact_type: Optional[str] = None,
-    ) -> List[Artifact]:
+        self,
+        artifact_type: str | None = None,
+    ) -> list[Artifact]:
         """List all artifacts, optionally filtered by type.
 
         Parameters
@@ -203,14 +200,12 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         """
         entries = self._artifacts
         if artifact_type:
-            entries = [
-                e for e in entries if e["artifact_type"] == artifact_type
-            ]
+            entries = [e for e in entries if e["artifact_type"] == artifact_type]
 
         entries = sorted(entries, key=lambda e: (e["name"], e["version"]))
         return [self._dict_to_artifact(e) for e in entries]
 
-    def search(self, query: str) -> List[Artifact]:
+    def search(self, query: str) -> list[Artifact]:
         """Search artifacts by case-insensitive substring matching.
 
         Matches against artifact name and description fields.
@@ -232,7 +227,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
                 results.append(self._dict_to_artifact(entry))
         return results
 
-    def search_by_tags(self, tags: Dict[str, str]) -> List[Artifact]:
+    def search_by_tags(self, tags: dict[str, str]) -> list[Artifact]:
         """Search artifacts by tag key-value pairs (AND logic).
 
         Parameters
@@ -261,7 +256,10 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         return results
 
     def update_remote_version(
-        self, artifact_id: int, source: str, latest_version: str,
+        self,
+        artifact_id: int,
+        source: str,
+        latest_version: str,
     ) -> None:
         """Record the latest remote version for an artifact.
 
@@ -278,16 +276,20 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
                 self._save()
                 return
 
-        self._remote_versions.append({
-            "artifact_id": artifact_id,
-            "source": source,
-            "latest_version": latest_version,
-        })
+        self._remote_versions.append(
+            {
+                "artifact_id": artifact_id,
+                "source": source,
+                "latest_version": latest_version,
+            }
+        )
         self._save()
 
     def get_alternatives(
-        self, name: str, version: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str,
+    ) -> list[dict[str, Any]]:
         """Return alternative processor entries for the given artifact.
 
         Parameters
@@ -305,8 +307,10 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         return []
 
     def set_alternatives(
-        self, name: str, version: str,
-        alternatives: List[Dict[str, Any]],
+        self,
+        name: str,
+        version: str,
+        alternatives: list[dict[str, Any]],
     ) -> None:
         """Set alternative processor entries for the given artifact.
 
@@ -330,7 +334,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
     # --- Internal helpers ---
 
     @staticmethod
-    def _artifact_to_dict(artifact: Artifact, artifact_id: int) -> Dict[str, Any]:
+    def _artifact_to_dict(artifact: Artifact, artifact_id: int) -> dict[str, Any]:
         """Convert an Artifact instance to a plain dict for YAML storage."""
         return {
             "id": artifact_id,
@@ -355,7 +359,7 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
         }
 
     @staticmethod
-    def _dict_to_artifact(entry: Dict[str, Any]) -> Artifact:
+    def _dict_to_artifact(entry: dict[str, Any]) -> Artifact:
         """Convert a YAML dict entry to an Artifact instance."""
         return Artifact(
             id=entry.get("id"),

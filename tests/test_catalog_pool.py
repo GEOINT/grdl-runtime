@@ -42,12 +42,8 @@ class TestThreadExecutorPool:
         pool = ThreadExecutorPool(max_workers=1)
         try:
             # Mock subprocess.run to avoid actually installing
-            with mock.patch(
-                'grdl_rt.catalog.pool.subprocess.run'
-            ) as mock_run:
-                mock_run.return_value = mock.Mock(
-                    returncode=0, stdout='installed', stderr=''
-                )
+            with mock.patch("grdl_rt.catalog.pool.subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=0, stdout="installed", stderr="")
                 future = pool.submit_download("fake-package")
                 result = future.result(timeout=10)
                 assert result.returncode == 0
@@ -69,58 +65,44 @@ class TestThreadExecutorPool:
     def test_submit_download_conda(self):
         pool = ThreadExecutorPool(max_workers=1)
         try:
-            with mock.patch(
-                'grdl_rt.catalog.pool.subprocess.run'
-            ) as mock_run:
-                mock_run.return_value = mock.Mock(
-                    returncode=0, stdout='installed', stderr=''
-                )
+            with mock.patch("grdl_rt.catalog.pool.subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=0, stdout="installed", stderr="")
                 future = pool.submit_download(
                     "fake-package", use_conda=True, conda_channel="my-channel"
                 )
                 result = future.result(timeout=10)
                 assert result.returncode == 0
                 cmd = mock_run.call_args[0][0]
-                assert cmd[0] == 'conda'
-                assert '-c' in cmd
-                assert 'my-channel' in cmd
+                assert cmd[0] == "conda"
+                assert "-c" in cmd
+                assert "my-channel" in cmd
         finally:
             pool.shutdown(wait=True)
 
     def test_submit_download_conda_no_channel(self):
         pool = ThreadExecutorPool(max_workers=1)
         try:
-            with mock.patch(
-                'grdl_rt.catalog.pool.subprocess.run'
-            ) as mock_run:
-                mock_run.return_value = mock.Mock(
-                    returncode=0, stdout='', stderr=''
-                )
+            with mock.patch("grdl_rt.catalog.pool.subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
                 future = pool.submit_download("pkg", use_conda=True)
                 future.result(timeout=10)
                 cmd = mock_run.call_args[0][0]
-                assert '-c' not in cmd
+                assert "-c" not in cmd
         finally:
             pool.shutdown(wait=True)
 
     def test_submit_download_venv_pip(self, tmp_path):
         pool = ThreadExecutorPool(max_workers=1)
         try:
-            with mock.patch(
-                'grdl_rt.catalog.pool.subprocess.run'
-            ) as mock_run:
-                mock_run.return_value = mock.Mock(
-                    returncode=0, stdout='', stderr=''
-                )
+            with mock.patch("grdl_rt.catalog.pool.subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
                 # Create a fake venv with Scripts/pip.exe (Windows path)
-                scripts_dir = tmp_path / 'Scripts'
+                scripts_dir = tmp_path / "Scripts"
                 scripts_dir.mkdir()
-                pip_exe = scripts_dir / 'pip.exe'
-                pip_exe.write_text('')
+                pip_exe = scripts_dir / "pip.exe"
+                pip_exe.write_text("")
 
-                future = pool.submit_download(
-                    "fake-package", target_venv=tmp_path
-                )
+                future = pool.submit_download("fake-package", target_venv=tmp_path)
                 result = future.result(timeout=10)
                 assert result.returncode == 0
         finally:
@@ -129,12 +111,8 @@ class TestThreadExecutorPool:
     def test_install_package_failure_logs_error(self):
         pool = ThreadExecutorPool(max_workers=1)
         try:
-            with mock.patch(
-                'grdl_rt.catalog.pool.subprocess.run'
-            ) as mock_run:
-                mock_run.return_value = mock.Mock(
-                    returncode=1, stdout='', stderr='error occurred'
-                )
+            with mock.patch("grdl_rt.catalog.pool.subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=1, stdout="", stderr="error occurred")
                 future = pool.submit_download("bad-package")
                 result = future.result(timeout=10)
                 assert result.returncode == 1

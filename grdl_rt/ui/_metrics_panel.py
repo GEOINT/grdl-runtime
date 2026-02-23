@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Metrics Panel — Matplotlib-embedded execution metrics visualisation.
 
@@ -29,11 +28,10 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import List, Optional
-
-import numpy as np
 
 import matplotlib
+import numpy as np
+
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -59,8 +57,10 @@ class MetricsPanel(ttk.Frame):
         # Summary text label below the figure
         self._summary_var = tk.StringVar(value="No results yet.")
         self._summary_label = ttk.Label(
-            self, textvariable=self._summary_var,
-            font=("Consolas", 9), foreground="#aaaaaa",
+            self,
+            textvariable=self._summary_var,
+            font=("Consolas", 9),
+            foreground="#aaaaaa",
         )
         self._summary_label.pack(fill="x", padx=4, pady=(2, 4))
 
@@ -69,7 +69,7 @@ class MetricsPanel(ttk.Frame):
     def update(
         self,
         results: list,
-        accuracy: Optional[AccuracyReport] = None,
+        accuracy: AccuracyReport | None = None,
     ) -> None:
         """Redraw all charts with new results.
 
@@ -86,8 +86,13 @@ class MetricsPanel(ttk.Frame):
             ax = self._fig.add_subplot(111)
             _style_axes(ax)
             ax.text(
-                0.5, 0.5, "No results to display.",
-                ha="center", va="center", fontsize=12, color="#888888",
+                0.5,
+                0.5,
+                "No results to display.",
+                ha="center",
+                va="center",
+                fontsize=12,
+                color="#888888",
                 transform=ax.transAxes,
             )
             self._canvas.draw()
@@ -136,8 +141,15 @@ class MetricsPanel(ttk.Frame):
         wr = results[0]
         metrics = wr.metrics
         if not metrics.step_metrics:
-            ax.text(0.5, 0.5, "No step metrics.", ha="center", va="center",
-                    color="#888888", transform=ax.transAxes)
+            ax.text(
+                0.5,
+                0.5,
+                "No step metrics.",
+                ha="center",
+                va="center",
+                color="#888888",
+                transform=ax.transAxes,
+            )
             return
 
         names = [sm.processor_name for sm in metrics.step_metrics]
@@ -154,10 +166,14 @@ class MetricsPanel(ttk.Frame):
         ax.invert_yaxis()
 
         # Value labels
-        for bar, t in zip(bars, times):
+        for bar, t in zip(bars, times, strict=False):
             ax.text(
-                bar.get_width() + max(times) * 0.02, bar.get_y() + bar.get_height() / 2,
-                f"{t:.3f}s", va="center", fontsize=7, color="#cccccc",
+                bar.get_width() + max(times) * 0.02,
+                bar.get_y() + bar.get_height() / 2,
+                f"{t:.3f}s",
+                va="center",
+                fontsize=7,
+                color="#cccccc",
             )
 
     def _plot_step_memory(self, ax, results: list) -> None:
@@ -168,8 +184,15 @@ class MetricsPanel(ttk.Frame):
         wr = results[0]
         metrics = wr.metrics
         if not metrics.step_metrics:
-            ax.text(0.5, 0.5, "No step metrics.", ha="center", va="center",
-                    color="#888888", transform=ax.transAxes)
+            ax.text(
+                0.5,
+                0.5,
+                "No step metrics.",
+                ha="center",
+                va="center",
+                color="#888888",
+                transform=ax.transAxes,
+            )
             return
 
         names = [sm.processor_name for sm in metrics.step_metrics]
@@ -183,11 +206,14 @@ class MetricsPanel(ttk.Frame):
         ax.set_xlabel("MB", fontsize=8, color="#aaaaaa")
         ax.invert_yaxis()
 
-        for bar, m in zip(bars, mem_mb):
+        for bar, m in zip(bars, mem_mb, strict=False):
             ax.text(
                 bar.get_width() + max(mem_mb) * 0.02 if max(mem_mb) > 0 else 0.1,
                 bar.get_y() + bar.get_height() / 2,
-                f"{m:.1f}", va="center", fontsize=7, color="#cccccc",
+                f"{m:.1f}",
+                va="center",
+                fontsize=7,
+                color="#cccccc",
             )
 
     def _plot_image_timing(self, ax, results: list) -> None:
@@ -197,8 +223,15 @@ class MetricsPanel(ttk.Frame):
 
         n = len(results)
         if n == 0:
-            ax.text(0.5, 0.5, "No results.", ha="center", va="center",
-                    color="#888888", transform=ax.transAxes)
+            ax.text(
+                0.5,
+                0.5,
+                "No results.",
+                ha="center",
+                va="center",
+                color="#888888",
+                transform=ax.transAxes,
+            )
             return
 
         times = [wr.metrics.total_wall_time_s for wr in results]
@@ -210,10 +243,15 @@ class MetricsPanel(ttk.Frame):
         ax.set_xticklabels(labels, fontsize=8, color="#cccccc", rotation=45 if n > 6 else 0)
         ax.set_ylabel("Seconds", fontsize=8, color="#aaaaaa")
 
-        for bar, t in zip(bars, times):
+        for bar, t in zip(bars, times, strict=False):
             ax.text(
-                bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{t:.2f}", ha="center", va="bottom", fontsize=7, color="#cccccc",
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f"{t:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                color="#cccccc",
             )
 
     def _plot_accuracy(self, ax, accuracy: AccuracyReport) -> None:
@@ -232,19 +270,28 @@ class MetricsPanel(ttk.Frame):
         ax.set_ylim(0, 1.05)
         ax.set_ylabel("Score", fontsize=8, color="#aaaaaa")
 
-        for bar, v in zip(bars, values):
+        for bar, v in zip(bars, values, strict=False):
             ax.text(
-                bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
-                f"{v:.3f}", ha="center", va="bottom", fontsize=8, color="#cccccc",
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.02,
+                f"{v:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#cccccc",
             )
 
         # Annotate with counts
         ax.text(
-            0.98, 0.02,
+            0.98,
+            0.02,
             f"TP={accuracy.true_positives}  FP={accuracy.false_positives}  "
             f"FN={accuracy.false_negatives}  mIoU={accuracy.mean_iou:.3f}",
-            transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=7, color="#aaaaaa",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="#aaaaaa",
         )
 
     def _plot_aggregate_stats(self, ax, results: list) -> None:
@@ -259,11 +306,7 @@ class MetricsPanel(ttk.Frame):
         peak_mem = max(wr.metrics.peak_rss_bytes for wr in results) if results else 0
         peak_mem_mb = peak_mem / (1024 * 1024)
 
-        gpu_steps = sum(
-            1 for wr in results
-            for sm in wr.metrics.step_metrics
-            if sm.gpu_used
-        )
+        gpu_steps = sum(1 for wr in results for sm in wr.metrics.step_metrics if sm.gpu_used)
         total_steps = sum(len(wr.metrics.step_metrics) for wr in results)
 
         lines = [
@@ -276,15 +319,21 @@ class MetricsPanel(ttk.Frame):
 
         text = "\n".join(lines)
         ax.text(
-            0.05, 0.95, text, transform=ax.transAxes,
-            va="top", ha="left", fontsize=9, color="#cccccc",
+            0.05,
+            0.95,
+            text,
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+            fontsize=9,
+            color="#cccccc",
             family="monospace",
         )
 
     def _update_summary(
         self,
         results: list,
-        accuracy: Optional[AccuracyReport],
+        accuracy: AccuracyReport | None,
     ) -> None:
         """Update the text summary below the figure."""
         n = len(results)

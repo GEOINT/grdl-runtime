@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Project Model - GRDK project management (create, load, save).
 
@@ -36,9 +35,8 @@ Modified
 # Standard library
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 # grdl-runtime internal
 from grdl_rt.execution.context import get_logger
@@ -81,14 +79,14 @@ class GrdkProject:
         self,
         project_dir: Path,
         name: str = "",
-        tags: Optional[ProjectTags] = None,
+        tags: ProjectTags | None = None,
     ) -> None:
         self.project_dir = Path(project_dir)
         self.name = name
         self.tags = tags or ProjectTags()
-        self.image_paths: List[str] = []
-        self.workflows: Dict[str, WorkflowDefinition] = {}
-        self._created_at: str = datetime.now(timezone.utc).isoformat()
+        self.image_paths: list[str] = []
+        self.workflows: dict[str, WorkflowDefinition] = {}
+        self._created_at: str = datetime.now(UTC).isoformat()
         self._modified_at: str = self._created_at
 
     @classmethod
@@ -96,8 +94,8 @@ class GrdkProject:
         cls,
         project_dir: Path,
         name: str,
-        tags: Optional[ProjectTags] = None,
-    ) -> 'GrdkProject':
+        tags: ProjectTags | None = None,
+    ) -> "GrdkProject":
         """Create a new GRDK project directory and manifest.
 
         Parameters
@@ -124,9 +122,7 @@ class GrdkProject:
         manifest_path = project_dir / cls.MANIFEST_FILENAME
 
         if manifest_path.exists():
-            raise FileExistsError(
-                f"Project already exists at {project_dir}"
-            )
+            raise FileExistsError(f"Project already exists at {project_dir}")
 
         project_dir.mkdir(parents=True, exist_ok=True)
         (project_dir / "images").mkdir(exist_ok=True)
@@ -139,7 +135,7 @@ class GrdkProject:
         return project
 
     @classmethod
-    def load(cls, project_dir: Path) -> 'GrdkProject':
+    def load(cls, project_dir: Path) -> "GrdkProject":
         """Load an existing GRDK project from disk.
 
         Parameters
@@ -161,24 +157,23 @@ class GrdkProject:
 
         if not manifest_path.exists():
             raise FileNotFoundError(
-                f"No project found at {project_dir} "
-                f"(missing {cls.MANIFEST_FILENAME})"
+                f"No project found at {project_dir} " f"(missing {cls.MANIFEST_FILENAME})"
             )
 
-        with open(manifest_path, 'r', encoding='utf-8') as f:
+        with open(manifest_path, encoding="utf-8") as f:
             data = json.load(f)
 
         project = cls(
             project_dir,
-            name=data.get('name', ''),
-            tags=ProjectTags.from_dict(data.get('tags', {})),
+            name=data.get("name", ""),
+            tags=ProjectTags.from_dict(data.get("tags", {})),
         )
-        project.image_paths = data.get('image_paths', [])
-        project._created_at = data.get('created_at', project._created_at)
-        project._modified_at = data.get('modified_at', project._modified_at)
+        project.image_paths = data.get("image_paths", [])
+        project._created_at = data.get("created_at", project._created_at)
+        project._modified_at = data.get("modified_at", project._modified_at)
 
         # Load workflow definitions
-        for wf_name, wf_data in data.get('workflows', {}).items():
+        for wf_name, wf_data in data.get("workflows", {}).items():
             project.workflows[wf_name] = WorkflowDefinition.from_dict(wf_data)
 
         return project
@@ -189,25 +184,22 @@ class GrdkProject:
         Writes project.json with current state. Chip arrays and
         workflow files are saved separately.
         """
-        self._modified_at = datetime.now(timezone.utc).isoformat()
+        self._modified_at = datetime.now(UTC).isoformat()
 
         manifest = {
-            'name': self.name,
-            'version': '1.0',
-            'created_at': self._created_at,
-            'modified_at': self._modified_at,
-            'tags': self.tags.to_dict(),
-            'image_paths': self.image_paths,
-            'workflows': {
-                name: wf.to_dict()
-                for name, wf in self.workflows.items()
-            },
+            "name": self.name,
+            "version": "1.0",
+            "created_at": self._created_at,
+            "modified_at": self._modified_at,
+            "tags": self.tags.to_dict(),
+            "image_paths": self.image_paths,
+            "workflows": {name: wf.to_dict() for name, wf in self.workflows.items()},
         }
 
         manifest_path = self.project_dir / self.MANIFEST_FILENAME
-        tmp_path = manifest_path.with_suffix('.json.tmp')
+        tmp_path = manifest_path.with_suffix(".json.tmp")
         try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
             os.replace(str(tmp_path), str(manifest_path))
         except Exception:
@@ -239,8 +231,8 @@ class GrdkProject:
     def save_chips(
         self,
         chip_name: str,
-        chips: List[np.ndarray],
-        labels: List[str],
+        chips: list[np.ndarray],
+        labels: list[str],
     ) -> None:
         """Save a set of chips and labels to the chips/ directory.
 
@@ -260,13 +252,13 @@ class GrdkProject:
             np.save(chip_dir / f"chip_{i:04d}.npy", chip)
 
         labels_data = {
-            'count': len(labels),
-            'labels': labels,
+            "count": len(labels),
+            "labels": labels,
         }
         labels_path = chip_dir / "labels.json"
-        labels_tmp = labels_path.with_suffix('.json.tmp')
+        labels_tmp = labels_path.with_suffix(".json.tmp")
         try:
-            with open(labels_tmp, 'w', encoding='utf-8') as f:
+            with open(labels_tmp, "w", encoding="utf-8") as f:
                 json.dump(labels_data, f, indent=2)
             os.replace(str(labels_tmp), str(labels_path))
         except Exception:
@@ -293,15 +285,15 @@ class GrdkProject:
         """
         chip_dir = self.project_dir / "chips" / chip_name
 
-        with open(chip_dir / "labels.json", 'r', encoding='utf-8') as f:
+        with open(chip_dir / "labels.json", encoding="utf-8") as f:
             labels_data = json.load(f)
 
         chips = []
-        for i in range(labels_data['count']):
+        for i in range(labels_data["count"]):
             chip_path = chip_dir / f"chip_{i:04d}.npy"
             chips.append(np.load(chip_path))
 
-        return chips, labels_data['labels']
+        return chips, labels_data["labels"]
 
     @property
     def created_at(self) -> str:

@@ -44,9 +44,7 @@ class TestGrdkProjectCreate:
 
     def test_create_with_tags(self, tmp_project_dir):
         tags = ProjectTags(intended_target="vehicle")
-        project = GrdkProject.create(
-            tmp_project_dir, name="Tagged", tags=tags
-        )
+        project = GrdkProject.create(tmp_project_dir, name="Tagged", tags=tags)
         assert project.tags.intended_target == "vehicle"
 
     def test_create_existing_raises(self, tmp_project_dir):
@@ -59,14 +57,15 @@ class TestGrdkProjectLoadSave:
 
     def test_save_and_load_roundtrip(self, tmp_project_dir):
         project = GrdkProject.create(
-            tmp_project_dir, name="Roundtrip",
+            tmp_project_dir,
+            name="Roundtrip",
             tags=ProjectTags(intended_target="ship"),
         )
         project.add_image("/path/to/image1.tif")
         project.add_image("/path/to/image2.ntf")
 
         wf = WorkflowDefinition(name="MyWorkflow", version="1.0.0")
-        wf.add_step(ProcessingStep("Filter", "0.1.0", params={'k': 3}))
+        wf.add_step(ProcessingStep("Filter", "0.1.0", params={"k": 3}))
         project.add_workflow(wf)
         project.save()
 
@@ -76,7 +75,7 @@ class TestGrdkProjectLoadSave:
         assert len(loaded.image_paths) == 2
         assert "/path/to/image1.tif" in loaded.image_paths
         assert "MyWorkflow" in loaded.workflows
-        assert loaded.workflows["MyWorkflow"].steps[0].params == {'k': 3}
+        assert loaded.workflows["MyWorkflow"].steps[0].params == {"k": 3}
 
     def test_load_nonexistent_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -123,7 +122,7 @@ class TestGrdkProjectTimestamps:
     def test_created_at_set(self, tmp_project_dir):
         project = GrdkProject.create(tmp_project_dir, name="Timestamps")
         assert project.created_at is not None
-        assert 'T' in project.created_at  # ISO 8601
+        assert "T" in project.created_at  # ISO 8601
 
     def test_modified_at_updates_on_save(self, tmp_project_dir):
         project = GrdkProject.create(tmp_project_dir, name="Modified")

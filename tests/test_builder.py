@@ -17,10 +17,10 @@ import pytest
 from grdl_rt.execution.builder import Workflow, WorkflowStep, DeferredStep
 from grdl_rt.execution.result import WorkflowResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _double(source: np.ndarray) -> np.ndarray:
     """Plain function step: doubles the input."""
@@ -104,6 +104,7 @@ class _FakeReader:
 # WorkflowStep
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowStep:
     def test_dataclass_fields(self):
         ws = WorkflowStep(fn=_double, name="double", gpu_compatible=False)
@@ -116,6 +117,7 @@ class TestWorkflowStep:
 # ---------------------------------------------------------------------------
 # Workflow construction
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowConstruction:
     def test_empty_workflow(self):
@@ -138,11 +140,7 @@ class TestWorkflowConstruction:
         assert len(wf.tags.modalities) == 1
 
     def test_fluent_chaining(self):
-        wf = (
-            Workflow("chain")
-            .step(_double, name="double")
-            .step(_add_one, name="add one")
-        )
+        wf = Workflow("chain").step(_double, name="double").step(_add_one, name="add one")
         assert len(wf) == 2
         assert wf.steps[0].name == "double"
         assert wf.steps[1].name == "add one"
@@ -157,6 +155,7 @@ class TestWorkflowConstruction:
 # ---------------------------------------------------------------------------
 # Workflow.step() — callable types
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowStep_Registration:
     def test_plain_function(self):
@@ -205,6 +204,7 @@ class TestWorkflowStep_Registration:
 # Workflow.execute()
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowExecute:
     def test_empty_workflow_returns_source(self):
         wf = Workflow("empty")
@@ -223,12 +223,7 @@ class TestWorkflowExecute:
         np.testing.assert_array_equal(wr.result, np.array([2.0, 4.0, 6.0]))
 
     def test_multi_step_pipeline(self):
-        wf = (
-            Workflow("multi")
-            .step(_double)       # x2
-            .step(_add_one)      # +1
-            .step(_double)       # x2
-        )
+        wf = Workflow("multi").step(_double).step(_add_one).step(_double)  # x2  # +1  # x2
         source = np.array([1.0])
         # (1*2 + 1) * 2 = 6
         wr = wf.execute(source)
@@ -246,7 +241,7 @@ class TestWorkflowExecute:
         np.testing.assert_array_equal(wr.result, np.array([6.0]))
 
     def test_lambda_step(self):
-        wf = Workflow("lam").step(lambda x: x ** 2, name="square")
+        wf = Workflow("lam").step(lambda x: x**2, name="square")
         source = np.array([3.0])
         wr = wf.execute(source)
         assert isinstance(wr, WorkflowResult)
@@ -273,15 +268,11 @@ class TestWorkflowExecute:
 # Progress callback
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowProgress:
     def test_progress_callback_values(self):
         progress_values: list = []
-        wf = (
-            Workflow("progress")
-            .step(_double)
-            .step(_add_one)
-            .step(_double)
-        )
+        wf = Workflow("progress").step(_double).step(_add_one).step(_double)
         wf.execute(np.array([1.0]), progress_callback=progress_values.append)
         assert len(progress_values) == 3
         assert progress_values == pytest.approx([1 / 3, 2 / 3, 1.0])
@@ -297,6 +288,7 @@ class TestWorkflowProgress:
 # ---------------------------------------------------------------------------
 # Batch execution
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowExecuteBatch:
     def test_batch_returns_correct_results(self):
@@ -328,6 +320,7 @@ class TestWorkflowExecuteBatch:
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowErrorHandling:
     def test_step_failure_includes_context(self):
@@ -361,6 +354,7 @@ class TestWorkflowErrorHandling:
 # GPU-compatible flag inference
 # ---------------------------------------------------------------------------
 
+
 class TestGpuCompatibleInference:
     def test_bound_method_inherits_flag(self):
         proc = _FakeProcessor()
@@ -380,14 +374,11 @@ class TestGpuCompatibleInference:
 # Workflow.source() — deferred data factory
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowSource:
     def test_source_provides_input(self):
         """execute() without an array calls the registered source."""
-        wf = (
-            Workflow("src")
-            .source(lambda: np.array([10.0]))
-            .step(_double)
-        )
+        wf = Workflow("src").source(lambda: np.array([10.0])).step(_double)
         wr = wf.execute()
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -395,14 +386,11 @@ class TestWorkflowSource:
 
     def test_source_with_args(self):
         """Positional args are forwarded to the source callable."""
+
         def _make(val):
             return np.array([val])
 
-        wf = (
-            Workflow("src args")
-            .source(_make, 7.0)
-            .step(_add_one)
-        )
+        wf = Workflow("src args").source(_make, 7.0).step(_add_one)
         wr = wf.execute()
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -410,14 +398,11 @@ class TestWorkflowSource:
 
     def test_source_with_kwargs(self):
         """Keyword args are forwarded to the source callable."""
+
         def _make(*, scale=1.0):
             return np.ones(3) * scale
 
-        wf = (
-            Workflow("src kwargs")
-            .source(_make, scale=5.0)
-            .step(_double)
-        )
+        wf = Workflow("src kwargs").source(_make, scale=5.0).step(_double)
         wr = wf.execute()
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -425,11 +410,7 @@ class TestWorkflowSource:
 
     def test_explicit_source_overrides_stored(self):
         """Passing an array to execute() overrides the stored source."""
-        wf = (
-            Workflow("override")
-            .source(lambda: np.array([999.0]))
-            .step(_double)
-        )
+        wf = Workflow("override").source(lambda: np.array([999.0])).step(_double)
         wr = wf.execute(np.array([1.0]))
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -451,6 +432,7 @@ class TestWorkflowSource:
 # ---------------------------------------------------------------------------
 # ImageTransform instances as steps
 # ---------------------------------------------------------------------------
+
 
 class TestImageTransformSteps:
     def test_to_decibels_as_step(self):
@@ -514,6 +496,7 @@ class TestImageTransformSteps:
 # Workflow.reader() — reader configuration
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowReader:
     def test_stores_reader_class(self):
         wf = Workflow("rdr").reader(_FakeReader)
@@ -534,6 +517,7 @@ class TestWorkflowReader:
 # Workflow.chip() — chip strategy
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowChip:
     def test_stores_strategy(self):
         wf = Workflow("chip").chip("center", size=2048)
@@ -553,6 +537,7 @@ class TestWorkflowChip:
 # ---------------------------------------------------------------------------
 # Deferred steps — .step(Class, **kwargs)
 # ---------------------------------------------------------------------------
+
 
 class TestDeferredStep:
     def test_class_stored_as_deferred(self):
@@ -584,12 +569,7 @@ class TestDeferredStep:
 
     def test_mixed_deferred_and_immediate(self):
         """Deferred and immediate steps can be mixed."""
-        wf = (
-            Workflow("mixed")
-            .step(_double)
-            .step(_SimpleProcessor, scale=5.0)
-            .step(_add_one)
-        )
+        wf = Workflow("mixed").step(_double).step(_SimpleProcessor, scale=5.0).step(_add_one)
         source = np.array([1.0])
         # 1*2 = 2 → 2*5 = 10 → 10+1 = 11
         wr = wf.execute(source)
@@ -601,6 +581,7 @@ class TestDeferredStep:
 # ---------------------------------------------------------------------------
 # Metadata injection
 # ---------------------------------------------------------------------------
+
 
 class TestMetadataInjection:
     def test_metadata_injected_when_constructor_accepts_it(self):
@@ -617,7 +598,9 @@ class TestMetadataInjection:
         user_meta = {"sensor": "user"}
         reader_meta = {"sensor": "reader"}
         wf = Workflow("meta").step(
-            _MetadataProcessor, metadata=user_meta, factor=2,
+            _MetadataProcessor,
+            metadata=user_meta,
+            factor=2,
         )
         wr = wf.execute(np.array([5.0]), metadata=reader_meta)
         assert isinstance(wr, WorkflowResult)
@@ -652,14 +635,11 @@ class TestMetadataInjection:
 # Execute from file — full framework orchestration
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteFromFile:
     def test_full_pipeline(self):
         """Execute with filepath opens reader, reads chip, runs pipeline."""
-        wf = (
-            Workflow("file test")
-            .reader(_FakeReader)
-            .step(_double)
-        )
+        wf = Workflow("file test").reader(_FakeReader).step(_double)
         # _FakeReader reads full image (100x200) by default (no chip strategy)
         wr = wf.execute("fake/path.nitf")
         assert isinstance(wr, WorkflowResult)
@@ -671,12 +651,7 @@ class TestExecuteFromFile:
 
     def test_center_chip_strategy(self):
         """Center chip strategy reads a center subset."""
-        wf = (
-            Workflow("chip test")
-            .reader(_FakeReader)
-            .chip("center", size=10)
-            .step(_double)
-        )
+        wf = Workflow("chip test").reader(_FakeReader).chip("center", size=10).step(_double)
         wr = wf.execute("fake/path.nitf")
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -685,12 +660,7 @@ class TestExecuteFromFile:
 
     def test_full_chip_strategy(self):
         """'full' strategy reads entire image."""
-        wf = (
-            Workflow("full test")
-            .reader(_FakeReader)
-            .chip("full")
-            .step(_double)
-        )
+        wf = Workflow("full test").reader(_FakeReader).chip("full").step(_double)
         wr = wf.execute("fake/path.nitf")
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -698,11 +668,7 @@ class TestExecuteFromFile:
 
     def test_deferred_step_with_reader_metadata(self):
         """Deferred steps receive metadata from the reader."""
-        wf = (
-            Workflow("meta inject")
-            .reader(_FakeReader)
-            .step(_MetadataProcessor, factor=2)
-        )
+        wf = Workflow("meta inject").reader(_FakeReader).step(_MetadataProcessor, factor=2)
         wr = wf.execute("fake/path.nitf")
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -713,34 +679,20 @@ class TestExecuteFromFile:
     def test_progress_callback_from_file(self):
         """Progress callback fires when executing from file."""
         progress: list = []
-        wf = (
-            Workflow("progress")
-            .reader(_FakeReader)
-            .step(_double)
-            .step(_add_one)
-        )
+        wf = Workflow("progress").reader(_FakeReader).step(_double).step(_add_one)
         wf.execute("fake/path.nitf", progress_callback=progress.append)
         assert len(progress) == 2
         assert progress == pytest.approx([0.5, 1.0])
 
     def test_unknown_chip_strategy_raises(self):
-        wf = (
-            Workflow("bad chip")
-            .reader(_FakeReader)
-            .chip("unknown_strategy")
-            .step(_double)
-        )
+        wf = Workflow("bad chip").reader(_FakeReader).chip("unknown_strategy").step(_double)
         with pytest.raises(ValueError, match="Unknown chip strategy"):
             wf.execute("fake/path.nitf")
 
     def test_metadata_override(self):
         """Explicit metadata= overrides reader metadata."""
         custom_meta = {"sensor": "override"}
-        wf = (
-            Workflow("override")
-            .reader(_FakeReader)
-            .step(_MetadataProcessor, factor=3)
-        )
+        wf = Workflow("override").reader(_FakeReader).step(_MetadataProcessor, factor=3)
         wr = wf.execute("fake/path.nitf", metadata=custom_meta)
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -751,6 +703,7 @@ class TestExecuteFromFile:
 # Backward compatibility
 # ---------------------------------------------------------------------------
 
+
 class TestBackwardCompatibility:
     def test_execute_with_array_still_works(self):
         wf = Workflow("compat").step(_double)
@@ -760,11 +713,7 @@ class TestBackwardCompatibility:
         np.testing.assert_array_equal(wr.result, np.array([10.0]))
 
     def test_source_factory_still_works(self):
-        wf = (
-            Workflow("compat source")
-            .source(lambda: np.array([3.0]))
-            .step(_double)
-        )
+        wf = Workflow("compat source").source(lambda: np.array([3.0])).step(_double)
         wr = wf.execute()
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
@@ -772,11 +721,7 @@ class TestBackwardCompatibility:
 
     def test_step_with_callable_still_works(self):
         proc = _FakeProcessor()
-        wf = (
-            Workflow("compat callable")
-            .step(proc.transform)
-            .step(_add_one)
-        )
+        wf = Workflow("compat callable").step(proc.transform).step(_add_one)
         wr = wf.execute(np.array([1.0]))
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0

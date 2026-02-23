@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 GPU Backend Abstraction - Unified GPU dispatch for CuPy and PyTorch.
 
@@ -36,7 +35,7 @@ Modified
 """
 
 # Standard library
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 # Third-party
 import numpy as np
@@ -51,6 +50,7 @@ def _check_cupy() -> bool:
     """Check if CuPy is available."""
     try:
         import cupy  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -60,6 +60,7 @@ def _check_torch() -> bool:
     """Check if PyTorch with CUDA is available."""
     try:
         import torch
+
         return torch.cuda.is_available()
     except ImportError:
         return False
@@ -89,7 +90,7 @@ class GpuBackend:
         self._torch_available = _check_torch() if prefer_gpu else False
         # Per-call tracking — updated by apply_transform()
         self.last_gpu_used: bool = False
-        self.last_gpu_memory_bytes: Optional[int] = None
+        self.last_gpu_memory_bytes: int | None = None
 
     @property
     def cupy_available(self) -> bool:
@@ -121,6 +122,7 @@ class GpuBackend:
         """
         if self._cupy_available:
             import cupy as cp
+
             return cp.asarray(arr)
         return arr
 
@@ -139,6 +141,7 @@ class GpuBackend:
         """
         if self._cupy_available:
             import cupy as cp
+
             if isinstance(arr, cp.ndarray):
                 return cp.asnumpy(arr)
         return np.asarray(arr)
@@ -177,9 +180,9 @@ class GpuBackend:
             Raw result when *metadata* was ``None`` (legacy path).
         """
         from grdl_rt.execution.dispatch import (
+            _minimal_metadata,
             execute_processor,
             supports_gpu_transfer,
-            _minimal_metadata,
         )
 
         self.last_gpu_used = False
@@ -187,20 +190,21 @@ class GpuBackend:
 
         have_metadata = metadata is not None
         if not have_metadata:
-            if isinstance(source, np.ndarray):
-                metadata = _minimal_metadata(source)
-            else:
-                # Non-ndarray source (e.g., dict from DAG fan-in) — skip
-                # metadata synthesis, use None placeholder.
-                metadata = None
+            # Non-ndarray source (e.g., dict from DAG fan-in) — skip
+            # metadata synthesis, use None placeholder.
+            metadata = _minimal_metadata(source) if isinstance(source, np.ndarray) else None
 
         if self._cupy_available and supports_gpu_transfer(transform):
             try:
                 import cupy as cp
+
                 mem_before = cp.cuda.Device().mem_info[0]
                 gpu_source = self.to_gpu(source)
                 result, updated_meta = execute_processor(
-                    transform, metadata, gpu_source, **kwargs,
+                    transform,
+                    metadata,
+                    gpu_source,
+                    **kwargs,
                 )
                 cpu_result = self.to_cpu(result)
                 mem_after = cp.cuda.Device().mem_info[0]
@@ -217,7 +221,7 @@ class GpuBackend:
                 )
         elif self._cupy_available:
             # Log skip for non-GPU-transferable processors
-            gpu_ok = getattr(transform, '__gpu_compatible__', None)
+            gpu_ok = getattr(transform, "__gpu_compatible__", None)
             if gpu_ok is False:
                 logger.debug(
                     "Skipping GPU (__gpu_compatible__=False)",
@@ -225,7 +229,10 @@ class GpuBackend:
                 )
 
         result, updated_meta = execute_processor(
-            transform, metadata, source, **kwargs,
+            transform,
+            metadata,
+            source,
+            **kwargs,
         )
         if have_metadata:
             return result, updated_meta
@@ -235,7 +242,7 @@ class GpuBackend:
         self,
         model_path: str,
         source: np.ndarray,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> np.ndarray:
         """Run a PyTorch model on source imagery.
 
@@ -262,12 +269,11 @@ class GpuBackend:
             import torch
         except ImportError:
             raise ImportError(
-                "PyTorch is required for model inference. "
-                "Install with: pip install torch"
-            )
+                "PyTorch is required for model inference. " "Install with: pip install torch"
+            ) from None
 
         if device is None:
-            device = 'cuda' if self._torch_available else 'cpu'
+            device = "cuda" if self._torch_available else "cpu"
 
         model = torch.load(model_path, map_location=device, weights_only=False)
         model.eval()
@@ -284,7 +290,7 @@ class GpuBackend:
         return output.cpu().numpy()
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> dict[str, Any]:
         """Current GPU device information.
 
         Returns
@@ -292,24 +298,26 @@ class GpuBackend:
         Dict[str, Any]
             Device name, memory info, and availability flags.
         """
-        info: Dict[str, Any] = {
-            'cupy_available': self._cupy_available,
-            'torch_available': self._torch_available,
+        info: dict[str, Any] = {
+            "cupy_available": self._cupy_available,
+            "torch_available": self._torch_available,
         }
 
         if self._cupy_available:
             import cupy as cp
+
             dev = cp.cuda.Device()
-            info['cupy_device'] = {
-                'id': dev.id,
-                'name': str(dev),
+            info["cupy_device"] = {
+                "id": dev.id,
+                "name": str(dev),
             }
 
         if self._torch_available:
             import torch
-            info['torch_device'] = {
-                'name': torch.cuda.get_device_name(0),
-                'memory_total': torch.cuda.get_device_properties(0).total_mem,
+
+            info["torch_device"] = {
+                "name": torch.cuda.get_device_name(0),
+                "memory_total": torch.cuda.get_device_properties(0).total_mem,
             }
 
         return info

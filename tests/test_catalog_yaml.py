@@ -138,20 +138,20 @@ class TestYamlCatalogTags:
         catalog.add_artifact(sample_workflow)
         loaded = catalog.get_artifact("sar-vehicle-detection", "2.0.0")
         assert loaded is not None
-        assert 'modality' in loaded.tags
-        assert 'SAR' in loaded.tags['modality']
-        assert 'detection_type' in loaded.tags
-        assert 'classification' in loaded.tags['detection_type']
+        assert "modality" in loaded.tags
+        assert "SAR" in loaded.tags["modality"]
+        assert "detection_type" in loaded.tags
+        assert "classification" in loaded.tags["detection_type"]
 
     def test_search_by_tags(self, catalog, sample_workflow):
         catalog.add_artifact(sample_workflow)
-        results = catalog.search_by_tags({'modality': 'SAR'})
+        results = catalog.search_by_tags({"modality": "SAR"})
         assert len(results) == 1
         assert results[0].name == "sar-vehicle-detection"
 
     def test_search_by_tags_no_match(self, catalog, sample_workflow):
         catalog.add_artifact(sample_workflow)
-        results = catalog.search_by_tags({'modality': 'PAN'})
+        results = catalog.search_by_tags({"modality": "PAN"})
         assert len(results) == 0
 
     def test_search_by_tags_empty_returns_all(self, catalog, sample_processor):
@@ -164,13 +164,13 @@ class TestYamlCatalogRemoteVersions:
 
     def test_update_remote_version(self, catalog, sample_processor):
         artifact_id = catalog.add_artifact(sample_processor)
-        catalog.update_remote_version(artifact_id, 'pypi', '1.1.0')
+        catalog.update_remote_version(artifact_id, "pypi", "1.1.0")
         # Verify it was stored (no crash)
-        catalog.update_remote_version(artifact_id, 'pypi', '1.2.0')
+        catalog.update_remote_version(artifact_id, "pypi", "1.2.0")
 
     def test_remote_versions_cleaned_on_remove(self, catalog, sample_processor):
         artifact_id = catalog.add_artifact(sample_processor)
-        catalog.update_remote_version(artifact_id, 'pypi', '1.1.0')
+        catalog.update_remote_version(artifact_id, "pypi", "1.1.0")
         catalog.remove_artifact("lee-filter", "1.0.0")
         # Remote versions should have been cleaned up
         assert len(catalog._remote_versions) == 0
@@ -181,10 +181,13 @@ class TestYamlCatalogContextManager:
     def test_context_manager(self, tmp_path):
         file_path = tmp_path / "ctx_test.yaml"
         with YamlArtifactCatalog(file_path=file_path) as cat:
-            cat.add_artifact(Artifact(
-                name="test", version="1.0.0",
-                artifact_type="grdl_processor",
-            ))
+            cat.add_artifact(
+                Artifact(
+                    name="test",
+                    version="1.0.0",
+                    artifact_type="grdl_processor",
+                )
+            )
         # File should persist — reopen and verify
         with YamlArtifactCatalog(file_path=file_path) as cat:
             assert cat.get_artifact("test", "1.0.0") is not None
@@ -195,10 +198,13 @@ class TestYamlCatalogPersistence:
     def test_data_persists_after_close(self, tmp_path):
         file_path = tmp_path / "persist_test.yaml"
         cat = YamlArtifactCatalog(file_path=file_path)
-        cat.add_artifact(Artifact(
-            name="persist", version="1.0.0",
-            artifact_type="grdl_processor",
-        ))
+        cat.add_artifact(
+            Artifact(
+                name="persist",
+                version="1.0.0",
+                artifact_type="grdl_processor",
+            )
+        )
         cat.close()
 
         cat2 = YamlArtifactCatalog(file_path=file_path)
@@ -218,10 +224,13 @@ class TestYamlCatalogPersistence:
     def test_auto_save_on_add(self, tmp_path):
         file_path = tmp_path / "autosave_test.yaml"
         cat = YamlArtifactCatalog(file_path=file_path)
-        cat.add_artifact(Artifact(
-            name="saved", version="1.0.0",
-            artifact_type="grdl_processor",
-        ))
+        cat.add_artifact(
+            Artifact(
+                name="saved",
+                version="1.0.0",
+                artifact_type="grdl_processor",
+            )
+        )
 
         # Read back without closing — file should already be written
         cat2 = YamlArtifactCatalog(file_path=file_path)

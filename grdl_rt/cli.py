@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 CLI — Command-line interface for grdl-runtime.
 
@@ -26,16 +25,17 @@ Modified
 
 # Standard library
 import argparse
+import contextlib
 import json as json_mod
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 # Third-party
 import numpy as np
 
 from grdl_rt.execution.context import configure_logging, get_logger
+from grdl_rt.execution.tags import OutputFormat
 
 logger = get_logger(__name__)
 
@@ -49,205 +49,214 @@ EXIT_INPUT_ERROR = 3
 def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(
-        prog='grdl-rt',
-        description='GRDL Runtime — headless workflow execution engine',
+        prog="grdl-rt",
+        description="GRDL Runtime — headless workflow execution engine",
     )
     parser.add_argument(
-        '--version',
-        action='version',
-        version=f'%(prog)s {_get_version()}',
+        "--version",
+        action="version",
+        version=f"%(prog)s {_get_version()}",
     )
     parser.add_argument(
-        '--verbose', '-v',
-        action='count',
+        "--verbose",
+        "-v",
+        action="count",
         default=0,
-        help='Increase verbosity (-v for INFO, -vv for DEBUG).',
+        help="Increase verbosity (-v for INFO, -vv for DEBUG).",
     )
     parser.add_argument(
-        '--json-log',
-        action='store_true',
+        "--json-log",
+        action="store_true",
         default=False,
-        help='Output log lines as JSON (for machine consumption).',
+        help="Output log lines as JSON (for machine consumption).",
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # ── run subcommand ───────────────────────────────────────────────
     run_parser = subparsers.add_parser(
-        'run',
-        help='Execute a workflow on an input image.',
+        "run",
+        help="Execute a workflow on an input image.",
     )
     run_parser.add_argument(
-        'workflow',
+        "workflow",
         type=str,
-        help='Path to a YAML workflow definition file.',
+        help="Path to a YAML workflow definition file.",
     )
     run_parser.add_argument(
-        'input',
+        "input",
         type=str,
-        help='Path to the input image file (.tif, .nitf, .npy, etc.).',
+        help="Path to the input image file (.tif, .nitf, .npy, etc.).",
     )
     run_parser.add_argument(
-        '--output', '-o',
-        type=str,
-        default=None,
-        help='Output file path.  If omitted, prints summary to stdout.',
-    )
-    run_parser.add_argument(
-        '--output-format',
+        "--output",
+        "-o",
         type=str,
         default=None,
-        help='Output format override (e.g., geotiff, numpy, png).',
+        help="Output file path.  If omitted, prints summary to stdout.",
+    )
+    _output_format_choices = [f.value for f in OutputFormat]
+    run_parser.add_argument(
+        "--output-format",
+        type=str,
+        default=None,
+        choices=_output_format_choices,
+        help="Output format override (e.g., geotiff, numpy, png).",
     )
     run_parser.add_argument(
-        '--auto-tap-out',
-        action='store_true',
+        "--auto-tap-out",
+        action="store_true",
         default=False,
-        help='Write all intermediates to a timestamped directory.',
+        help="Write all intermediates to a timestamped directory.",
     )
     run_parser.add_argument(
-        '--tap-out-format',
+        "--tap-out-format",
         type=str,
-        default='npy',
-        help='Format for auto tap-out intermediate files (default: npy).',
+        default="npy",
+        choices=["npy", "npz"] + _output_format_choices,
+        help="Format for auto tap-out intermediate files (default: npy).",
     )
     run_parser.add_argument(
-        '--tap-out-dir',
+        "--tap-out-dir",
         type=str,
         default=None,
-        help='Override the auto tap-out output directory.',
+        help="Override the auto tap-out output directory.",
     )
     run_parser.add_argument(
-        '--prefer-gpu',
-        action='store_true',
+        "--prefer-gpu",
+        action="store_true",
         default=False,
-        help='Attempt GPU acceleration for compatible steps.',
+        help="Attempt GPU acceleration for compatible steps.",
     )
 
     # ── validate subcommand ──────────────────────────────────────────
     validate_parser = subparsers.add_parser(
-        'validate',
-        help='Validate a workflow YAML without executing.',
+        "validate",
+        help="Validate a workflow YAML without executing.",
     )
     validate_parser.add_argument(
-        'workflow',
+        "workflow",
         type=str,
-        help='Path to a YAML workflow definition file.',
+        help="Path to a YAML workflow definition file.",
     )
 
     # ── resume subcommand ─────────────────────────────────────────────
     resume_parser = subparsers.add_parser(
-        'resume',
-        help='Resume a workflow from a checkpoint file.',
+        "resume",
+        help="Resume a workflow from a checkpoint file.",
     )
     resume_parser.add_argument(
-        'checkpoint',
+        "checkpoint",
         type=str,
-        help='Path to checkpoint.json or its parent directory.',
+        help="Path to checkpoint.json or its parent directory.",
     )
     resume_parser.add_argument(
-        'workflow',
+        "workflow",
         type=str,
-        help='Path to the YAML workflow definition file.',
+        help="Path to the YAML workflow definition file.",
     )
     resume_parser.add_argument(
-        '--output', '-o',
-        type=str,
-        default=None,
-        help='Output file path.  If omitted, prints summary to stdout.',
-    )
-    resume_parser.add_argument(
-        '--output-format',
+        "--output",
+        "-o",
         type=str,
         default=None,
-        help='Output format override (e.g., geotiff, numpy, png).',
+        help="Output file path.  If omitted, prints summary to stdout.",
     )
     resume_parser.add_argument(
-        '--prefer-gpu',
-        action='store_true',
+        "--output-format",
+        type=str,
+        default=None,
+        choices=_output_format_choices,
+        help="Output format override (e.g., geotiff, numpy, png).",
+    )
+    resume_parser.add_argument(
+        "--prefer-gpu",
+        action="store_true",
         default=False,
-        help='Attempt GPU acceleration for compatible steps.',
+        help="Attempt GPU acceleration for compatible steps.",
     )
 
     # ── history subcommand ──────────────────────────────────────────
     history_parser = subparsers.add_parser(
-        'history',
-        help='List recent workflow executions.',
+        "history",
+        help="List recent workflow executions.",
     )
     history_parser.add_argument(
-        '--status',
+        "--status",
         type=str,
         default=None,
-        choices=['running', 'success', 'failed', 'cancelled'],
-        help='Filter by execution status.',
+        choices=["running", "success", "failed", "cancelled"],
+        help="Filter by execution status.",
     )
     history_parser.add_argument(
-        '--run-id',
+        "--run-id",
         type=str,
         default=None,
-        help='Show details for a specific run_id.',
+        help="Show details for a specific run_id.",
     )
     history_parser.add_argument(
-        '--limit',
+        "--limit",
         type=int,
         default=20,
-        help='Maximum number of records to show (default: 20).',
+        help="Maximum number of records to show (default: 20).",
     )
     history_parser.add_argument(
-        '--json',
-        action='store_true',
+        "--json",
+        action="store_true",
         default=False,
-        dest='json_output',
-        help='Output in JSON format.',
+        dest="json_output",
+        help="Output in JSON format.",
     )
     history_parser.add_argument(
-        '--db',
+        "--db",
         type=str,
         default=None,
-        help='Path to history database (default: ~/.grdl_rt/history.db).',
+        help="Path to history database (default: ~/.grdl_rt/history.db).",
     )
 
     # ── list-processors subcommand ───────────────────────────────────
     list_parser = subparsers.add_parser(
-        'list-processors',
-        help='List available GRDL processors from the catalog.',
+        "list-processors",
+        help="List available GRDL processors from the catalog.",
     )
     list_parser.add_argument(
-        '--modality',
+        "--modality",
         type=str,
         default=None,
-        help='Filter by image modality (e.g., SAR, EO).',
+        help="Filter by image modality (e.g., SAR, EO).",
     )
     list_parser.add_argument(
-        '--category',
+        "--category",
         type=str,
         default=None,
-        help='Filter by processor category.',
+        help="Filter by processor category.",
     )
     list_parser.add_argument(
-        '--json',
-        action='store_true',
+        "--json",
+        action="store_true",
         default=False,
-        dest='json_output',
-        help='Output in JSON format.',
+        dest="json_output",
+        help="Output in JSON format.",
     )
 
     # ── ui subcommand ──────────────────────────────────────────────
     ui_parser = subparsers.add_parser(
-        'ui',
-        help='Launch the interactive workflow runner GUI.',
+        "ui",
+        help="Launch the interactive workflow runner GUI.",
     )
     ui_parser.add_argument(
-        '--workflow', '-w',
+        "--workflow",
+        "-w",
         type=str,
         default=None,
-        help='Path to a workflow YAML or component .py file to pre-load.',
+        help="Path to a workflow YAML or component .py file to pre-load.",
     )
     ui_parser.add_argument(
-        '--input', '-i',
+        "--input",
+        "-i",
         type=str,
         default=None,
-        help='Path to an input image file to pre-load.',
+        help="Path to an input image file to pre-load.",
     )
 
     return parser
@@ -257,6 +266,7 @@ def _get_version() -> str:
     """Return the package version."""
     try:
         from grdl_rt import __version__
+
         return __version__
     except ImportError:
         return "unknown"
@@ -279,30 +289,31 @@ def _read_input(input_path: Path) -> np.ndarray:
     """
     ext = input_path.suffix.lower()
 
-    if ext == '.npy':
+    if ext == ".npy":
         return np.load(str(input_path))
 
     # Use grdl.IO for raster formats
     try:
         from grdl.IO import open_image
+
         with open_image(input_path) as reader:
             return reader.read_full()
     except ImportError:
         raise ImportError(
             "grdl.IO is required for reading raster images.  "
             "Install grdl or use a .npy input file."
-        )
+        ) from None
 
 
 def _progress_bar(fraction: float) -> None:
     """Simple console progress bar callback."""
     bar_width = 40
     filled = int(bar_width * fraction)
-    bar = '#' * filled + '-' * (bar_width - filled)
+    bar = "#" * filled + "-" * (bar_width - filled)
     pct = int(fraction * 100)
-    sys.stderr.write(f'\r  [{bar}] {pct:3d}%')
+    sys.stderr.write(f"\r  [{bar}] {pct:3d}%")
     if fraction >= 1.0:
-        sys.stderr.write('\n')
+        sys.stderr.write("\n")
     sys.stderr.flush()
 
 
@@ -339,8 +350,10 @@ def _run(args: argparse.Namespace) -> int:
         for err in errors:
             step_str = f"step {err.step_index}" if err.step_index is not None else "workflow"
             logger.error(
-                "validation_error", code=err.code,
-                step=step_str, message=err.message,
+                "validation_error",
+                code=err.code,
+                step=step_str,
+                message=err.message,
             )
         return EXIT_VALIDATION_FAILURE
 
@@ -359,14 +372,13 @@ def _run(args: argparse.Namespace) -> int:
 
     # Write health probe for Docker readiness
     _health_file = Path("/tmp/grdl_rt_healthy")
-    try:
+    with contextlib.suppress(OSError):
         _health_file.touch()
-    except OSError:
-        pass
 
     # Execute
     logger.info(
-        "workflow_executing", workflow_name=wf.name,
+        "workflow_executing",
+        workflow_name=wf.name,
         step_count=len(wf.steps),
     )
     try:
@@ -382,13 +394,11 @@ def _run(args: argparse.Namespace) -> int:
         return EXIT_EXECUTION_FAILURE
     finally:
         # Clean up health probe file on exit (DEV-011)
-        try:
+        with contextlib.suppress(OSError):
             _health_file.unlink(missing_ok=True)
-        except OSError:
-            pass
 
     # Print metrics summary to stderr
-    sys.stderr.write(wr.metrics.to_json() + '\n')
+    sys.stderr.write(wr.metrics.to_json() + "\n")
 
     # Write output
     if args.output:
@@ -396,6 +406,7 @@ def _run(args: argparse.Namespace) -> int:
         logger.info("output_writing", path=str(output_path))
         try:
             from grdl.IO import write as io_write
+
             io_write(wr.result, output_path, format=args.output_format)
         except ImportError:
             # Fallback to numpy if grdl.IO unavailable
@@ -403,10 +414,11 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Output written to {output_path}")
     else:
         r = wr.result
-        print(f"Result: shape={r.shape}, dtype={r.dtype}, "
-              f"min={r.min():.4f}, max={r.max():.4f}")
-        print(f"Timing: {wr.metrics.total_wall_time_s:.3f}s wall, "
-              f"{wr.metrics.total_cpu_time_s:.3f}s CPU")
+        print(f"Result: shape={r.shape}, dtype={r.dtype}, " f"min={r.min():.4f}, max={r.max():.4f}")
+        print(
+            f"Timing: {wr.metrics.total_wall_time_s:.3f}s wall, "
+            f"{wr.metrics.total_cpu_time_s:.3f}s CPU"
+        )
 
     return EXIT_SUCCESS
 
@@ -467,12 +479,14 @@ def _list_processors(args: argparse.Namespace) -> int:
         entries = []
         for name, cls in sorted(procs.items()):
             tags = get_processor_tags(cls)
-            entries.append({
-                "name": name,
-                "class": f"{cls.__module__}.{cls.__qualname__}",
-                "tags": tags,
-                "requires_global_pass": has_global_pass(cls),
-            })
+            entries.append(
+                {
+                    "name": name,
+                    "class": f"{cls.__module__}.{cls.__qualname__}",
+                    "tags": tags,
+                    "requires_global_pass": has_global_pass(cls),
+                }
+            )
         print(json_mod.dumps(entries, indent=2, default=str))
     else:
         if not procs:
@@ -516,10 +530,7 @@ def _resume(args: argparse.Namespace) -> int:
     wf = load_workflow(workflow_path)
 
     # Create checkpoint manager (use parent of checkpoint as dir)
-    if checkpoint_path.is_dir():
-        ckpt_dir = checkpoint_path.parent
-    else:
-        ckpt_dir = checkpoint_path.parent.parent
+    ckpt_dir = checkpoint_path.parent if checkpoint_path.is_dir() else checkpoint_path.parent.parent
     ckpt_mgr = CheckpointManager(ckpt_dir)
 
     # Create executor
@@ -542,23 +553,25 @@ def _resume(args: argparse.Namespace) -> int:
         return EXIT_EXECUTION_FAILURE
 
     # Print metrics
-    sys.stderr.write(wr.metrics.to_json() + '\n')
+    sys.stderr.write(wr.metrics.to_json() + "\n")
 
     # Write output
     if args.output:
         output_path = Path(args.output)
         try:
             from grdl.IO import write as io_write
+
             io_write(wr.result, output_path, format=args.output_format)
         except ImportError:
             np.save(str(output_path), wr.result)
         print(f"Output written to {output_path}")
     else:
         r = wr.result
-        print(f"Result: shape={r.shape}, dtype={r.dtype}, "
-              f"min={r.min():.4f}, max={r.max():.4f}")
-        print(f"Timing: {wr.metrics.total_wall_time_s:.3f}s wall, "
-              f"{wr.metrics.total_cpu_time_s:.3f}s CPU")
+        print(f"Result: shape={r.shape}, dtype={r.dtype}, " f"min={r.min():.4f}, max={r.max():.4f}")
+        print(
+            f"Timing: {wr.metrics.total_wall_time_s:.3f}s wall, "
+            f"{wr.metrics.total_cpu_time_s:.3f}s CPU"
+        )
 
     return EXIT_SUCCESS
 
@@ -644,7 +657,6 @@ def _history(args: argparse.Namespace) -> int:
                         "running": "~",
                         "cancelled": "x",
                     }.get(r.status, "?")
-                    end = r.end_time or "(running)"
                     print(
                         f"  [{status_icon}] {r.run_id[:8]}  "
                         f"{r.workflow_id:<30s}  {r.status:<10s}  "
@@ -657,7 +669,7 @@ def _history(args: argparse.Namespace) -> int:
         db.close()
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """CLI entry point.
 
     Parameters
@@ -687,17 +699,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.print_help()
         return EXIT_SUCCESS
 
-    if args.command == 'run':
+    if args.command == "run":
         return _run(args)
-    elif args.command == 'validate':
+    elif args.command == "validate":
         return _validate(args)
-    elif args.command == 'resume':
+    elif args.command == "resume":
         return _resume(args)
-    elif args.command == 'history':
+    elif args.command == "history":
         return _history(args)
-    elif args.command == 'list-processors':
+    elif args.command == "list-processors":
         return _list_processors(args)
-    elif args.command == 'ui':
+    elif args.command == "ui":
         return _ui(args)
 
     parser.print_help()
@@ -718,5 +730,5 @@ def _ui(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

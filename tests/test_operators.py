@@ -34,13 +34,14 @@ from grdl_rt.execution.operators import (
     WorkflowOperator,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
 
+
 class SumOperator(WorkflowOperator):
     """Operator that sums dict values."""
+
     def operate(self, metadata, source, **kwargs):
         if isinstance(source, dict):
             result = sum(source.values())
@@ -51,14 +52,15 @@ class SumOperator(WorkflowOperator):
 
 class UnionAggregator(DetectionAggregator):
     """Aggregator that unions all detections."""
+
     def aggregate(self, inputs: Dict[str, Any], **kwargs) -> DetectionSet:
         all_dets = []
         for ds in inputs.values():
             all_dets.extend(ds.detections)
         return DetectionSet(
             detections=all_dets,
-            detector_name='UnionAggregator',
-            detector_version='1.0.0',
+            detector_name="UnionAggregator",
+            detector_version="1.0.0",
         )
 
 
@@ -66,18 +68,22 @@ class UnionAggregator(DetectionAggregator):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def meta():
     return ImageMetadata(
-        format='test', rows=10, cols=12, dtype='float32',
+        format="test",
+        rows=10,
+        cols=12,
+        dtype="float32",
     )
 
 
-def _make_detection_set(n, name='test'):
+def _make_detection_set(n, name="test"):
     dets = [
         Detection(
             pixel_geometry=box(i * 10, 0, (i + 1) * 10, 10),
-            properties={'idx': i},
+            properties={"idx": i},
             confidence=0.9,
         )
         for i in range(n)
@@ -85,13 +91,14 @@ def _make_detection_set(n, name='test'):
     return DetectionSet(
         detections=dets,
         detector_name=name,
-        detector_version='1.0.0',
+        detector_version="1.0.0",
     )
 
 
 # ---------------------------------------------------------------------------
 # WorkflowOperator tests
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowOperator:
 
@@ -103,7 +110,7 @@ class TestWorkflowOperator:
     def test_has_execute(self, meta):
         """WorkflowOperator.execute() dispatches to operate()."""
         op = SumOperator()
-        source = {'a': np.array([1.0]), 'b': np.array([2.0])}
+        source = {"a": np.array([1.0]), "b": np.array([2.0])}
         result, out_meta = op.execute(meta, source)
         np.testing.assert_allclose(result, np.array([3.0]))
         assert out_meta is meta
@@ -111,7 +118,7 @@ class TestWorkflowOperator:
     def test_metadata_available(self, meta):
         """self.metadata is set during operate()."""
         op = SumOperator()
-        op.execute(meta, {'a': np.array([1.0])})
+        op.execute(meta, {"a": np.array([1.0])})
         assert op.metadata is meta
 
 
@@ -119,14 +126,15 @@ class TestWorkflowOperator:
 # DetectionAggregator tests
 # ---------------------------------------------------------------------------
 
+
 class TestDetectionAggregator:
 
     def test_receives_dict(self, meta):
         """Fan-in dict is unpacked correctly."""
-        ds1 = _make_detection_set(2, 'sn4')
-        ds2 = _make_detection_set(3, 'sn2')
+        ds1 = _make_detection_set(2, "sn4")
+        ds2 = _make_detection_set(3, "sn2")
         agg = UnionAggregator()
-        result, out_meta = agg.execute(meta, {'sn4': ds1, 'sn2': ds2})
+        result, out_meta = agg.execute(meta, {"sn4": ds1, "sn2": ds2})
         assert isinstance(result, DetectionSet)
         assert len(result) == 5
 

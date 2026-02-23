@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Catalog Database - SQLite-backed artifact catalog for GRDL and GRDK.
 
@@ -32,7 +31,7 @@ Modified
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 # grdl-runtime internal
 from grdl_rt.execution.context import get_logger
@@ -42,8 +41,7 @@ logger = get_logger(__name__)
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.catalog.models import Artifact
-from grdl_rt.catalog.resolver import resolve_catalog_path, ensure_config_dir
-
+from grdl_rt.catalog.resolver import ensure_config_dir, resolve_catalog_path
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -127,18 +125,20 @@ _CURRENT_SCHEMA_VERSION = 4
 
 # Migration functions: (target_version, callable)
 # Add new migrations here as schema evolves.
-_MIGRATIONS: List[tuple] = [
-    (2, lambda conn: conn.execute(
-        "ALTER TABLE artifacts ADD COLUMN requires_global_pass "
-        "INTEGER DEFAULT 0"
-    )),
-    (3, lambda conn: conn.execute(
-        "ALTER TABLE artifacts ADD COLUMN alternatives "
-        "TEXT DEFAULT '[]'"
-    )),
-    (4, lambda conn: conn.execute(
-        "ALTER TABLE artifacts ADD COLUMN param_schema TEXT"
-    )),
+_MIGRATIONS: list[tuple] = [
+    (
+        2,
+        lambda conn: conn.execute(
+            "ALTER TABLE artifacts ADD COLUMN requires_global_pass " "INTEGER DEFAULT 0"
+        ),
+    ),
+    (
+        3,
+        lambda conn: conn.execute(
+            "ALTER TABLE artifacts ADD COLUMN alternatives " "TEXT DEFAULT '[]'"
+        ),
+    ),
+    (4, lambda conn: conn.execute("ALTER TABLE artifacts ADD COLUMN param_schema TEXT")),
 ]
 
 
@@ -152,7 +152,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         the catalog path priority chain (env var > config > default).
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         if db_path is None:
             ensure_config_dir()
             db_path = resolve_catalog_path()
@@ -175,9 +175,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         self._conn.commit()
 
         # Set initial schema version if not present
-        row = self._conn.execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()
+        row = self._conn.execute("SELECT version FROM schema_version").fetchone()
         if row is None:
             self._conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)",
@@ -187,10 +185,8 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
 
     def _run_migrations(self) -> None:
         """Run any pending schema migrations."""
-        row = self._conn.execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()
-        current = row['version'] if row else 0
+        row = self._conn.execute("SELECT version FROM schema_version").fetchone()
+        current = row["version"] if row else 0
 
         for target_version, migrate_fn in _MIGRATIONS:
             if target_version > current:
@@ -209,10 +205,8 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
     @property
     def schema_version(self) -> int:
         """Current schema version."""
-        row = self._conn.execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()
-        return row['version'] if row else 0
+        row = self._conn.execute("SELECT version FROM schema_version").fetchone()
+        return row["version"] if row else 0
 
     def close(self) -> None:
         """Close the database connection."""
@@ -239,15 +233,22 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
              yaml_definition, python_dsl, param_schema)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                artifact.name, artifact.version, artifact.artifact_type,
-                artifact.description, artifact.author, artifact.license,
-                artifact.pypi_package, artifact.conda_package,
+                artifact.name,
+                artifact.version,
+                artifact.artifact_type,
+                artifact.description,
+                artifact.author,
+                artifact.license,
+                artifact.pypi_package,
+                artifact.conda_package,
                 artifact.conda_channel,
-                artifact.processor_class, artifact.processor_version,
+                artifact.processor_class,
+                artifact.processor_version,
                 artifact.processor_type,
                 int(artifact.requires_global_pass),
                 json.dumps(artifact.alternatives),
-                artifact.yaml_definition, artifact.python_dsl,
+                artifact.yaml_definition,
+                artifact.python_dsl,
                 json.dumps(artifact.param_schema) if artifact.param_schema else None,
             ),
         )
@@ -291,7 +292,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         self._conn.commit()
         return cursor.rowcount > 0
 
-    def get_artifact(self, name: str, version: str) -> Optional[Artifact]:
+    def get_artifact(self, name: str, version: str) -> Artifact | None:
         """Get a specific artifact by name and version.
 
         Parameters
@@ -314,8 +315,8 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
 
     def list_artifacts(
         self,
-        artifact_type: Optional[str] = None,
-    ) -> List[Artifact]:
+        artifact_type: str | None = None,
+    ) -> list[Artifact]:
         """List all artifacts, optionally filtered by type.
 
         Parameters
@@ -329,17 +330,14 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         """
         if artifact_type:
             rows = self._conn.execute(
-                "SELECT * FROM artifacts WHERE artifact_type = ? "
-                "ORDER BY name, version",
+                "SELECT * FROM artifacts WHERE artifact_type = ? " "ORDER BY name, version",
                 (artifact_type,),
             ).fetchall()
         else:
-            rows = self._conn.execute(
-                "SELECT * FROM artifacts ORDER BY name, version"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM artifacts ORDER BY name, version").fetchall()
         return [self._row_to_artifact(r) for r in rows]
 
-    def search(self, query: str) -> List[Artifact]:
+    def search(self, query: str) -> list[Artifact]:
         """Full-text search over artifact names and descriptions.
 
         Parameters
@@ -360,7 +358,7 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         ).fetchall()
         return [self._row_to_artifact(r) for r in rows]
 
-    def search_by_tags(self, tags: Dict[str, str]) -> List[Artifact]:
+    def search_by_tags(self, tags: dict[str, str]) -> list[Artifact]:
         """Search artifacts by tag key-value pairs (AND logic).
 
         Parameters
@@ -413,31 +411,30 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
 
     def _row_to_artifact(self, row: sqlite3.Row) -> Artifact:
         """Convert a database row to an Artifact instance."""
-        artifact_id = row['id']
+        artifact_id = row["id"]
 
         # Load tags
         tag_rows = self._conn.execute(
-            "SELECT tag_key, tag_value FROM workflow_tags "
-            "WHERE artifact_id = ?",
+            "SELECT tag_key, tag_value FROM workflow_tags " "WHERE artifact_id = ?",
             (artifact_id,),
         ).fetchall()
 
-        tags: Dict[str, List[str]] = {}
+        tags: dict[str, list[str]] = {}
         for tr in tag_rows:
-            key = tr['tag_key']
+            key = tr["tag_key"]
             if key not in tags:
                 tags[key] = []
-            tags[key].append(tr['tag_value'])
+            tags[key].append(tr["tag_value"])
 
         # Parse alternatives JSON (may be absent in pre-v3 databases)
-        raw_alt = row['alternatives'] if 'alternatives' in row.keys() else '[]'
+        raw_alt = row["alternatives"] if "alternatives" in row.keys() else "[]"  # noqa: SIM118
         try:
             alternatives = json.loads(raw_alt) if raw_alt else []
         except (json.JSONDecodeError, TypeError):
             alternatives = []
 
         # Parse param_schema JSON (may be absent in pre-v4 databases)
-        raw_schema = row['param_schema'] if 'param_schema' in row.keys() else None
+        raw_schema = row["param_schema"] if "param_schema" in row.keys() else None  # noqa: SIM118
         try:
             param_schema = json.loads(raw_schema) if raw_schema else None
         except (json.JSONDecodeError, TypeError):
@@ -445,29 +442,31 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
 
         return Artifact(
             id=artifact_id,
-            name=row['name'],
-            version=row['version'],
-            artifact_type=row['artifact_type'],
-            description=row['description'] or '',
-            author=row['author'] or '',
-            license=row['license'] or 'MIT',
-            pypi_package=row['pypi_package'],
-            conda_package=row['conda_package'],
-            conda_channel=row['conda_channel'],
-            processor_class=row['processor_class'],
-            processor_version=row['processor_version'],
-            processor_type=row['processor_type'],
-            yaml_definition=row['yaml_definition'],
-            python_dsl=row['python_dsl'],
+            name=row["name"],
+            version=row["version"],
+            artifact_type=row["artifact_type"],
+            description=row["description"] or "",
+            author=row["author"] or "",
+            license=row["license"] or "MIT",
+            pypi_package=row["pypi_package"],
+            conda_package=row["conda_package"],
+            conda_channel=row["conda_channel"],
+            processor_class=row["processor_class"],
+            processor_version=row["processor_version"],
+            processor_type=row["processor_type"],
+            yaml_definition=row["yaml_definition"],
+            python_dsl=row["python_dsl"],
             tags=tags,
-            requires_global_pass=bool(row['requires_global_pass']),
+            requires_global_pass=bool(row["requires_global_pass"]),
             alternatives=alternatives,
             param_schema=param_schema,
         )
 
     def get_alternatives(
-        self, name: str, version: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str,
+    ) -> list[dict[str, Any]]:
         """Return alternative processor entries for the given artifact.
 
         Parameters
@@ -486,13 +485,15 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
         if row is None:
             return []
         try:
-            return json.loads(row['alternatives']) if row['alternatives'] else []
+            return json.loads(row["alternatives"]) if row["alternatives"] else []
         except (json.JSONDecodeError, TypeError):
             return []
 
     def set_alternatives(
-        self, name: str, version: str,
-        alternatives: List[Dict[str, Any]],
+        self,
+        name: str,
+        version: str,
+        alternatives: list[dict[str, Any]],
     ) -> None:
         """Set alternative processor entries for the given artifact.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Resilience primitives — retry, timeout, circuit breaker, memory estimation,
 graceful shutdown, and tiling strategy stub.
@@ -33,14 +32,14 @@ import json
 import os
 import random
 import signal
-import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, Future
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any
 
 import numpy as np
 
@@ -48,6 +47,8 @@ try:
     import psutil as _psutil
 except ImportError:
     _psutil = None  # type: ignore[assignment]
+
+import contextlib
 
 from grdl_rt.execution.context import get_logger
 from grdl_rt.execution.errors import (
@@ -83,7 +84,7 @@ class RetryPolicy:
     max_retries: int = 0
     backoff_base: float = 1.0
     backoff_max: float = 60.0
-    retryable_exceptions: Tuple[str, ...] = ("RuntimeError", "OSError", "MemoryError")
+    retryable_exceptions: tuple[str, ...] = ("RuntimeError", "OSError", "MemoryError")
 
     def __post_init__(self) -> None:
         if self.max_retries < 0:
@@ -93,7 +94,7 @@ class RetryPolicy:
         if self.backoff_max <= 0:
             raise ValueError(f"backoff_max must be > 0, got {self.backoff_max}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for YAML/JSON storage."""
         return {
             "max_retries": self.max_retries,
@@ -103,7 +104,7 @@ class RetryPolicy:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> RetryPolicy:
+    def from_dict(cls, data: dict[str, Any]) -> RetryPolicy:
         """Deserialize from dictionary."""
         exceptions = data.get("retryable_exceptions", cls.retryable_exceptions)
         if isinstance(exceptions, list):
@@ -116,17 +117,14 @@ class RetryPolicy:
         )
 
 
-def _is_retryable(exc: Exception, retryable_names: Tuple[str, ...]) -> bool:
+def _is_retryable(exc: Exception, retryable_names: tuple[str, ...]) -> bool:
     """Check whether *exc* matches any of the retryable exception names."""
-    for cls in type(exc).__mro__:
-        if cls.__name__ in retryable_names:
-            return True
-    return False
+    return any(cls.__name__ in retryable_names for cls in type(exc).__mro__)
 
 
 def _backoff_delay(attempt: int, policy: RetryPolicy) -> float:
     """Compute exponential backoff with jitter for the given attempt."""
-    raw = policy.backoff_base * (2 ** attempt)
+    raw = policy.backoff_base * (2**attempt)
     capped = min(raw, policy.backoff_max)
     jitter = random.uniform(0.5, 1.5)
     return capped * jitter
@@ -162,7 +160,7 @@ def execute_with_retry(
         If all attempts (1 initial + max_retries) are exhausted.
     """
     log = log or logger
-    attempts: List[Exception] = []
+    attempts: list[Exception] = []
     total_attempts = 1 + policy.max_retries
 
     for attempt in range(total_attempts):
@@ -202,6 +200,7 @@ def execute_with_retry(
 # ======================================================================
 # Step Timeout
 # ======================================================================
+
 
 def execute_with_timeout(
     fn: Callable[[], Any],
@@ -244,7 +243,7 @@ def execute_with_timeout(
         except TimeoutError:
             future.cancel()
             _release_gpu_memory()
-            raise StepTimeoutError(step_name, timeout_seconds)
+            raise StepTimeoutError(step_name, timeout_seconds) from None
     finally:
         pool.shutdown(wait=False)
 
@@ -253,6 +252,7 @@ def _release_gpu_memory() -> None:
     """Best-effort GPU memory cleanup after timeout or failure."""
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
@@ -260,6 +260,7 @@ def _release_gpu_memory() -> None:
 
     try:
         import cupy as cp
+
         pool = cp.get_default_memory_pool()
         pool.free_all_blocks()
     except ImportError:
@@ -294,8 +295,8 @@ class CircuitBreaker:
     ) -> None:
         self.failure_threshold = failure_threshold
         self.cooldown_seconds = cooldown_seconds
-        self._consecutive_failures: Dict[str, int] = {}
-        self._opened_at: Dict[str, float] = {}
+        self._consecutive_failures: dict[str, int] = {}
+        self._opened_at: dict[str, float] = {}
         self._lock = threading.Lock()
 
     @property
@@ -375,7 +376,7 @@ def check_memory(
     estimated_bytes: int,
     warn_threshold: float = 0.80,
     abort_threshold: float = 0.95,
-) -> Tuple[bool, bool]:
+) -> tuple[bool, bool]:
     """Compare estimated memory against available system RAM.
 
     Parameters
@@ -478,12 +479,12 @@ class ShutdownCoordinator:
         Directory for checkpoint files.  Defaults to a temp directory.
     """
 
-    def __init__(self, checkpoint_dir: Optional[Path] = None) -> None:
+    def __init__(self, checkpoint_dir: Path | None = None) -> None:
         self._shutdown_requested = False
         self._signal_count = 0
         self._lock = threading.Lock()
         self._checkpoint_dir = checkpoint_dir or Path.cwd()
-        self._original_handlers: Dict[int, Any] = {}
+        self._original_handlers: dict[int, Any] = {}
         self._registered = False
 
     @property
@@ -505,7 +506,7 @@ class ShutdownCoordinator:
             signal.signal(signal.SIGTERM, self._handle_signal)
 
             # Windows: also handle SIGBREAK if available
-            sigbreak = getattr(signal, 'SIGBREAK', None)
+            sigbreak = getattr(signal, "SIGBREAK", None)
             if sigbreak is not None:
                 self._original_handlers[sigbreak] = signal.getsignal(sigbreak)
                 signal.signal(sigbreak, self._handle_signal)
@@ -520,10 +521,8 @@ class ShutdownCoordinator:
         if not self._registered:
             return
         for sig, handler in self._original_handlers.items():
-            try:
+            with contextlib.suppress(ValueError, OSError):
                 signal.signal(sig, handler)
-            except (ValueError, OSError):
-                pass
         self._original_handlers.clear()
         self._registered = False
 
@@ -550,11 +549,11 @@ class ShutdownCoordinator:
 
     def write_checkpoint(
         self,
-        workflow_dict: Dict[str, Any],
+        workflow_dict: dict[str, Any],
         current_step_index: int,
         current_array: np.ndarray,
         run_id: str,
-        step_outputs: Optional[List[Dict[str, Any]]] = None,
+        step_outputs: list[dict[str, Any]] | None = None,
     ) -> Path:
         """Write a checkpoint file for later resume.
 
@@ -603,7 +602,7 @@ class ShutdownCoordinator:
         checkpoint = {
             "format_version": "1.0",
             "run_id": run_id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "completed_step_index": current_step_index,
             "intermediate_path": "intermediate.npy",
             "workflow": workflow_dict,
@@ -648,7 +647,7 @@ class TilingStrategy(abc.ABC):
         self,
         input_array: np.ndarray,
         max_chunk_bytes: int,
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         """Split *input_array* into chunks that each fit within
         *max_chunk_bytes*.
 

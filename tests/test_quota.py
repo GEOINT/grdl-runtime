@@ -19,7 +19,6 @@ import pytest
 from grdl_rt.execution.errors import QuotaExceededError
 from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 
-
 # ======================================================================
 # ResourceQuota — defaults, validation, serialization
 # ======================================================================
@@ -123,7 +122,9 @@ class TestQuotaEnforcerMemoryPreflight:
 
         with pytest.raises(QuotaExceededError) as exc_info:
             enforcer.check_before_execution(
-                grayscale_8x8, n_steps=4, multiplier=2.0,
+                grayscale_8x8,
+                n_steps=4,
+                multiplier=2.0,
             )
 
         assert exc_info.value.quota_type == "memory_preflight"
@@ -164,8 +165,7 @@ class TestQuotaEnforcerWallClock:
 
         # Patch time.monotonic so that the next call returns start + 10s
         original_start = enforcer._start_time
-        with patch("grdl_rt.execution.quota.time.monotonic",
-                    return_value=original_start + 10.0):
+        with patch("grdl_rt.execution.quota.time.monotonic", return_value=original_start + 10.0):
             with pytest.raises(QuotaExceededError) as exc_info:
                 enforcer.check_wall_clock()
 
@@ -193,8 +193,7 @@ class TestQuotaEnforcerNoLimit:
         enforcer = QuotaEnforcer(quota)
         enforcer.mark_start()
         # Should not raise even if we pretend a lot of time has passed
-        with patch("grdl_rt.execution.quota.time.monotonic",
-                    return_value=1e9):
+        with patch("grdl_rt.execution.quota.time.monotonic", return_value=1e9):
             enforcer.check_wall_clock()
 
     def test_quota_enforcer_no_limit_skips_monitoring(self):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 DSL Compiler - Bidirectional conversion between Python DSL, YAML, and runtime.
 
@@ -39,8 +38,9 @@ Modified
 # Standard library
 import textwrap
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any
 
 # Third-party
 import yaml
@@ -48,9 +48,11 @@ import yaml
 # grdl-runtime internal
 from grdl_rt.execution.tags import WorkflowTags
 from grdl_rt.execution.workflow import (
-    ProcessingStep, TapOutStepDef, WorkflowDefinition, WorkflowState,
+    ProcessingStep,
+    TapOutStepDef,
+    WorkflowDefinition,
+    WorkflowState,
 )
-
 
 # ---------------------------------------------------------------------------
 # Python DSL decorators and functions
@@ -60,7 +62,7 @@ from grdl_rt.execution.workflow import (
 _local = threading.local()
 
 
-def _get_current_steps() -> List:
+def _get_current_steps() -> list:
     """Return the thread-local step accumulator list."""
     if not hasattr(_local, "steps"):
         _local.steps = []
@@ -71,10 +73,10 @@ def step(
     processor: str,
     version: str = "",
     *,
-    id: Optional[str] = None,
-    depends_on: Optional[List[str]] = None,
-    condition: Optional[str] = None,
-    phase: Optional[str] = None,
+    id: str | None = None,
+    depends_on: list[str] | None = None,
+    condition: str | None = None,
+    phase: str | None = None,
     **params: Any,
 ) -> None:
     """Declare a processing step in a Python DSL workflow function.
@@ -98,20 +100,22 @@ def step(
     **params
         Tunable parameter values.
     """
-    _get_current_steps().append(ProcessingStep(
-        processor_name=processor,
-        processor_version=version,
-        params=params if params else {},
-        id=id,
-        depends_on=depends_on,
-        condition=condition,
-        phase=phase,
-    ))
+    _get_current_steps().append(
+        ProcessingStep(
+            processor_name=processor,
+            processor_version=version,
+            params=params if params else {},
+            id=id,
+            depends_on=depends_on,
+            condition=condition,
+            phase=phase,
+        )
+    )
 
 
 def tap_out(
     path: str,
-    format: Optional[str] = None,
+    format: str | None = None,
 ) -> None:
     """Declare a tap-out point in a Python DSL workflow function.
 
@@ -132,12 +136,12 @@ def workflow(
     name: str,
     version: str = "0.1.0",
     description: str = "",
-    modalities: Optional[List[str]] = None,
-    niirs_range: Optional[tuple] = None,
+    modalities: list[str] | None = None,
+    niirs_range: tuple | None = None,
     day_capable: bool = True,
     night_capable: bool = False,
-    detection_types: Optional[List[str]] = None,
-    segmentation_types: Optional[List[str]] = None,
+    detection_types: list[str] | None = None,
+    segmentation_types: list[str] | None = None,
 ) -> Callable:
     """Decorator for Python DSL workflow definitions.
 
@@ -183,12 +187,8 @@ def workflow(
             niirs_range=tuple(niirs_range) if niirs_range else (0.0, 9.0),
             day_capable=day_capable,
             night_capable=night_capable,
-            detection_types=[
-                DetectionType(d) for d in (detection_types or [])
-            ],
-            segmentation_types=[
-                SegmentationType(s) for s in (segmentation_types or [])
-            ],
+            detection_types=[DetectionType(d) for d in (detection_types or [])],
+            segmentation_types=[SegmentationType(s) for s in (segmentation_types or [])],
         )
 
         wf = WorkflowDefinition(
@@ -212,6 +212,7 @@ def workflow(
 # DslCompiler
 # ---------------------------------------------------------------------------
 
+
 class DslCompiler:
     """Bidirectional conversion between Python DSL, YAML, and runtime.
 
@@ -232,7 +233,7 @@ class DslCompiler:
         -------
         WorkflowDefinition
         """
-        with open(yaml_path, 'r', encoding='utf-8') as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return WorkflowDefinition.from_dict(data)
 
@@ -284,13 +285,13 @@ class DslCompiler:
         tags = workflow_def.tags
         has_tap_out = any(isinstance(s, TapOutStepDef) for s in workflow_def.steps)
         if has_tap_out:
-            import_line = 'from grdl_rt.execution.dsl import workflow, step, tap_out'
+            import_line = "from grdl_rt.execution.dsl import workflow, step, tap_out"
         else:
-            import_line = 'from grdl_rt.execution.dsl import workflow, step'
+            import_line = "from grdl_rt.execution.dsl import workflow, step"
         lines = [
             import_line,
-            '',
-            '',
+            "",
+            "",
         ]
 
         # Build decorator arguments
@@ -301,34 +302,30 @@ class DslCompiler:
         if workflow_def.description:
             decorator_args.append(f'description="{workflow_def.description}"')
         if tags.modalities:
-            modalities_str = ', '.join(f'"{m.value}"' for m in tags.modalities)
-            decorator_args.append(f'modalities=[{modalities_str}]')
+            modalities_str = ", ".join(f'"{m.value}"' for m in tags.modalities)
+            decorator_args.append(f"modalities=[{modalities_str}]")
         if tags.niirs_range != (0.0, 9.0):
-            decorator_args.append(
-                f'niirs_range=({tags.niirs_range[0]}, {tags.niirs_range[1]})'
-            )
+            decorator_args.append(f"niirs_range=({tags.niirs_range[0]}, {tags.niirs_range[1]})")
         if tags.day_capable:
-            decorator_args.append('day_capable=True')
+            decorator_args.append("day_capable=True")
         if tags.night_capable:
-            decorator_args.append('night_capable=True')
+            decorator_args.append("night_capable=True")
         if tags.detection_types:
-            dt_str = ', '.join(f'"{d.value}"' for d in tags.detection_types)
-            decorator_args.append(f'detection_types=[{dt_str}]')
+            dt_str = ", ".join(f'"{d.value}"' for d in tags.detection_types)
+            decorator_args.append(f"detection_types=[{dt_str}]")
         if tags.segmentation_types:
-            st_str = ', '.join(f'"{s.value}"' for s in tags.segmentation_types)
-            decorator_args.append(f'segmentation_types=[{st_str}]')
+            st_str = ", ".join(f'"{s.value}"' for s in tags.segmentation_types)
+            decorator_args.append(f"segmentation_types=[{st_str}]")
 
-        decorator = '@workflow(\n' + textwrap.indent(
-            ',\n'.join(decorator_args), '    '
-        ) + ',\n)'
+        decorator = "@workflow(\n" + textwrap.indent(",\n".join(decorator_args), "    ") + ",\n)"
         lines.append(decorator)
 
         # Function name from workflow name
-        func_name = workflow_def.name.lower().replace(' ', '_').replace('-', '_')
-        lines.append(f'def {func_name}():')
+        func_name = workflow_def.name.lower().replace(" ", "_").replace("-", "_")
+        lines.append(f"def {func_name}():")
 
         if not workflow_def.steps:
-            lines.append('    pass')
+            lines.append("    pass")
         else:
             for s in workflow_def.steps:
                 if isinstance(s, TapOutStepDef):
@@ -343,8 +340,8 @@ class DslCompiler:
                     if s.id is not None:
                         args.append(f'id="{s.id}"')
                     if s.depends_on:
-                        deps_str = ', '.join(f'"{d}"' for d in s.depends_on)
-                        args.append(f'depends_on=[{deps_str}]')
+                        deps_str = ", ".join(f'"{d}"' for d in s.depends_on)
+                        args.append(f"depends_on=[{deps_str}]")
                     if s.condition is not None:
                         args.append(f'condition="{s.condition}"')
                     if s.phase is not None:
@@ -353,9 +350,9 @@ class DslCompiler:
                         if isinstance(v, str):
                             args.append(f'{k}="{v}"')
                         else:
-                            args.append(f'{k}={v!r}')
+                            args.append(f"{k}={v!r}")
                     step_call = f'    step({", ".join(args)})'
                     lines.append(step_call)
 
-        lines.append('')
-        return '\n'.join(lines)
+        lines.append("")
+        return "\n".join(lines)

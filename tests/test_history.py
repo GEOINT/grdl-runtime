@@ -30,7 +30,6 @@ import pytest
 
 from grdl_rt.execution.history import ExecutionHistoryDB, ExecutionRecord
 
-
 # ======================================================================
 # ExecutionHistoryDB — basic operations
 # ======================================================================
@@ -133,7 +132,9 @@ class TestHistoryQueries:
             run_id = f"run-failed-{i}"
             db.record_start(f"FailWf{i}:1.0", run_id, f"fhash{i}")
             db.record_completion(
-                run_id, "failed", step_count=i,
+                run_id,
+                "failed",
+                step_count=i,
                 error_message=f"Error {i}",
             )
 
@@ -228,12 +229,13 @@ class _FailTransform:
 class TestHistoryWithExecutor:
     def _make_workflow(self, n_steps=3):
         from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
+
         wf = WorkflowDefinition(name="HistTest", version="1.0.0")
         for _ in range(n_steps):
             wf.add_step(ProcessingStep("Transform", "1.0.0"))
         return wf
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_success_recorded(self, mock_resolve, tmp_path):
         """Successful execution creates a history record with status=success."""
         mock_resolve.return_value = _SimpleTransform
@@ -242,6 +244,7 @@ class TestHistoryWithExecutor:
         wf = self._make_workflow(n_steps=3)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, history_db=db)
 
         source = np.ones((2, 2), dtype=np.float64)
@@ -261,7 +264,7 @@ class TestHistoryWithExecutor:
         assert records[0].metrics_json is not None
         db.close()
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_failure_recorded(self, mock_resolve, tmp_path):
         """Failed execution creates a history record with status=failed."""
         mock_resolve.return_value = _FailTransform
@@ -270,6 +273,7 @@ class TestHistoryWithExecutor:
         wf = self._make_workflow(n_steps=3)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, history_db=db)
 
         source = np.ones((2, 2), dtype=np.float64)
@@ -286,7 +290,7 @@ class TestHistoryWithExecutor:
         assert "intentional failure" in records[0].error_message
         db.close()
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_accurate_timing(self, mock_resolve, tmp_path):
         """History record has accurate start_time and end_time."""
         mock_resolve.return_value = _SimpleTransform
@@ -295,6 +299,7 @@ class TestHistoryWithExecutor:
         wf = self._make_workflow(n_steps=1)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, history_db=db)
 
         source = np.ones((2, 2))
@@ -312,7 +317,7 @@ class TestHistoryWithExecutor:
         assert r.end_time >= r.start_time
         db.close()
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_multiple_executions_tracked(self, mock_resolve, tmp_path):
         """Each execution gets its own history record."""
         mock_resolve.return_value = _SimpleTransform
@@ -321,6 +326,7 @@ class TestHistoryWithExecutor:
         wf = self._make_workflow(n_steps=2)
 
         from grdl_rt.execution.executor import WorkflowExecutor
+
         executor = WorkflowExecutor(wf, history_db=db)
 
         source = np.ones((2, 2))

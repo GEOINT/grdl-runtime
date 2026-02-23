@@ -29,14 +29,13 @@ from grdl_rt.execution.discovery import (
     resolve_processor_class,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
 def _make_catalog(tmp_path, artifacts=None):
     """Create a YamlArtifactCatalog seeded with artifacts."""
     cat = YamlArtifactCatalog(file_path=tmp_path / "discovery_test.yaml")
-    for a in (artifacts or []):
+    for a in artifacts or []:
         cat.add_artifact(a)
     return cat
 
@@ -58,11 +57,13 @@ class TestImportClass:
     def test_import_stdlib_class(self):
         cls = _import_class("collections.OrderedDict")
         from collections import OrderedDict
+
         assert cls is OrderedDict
 
     def test_import_nested_module(self):
         cls = _import_class("os.path.join")
         import os.path
+
         assert cls is os.path.join
 
     def test_invalid_fqn_no_module(self):
@@ -86,6 +87,7 @@ class TestInitDiscovery:
         cat = _make_catalog(tmp_path)
         init_discovery(cat)
         from grdl_rt.execution import discovery
+
         assert discovery._catalog is cat
 
 
@@ -98,26 +100,35 @@ class TestResolveProcessorClass:
         init_discovery(_make_catalog(tmp_path))
         cls = resolve_processor_class("collections.OrderedDict")
         from collections import OrderedDict
+
         assert cls is OrderedDict
 
     def test_catalog_short_name(self, tmp_path):
         """Short name is resolved via catalog processor_class FQN."""
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("ordered-dict", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("ordered-dict", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         cls = resolve_processor_class("OrderedDict")
         from collections import OrderedDict
+
         assert cls is OrderedDict
 
     def test_catalog_artifact_name(self, tmp_path):
         """Artifact name (not just class name) can be used for lookup."""
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("ordered-dict", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("ordered-dict", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         cls = resolve_processor_class("ordered-dict")
         from collections import OrderedDict
+
         assert cls is OrderedDict
 
     def test_unknown_short_name_raises(self, tmp_path):
@@ -127,20 +138,27 @@ class TestResolveProcessorClass:
 
     def test_bad_fqn_falls_through_to_catalog(self, tmp_path):
         """A dotted name that fails direct import still checks the catalog."""
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("bad.dotted.name", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("bad.dotted.name", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         # "bad.dotted.name" fails direct import, but matches artifact name
         cls = resolve_processor_class("bad.dotted.name")
         from collections import OrderedDict
+
         assert cls is OrderedDict
 
     def test_catalog_entry_broken_import_raises(self, tmp_path):
         """Catalog entry found but the processor_class can't be imported."""
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("broken", "nonexistent.module.BrokenClass"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("broken", "nonexistent.module.BrokenClass"),
+            ],
+        )
         init_discovery(cat)
         with pytest.raises(ImportError, match="import failed"):
             resolve_processor_class("broken")
@@ -156,33 +174,46 @@ class TestDiscoverProcessors:
         assert result == {}
 
     def test_discovers_importable(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("odict", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("odict", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         result = discover_processors()
         assert "OrderedDict" in result
         from collections import OrderedDict
+
         assert result["OrderedDict"] is OrderedDict
 
     def test_skips_without_processor_class(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            Artifact(name="no-class", version="1.0.0", artifact_type="grdl_processor"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                Artifact(name="no-class", version="1.0.0", artifact_type="grdl_processor"),
+            ],
+        )
         init_discovery(cat)
         assert discover_processors() == {}
 
     def test_skips_unimportable(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("bad", "nonexistent.module.Bad"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("bad", "nonexistent.module.Bad"),
+            ],
+        )
         init_discovery(cat)
         assert discover_processors() == {}
 
     def test_skips_workflows(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            Artifact(name="wf", version="1.0.0", artifact_type="grdk_workflow"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                Artifact(name="wf", version="1.0.0", artifact_type="grdk_workflow"),
+            ],
+        )
         init_discovery(cat)
         assert discover_processors() == {}
 
@@ -219,9 +250,12 @@ class TestGetAllModalities:
         # Create a class with tags, register it via a known importable path
         # We'll use a catalog artifact pointing to collections.OrderedDict
         # which won't have tags, so result is empty — this tests the plumbing
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("odict", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("odict", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         # OrderedDict has no __processor_tags__, so modalities should be empty
         assert get_all_modalities() == set()
@@ -238,18 +272,24 @@ class TestGetAllCategories:
 
 class TestFilterProcessors:
     def test_no_filters_returns_all(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("odict", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("odict", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         result = filter_processors()
         assert "OrderedDict" in result
 
     def test_filter_by_processor_type(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("a", "collections.OrderedDict", processor_type="transform"),
-            _processor_artifact("b", "collections.Counter", processor_type="detector"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("a", "collections.OrderedDict", processor_type="transform"),
+                _processor_artifact("b", "collections.Counter", processor_type="detector"),
+            ],
+        )
         init_discovery(cat)
 
         transforms = filter_processors(processor_type="transform")
@@ -261,8 +301,11 @@ class TestFilterProcessors:
         assert "OrderedDict" not in detectors
 
     def test_filter_by_nonexistent_type_returns_empty(self, tmp_path):
-        cat = _make_catalog(tmp_path, [
-            _processor_artifact("a", "collections.OrderedDict"),
-        ])
+        cat = _make_catalog(
+            tmp_path,
+            [
+                _processor_artifact("a", "collections.OrderedDict"),
+            ],
+        )
         init_discovery(cat)
         assert filter_processors(processor_type="imaginary") == {}

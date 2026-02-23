@@ -33,15 +33,17 @@ import pytest
 
 from grdl_rt.execution.builder import Workflow, TapOutStep, WorkflowStep
 from grdl_rt.execution.workflow import (
-    ProcessingStep, TapOutStepDef, WorkflowDefinition,
+    ProcessingStep,
+    TapOutStepDef,
+    WorkflowDefinition,
 )
 from grdl_rt.execution.dsl import DslCompiler
 from grdl_rt.execution.result import WorkflowResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _double(source: np.ndarray) -> np.ndarray:
     return source * 2.0
@@ -54,6 +56,7 @@ def _add_one(source: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # TapOutStep dataclass
 # ---------------------------------------------------------------------------
+
 
 class TestTapOutStep:
     def test_construction(self):
@@ -75,6 +78,7 @@ class TestTapOutStep:
 # TapOutStepDef (serializable model)
 # ---------------------------------------------------------------------------
 
+
 class TestTapOutStepDef:
     def test_construction(self):
         td = TapOutStepDef(path="./out.tif", format="geotiff")
@@ -84,12 +88,12 @@ class TestTapOutStepDef:
     def test_to_dict(self):
         td = TapOutStepDef(path="./out.npy")
         d = td.to_dict()
-        assert d == {'tap_out': './out.npy'}
+        assert d == {"tap_out": "./out.npy"}
 
     def test_to_dict_with_format(self):
         td = TapOutStepDef(path="./out.tif", format="geotiff")
         d = td.to_dict()
-        assert d == {'tap_out': './out.tif', 'format': 'geotiff'}
+        assert d == {"tap_out": "./out.tif", "format": "geotiff"}
 
     def test_from_dict_roundtrip(self):
         original = TapOutStepDef(path="./debug.npy", format="numpy")
@@ -101,6 +105,7 @@ class TestTapOutStepDef:
 # ---------------------------------------------------------------------------
 # Fluent builder .tap_out()
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowTapOut:
     def test_tap_out_adds_step(self):
@@ -123,12 +128,7 @@ class TestWorkflowTapOut:
         assert wf.steps[0].format == "numpy"
 
     def test_mixed_steps_and_tap_outs(self):
-        wf = (
-            Workflow("mixed")
-            .step(_double)
-            .tap_out("after_double.npy")
-            .step(_add_one)
-        )
+        wf = Workflow("mixed").step(_double).tap_out("after_double.npy").step(_add_one)
         assert len(wf) == 3
         assert isinstance(wf.steps[0], WorkflowStep)
         assert isinstance(wf.steps[1], TapOutStep)
@@ -139,16 +139,12 @@ class TestWorkflowTapOut:
 # Tap-out pipeline execution
 # ---------------------------------------------------------------------------
 
+
 class TestTapOutExecution:
     def test_tap_out_writes_file(self, tmp_path):
         """Tap-out step writes data to disk."""
         out_path = tmp_path / "intermediate.npy"
-        wf = (
-            Workflow("test")
-            .step(_double)
-            .tap_out(str(out_path))
-            .step(_add_one)
-        )
+        wf = Workflow("test").step(_double).tap_out(str(out_path)).step(_add_one)
 
         source = np.array([1.0, 2.0, 3.0])
         wr = wf.execute(source)
@@ -163,11 +159,7 @@ class TestTapOutExecution:
     def test_tap_out_passes_data_through_unchanged(self, tmp_path):
         """Tap-out does not modify the data flowing through the pipeline."""
         out_path = tmp_path / "tap.npy"
-        wf = (
-            Workflow("passthrough")
-            .step(_double)
-            .tap_out(str(out_path))
-        )
+        wf = Workflow("passthrough").step(_double).tap_out(str(out_path))
 
         source = np.array([5.0])
         wr = wf.execute(source)
@@ -177,12 +169,7 @@ class TestTapOutExecution:
 
     def test_tap_out_failure_does_not_abort_pipeline(self, tmp_path):
         """Bad tap-out path logs warning but pipeline continues."""
-        wf = (
-            Workflow("resilient")
-            .step(_double)
-            .tap_out("/nonexistent/path/bad.npy")
-            .step(_add_one)
-        )
+        wf = Workflow("resilient").step(_double).tap_out("/nonexistent/path/bad.npy").step(_add_one)
 
         source = np.array([3.0])
         wr = wf.execute(source)
@@ -195,11 +182,7 @@ class TestTapOutExecution:
         tap1 = tmp_path / "tap1.npy"
         tap2 = tmp_path / "tap2.npy"
         wf = (
-            Workflow("multi tap")
-            .step(_double)
-            .tap_out(str(tap1))
-            .step(_add_one)
-            .tap_out(str(tap2))
+            Workflow("multi tap").step(_double).tap_out(str(tap1)).step(_add_one).tap_out(str(tap2))
         )
 
         source = np.array([1.0])
@@ -213,12 +196,7 @@ class TestTapOutExecution:
         """Progress callback fires for tap-out steps too."""
         progress: list = []
         out_path = tmp_path / "tap.npy"
-        wf = (
-            Workflow("progress")
-            .step(_double)
-            .tap_out(str(out_path))
-            .step(_add_one)
-        )
+        wf = Workflow("progress").step(_double).tap_out(str(out_path)).step(_add_one)
         wf.execute(np.array([1.0]), progress_callback=progress.append)
         assert len(progress) == 3
         assert progress[-1] == pytest.approx(1.0)
@@ -227,6 +205,7 @@ class TestTapOutExecution:
 # ---------------------------------------------------------------------------
 # YAML DSL round-trip with tap-out
 # ---------------------------------------------------------------------------
+
 
 class TestTapOutYaml:
     def test_workflow_definition_with_tap_out_serializes(self):
@@ -237,22 +216,22 @@ class TestTapOutYaml:
         wf.add_step(ProcessingStep("FilterB", "1.0"))
 
         d = wf.to_dict()
-        assert d['steps'][0]['processor'] == 'FilterA'
-        assert d['steps'][0]['version'] == '1.0'
-        assert d['steps'][1]['tap_out'] == './debug.npy'
-        assert d['steps'][2]['processor'] == 'FilterB'
-        assert d['steps'][2]['version'] == '1.0'
+        assert d["steps"][0]["processor"] == "FilterA"
+        assert d["steps"][0]["version"] == "1.0"
+        assert d["steps"][1]["tap_out"] == "./debug.npy"
+        assert d["steps"][2]["processor"] == "FilterB"
+        assert d["steps"][2]["version"] == "1.0"
 
     def test_yaml_roundtrip(self, tmp_path):
         """YAML serialization preserves tap-out steps."""
         compiler = DslCompiler()
         wf = WorkflowDefinition(name="Tap Test", version="1.0.0")
-        wf.add_step(ProcessingStep("FilterA", "0.1.0", params={'k': 3}))
+        wf.add_step(ProcessingStep("FilterA", "0.1.0", params={"k": 3}))
         wf.add_step(TapOutStepDef(path="./intermediates/after_a.tif"))
         wf.add_step(ProcessingStep("FilterB", "0.2.0"))
 
         yaml_str = compiler.to_yaml(wf)
-        assert 'tap_out' in yaml_str
+        assert "tap_out" in yaml_str
 
         yaml_path = tmp_path / "workflow.yaml"
         yaml_path.write_text(yaml_str)
@@ -273,7 +252,7 @@ class TestTapOutYaml:
 
         source = compiler.to_python(wf)
         assert 'tap_out("./debug.npy")' in source
-        assert 'import workflow, step, tap_out' in source
+        assert "import workflow, step, tap_out" in source
 
     def test_dsl_decorator_captures_tap_out(self):
         """@workflow decorator captures tap_out() calls."""
@@ -295,6 +274,7 @@ class TestTapOutYaml:
 # WorkflowExecutor with tap-out
 # ---------------------------------------------------------------------------
 
+
 class TestExecutorTapOut:
     def test_executor_handles_tap_out_step(self, tmp_path):
         """WorkflowExecutor handles TapOutStepDef in workflow."""
@@ -310,7 +290,7 @@ class TestExecutorTapOut:
         wf.add_step(ProcessingStep("FakeTransform", "1.0"))
         wf.add_step(TapOutStepDef(path=str(tap_path)))
 
-        with patch('grdl_rt.execution.executor.resolve_processor_class') as mock:
+        with patch("grdl_rt.execution.executor.resolve_processor_class") as mock:
             mock.return_value = _FakeTransform
             executor = WorkflowExecutor(wf)
             source = np.ones((4, 4), dtype=np.float64)
@@ -324,6 +304,7 @@ class TestExecutorTapOut:
 # ---------------------------------------------------------------------------
 # Auto tap-out mode (builder)
 # ---------------------------------------------------------------------------
+
 
 class TestAutoTapOut:
     def test_auto_tap_out_creates_directory(self, tmp_path):
@@ -353,11 +334,13 @@ class TestAutoTapOut:
 
         # First intermediate: source * 2
         np.testing.assert_array_equal(
-            np.load(str(npy_files[0])), np.array([2.0, 4.0]),
+            np.load(str(npy_files[0])),
+            np.array([2.0, 4.0]),
         )
         # Second intermediate: (source * 2) + 1
         np.testing.assert_array_equal(
-            np.load(str(npy_files[1])), np.array([3.0, 5.0]),
+            np.load(str(npy_files[1])),
+            np.array([3.0, 5.0]),
         )
 
     def test_auto_tap_out_writes_final_output(self, tmp_path):
@@ -380,11 +363,11 @@ class TestAutoTapOut:
         manifest_path = out_dir / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert manifest['workflow_name'] == "Manifest Test"
-        assert manifest['final_output'] == "final_output.npy"
-        assert len(manifest['steps']) == 2
-        assert manifest['steps'][0]['type'] == 'processing'
-        assert manifest['steps'][1]['type'] == 'processing'
+        assert manifest["workflow_name"] == "Manifest Test"
+        assert manifest["final_output"] == "final_output.npy"
+        assert len(manifest["steps"]) == 2
+        assert manifest["steps"][0]["type"] == "processing"
+        assert manifest["steps"][1]["type"] == "processing"
 
     def test_auto_tap_out_writes_workflow_params(self, tmp_path):
         """Auto tap-out writes workflow_params.yaml."""
@@ -394,10 +377,11 @@ class TestAutoTapOut:
         wf.execute(source, auto_tap_out=True, tap_out_dir=str(out_dir))
 
         import yaml
+
         yaml_path = out_dir / "workflow_params.yaml"
         assert yaml_path.exists()
         params = yaml.safe_load(yaml_path.read_text())
-        assert params['name'] == "Params Test"
+        assert params["name"] == "Params Test"
 
     def test_auto_tap_out_default_directory(self, tmp_path, monkeypatch):
         """Without tap_out_dir, creates a timestamped dir in cwd."""
@@ -414,21 +398,19 @@ class TestAutoTapOut:
         """Explicit tap_out() steps still write to their own path."""
         out_dir = tmp_path / "run_output"
         explicit_tap = tmp_path / "explicit.npy"
-        wf = (
-            Workflow("mixed auto")
-            .step(_double)
-            .tap_out(str(explicit_tap))
-            .step(_add_one)
-        )
+        wf = Workflow("mixed auto").step(_double).tap_out(str(explicit_tap)).step(_add_one)
         source = np.array([2.0])
         wr = wf.execute(
-            source, auto_tap_out=True, tap_out_dir=str(out_dir),
+            source,
+            auto_tap_out=True,
+            tap_out_dir=str(out_dir),
         )
 
         np.testing.assert_array_equal(wr.result, np.array([5.0]))
         # Explicit tap-out wrote to its path
         np.testing.assert_array_equal(
-            np.load(str(explicit_tap)), np.array([4.0]),
+            np.load(str(explicit_tap)),
+            np.array([4.0]),
         )
         # Auto tap-out wrote processing step intermediates
         npy_files = sorted(out_dir.glob("step_*.npy"))
@@ -441,9 +423,9 @@ class TestAutoTapOut:
         wf.execute(np.array([1.0]), auto_tap_out=True, tap_out_dir=str(out_dir))
 
         manifest = json.loads((out_dir / "manifest.json").read_text())
-        for entry in manifest['steps']:
-            assert 'elapsed_s' in entry
-            assert isinstance(entry['elapsed_s'], float)
+        for entry in manifest["steps"]:
+            assert "elapsed_s" in entry
+            assert isinstance(entry["elapsed_s"], float)
 
     def test_auto_tap_out_manifest_includes_shape_dtype(self, tmp_path):
         """Manifest entries include shape and dtype."""
@@ -453,14 +435,15 @@ class TestAutoTapOut:
         wf.execute(source, auto_tap_out=True, tap_out_dir=str(out_dir))
 
         manifest = json.loads((out_dir / "manifest.json").read_text())
-        entry = manifest['steps'][0]
-        assert entry['shape'] == [4, 4]
-        assert entry['dtype'] == 'float32'
+        entry = manifest["steps"][0]
+        assert entry["shape"] == [4, 4]
+        assert entry["dtype"] == "float32"
 
 
 # ---------------------------------------------------------------------------
 # Auto tap-out mode (WorkflowExecutor)
 # ---------------------------------------------------------------------------
+
 
 class TestExecutorAutoTapOut:
     def test_executor_auto_tap_out(self, tmp_path):
@@ -481,9 +464,9 @@ class TestExecutorAutoTapOut:
         wf.add_step(ProcessingStep("FakeAddOne", "1.0"))
 
         def _mock_resolve(name):
-            return {'FakeDouble': _FakeDouble, 'FakeAddOne': _FakeAddOne}[name]
+            return {"FakeDouble": _FakeDouble, "FakeAddOne": _FakeAddOne}[name]
 
-        with patch('grdl_rt.execution.executor.resolve_processor_class', side_effect=_mock_resolve):
+        with patch("grdl_rt.execution.executor.resolve_processor_class", side_effect=_mock_resolve):
             executor = WorkflowExecutor(wf)
             source = np.ones((4, 4), dtype=np.float64)
             wr = executor.execute(
@@ -501,8 +484,8 @@ class TestExecutorAutoTapOut:
 
         # Manifest exists
         manifest = json.loads((out_dir / "manifest.json").read_text())
-        assert manifest['workflow_name'] == "Executor Auto Test"
-        assert len(manifest['steps']) == 2
+        assert manifest["workflow_name"] == "Executor Auto Test"
+        assert len(manifest["steps"]) == 2
 
         # workflow_params.yaml exists
         assert (out_dir / "workflow_params.yaml").exists()

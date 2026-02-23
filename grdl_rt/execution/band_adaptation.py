@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Band Adaptation - Automatic band count adjustment between pipeline steps.
 
@@ -23,8 +22,6 @@ Created
 """
 
 from __future__ import annotations
-
-from typing import Optional
 
 import numpy as np
 
@@ -57,7 +54,7 @@ logger = get_logger(__name__)
 # ------------------------------------------------------------------
 
 
-def detect_band_axis(source: np.ndarray) -> Optional[int]:
+def detect_band_axis(source: np.ndarray) -> int | None:
     """Auto-detect the band axis of an image array.
 
     Parameters
@@ -170,7 +167,7 @@ def _expand_bands(
     source: np.ndarray,
     current: int,
     target: int,
-    axis: Optional[int],
+    axis: int | None,
     strategy: BandExpansion,
 ) -> np.ndarray:
     """Expand *source* from *current* to *target* bands."""
@@ -189,7 +186,10 @@ def _expand_bands(
 
 
 def _expand_repeat(
-    source: np.ndarray, current: int, target: int, axis: int,
+    source: np.ndarray,
+    current: int,
+    target: int,
+    axis: int,
 ) -> np.ndarray:
     """Tile bands cyclically to reach *target*."""
     repeats = target // current
@@ -205,7 +205,10 @@ def _expand_repeat(
 
 
 def _expand_zero_pad(
-    source: np.ndarray, current: int, target: int, axis: int,
+    source: np.ndarray,
+    current: int,
+    target: int,
+    axis: int,
 ) -> np.ndarray:
     """Pad with zero bands to reach *target*."""
     pad_count = target - current
@@ -224,7 +227,7 @@ def _reduce_bands(
     source: np.ndarray,
     current: int,
     target: int,
-    axis: Optional[int],
+    axis: int | None,
     strategy: BandReduction,
 ) -> np.ndarray:
     """Reduce *source* from *current* to *target* bands."""
@@ -275,20 +278,19 @@ def _reduce_stat(
 
 
 def _reduce_luminance(
-    source: np.ndarray, current: int, target: int, axis: int,
+    source: np.ndarray,
+    current: int,
+    target: int,
+    axis: int,
 ) -> np.ndarray:
     """Weighted luminance: 0.2126*R + 0.7152*G + 0.0722*B.
 
     Only valid for 3-band → 1-band reduction.
     """
     if current != 3:
-        raise ValueError(
-            f"LUMINANCE reduction requires exactly 3 input bands, got {current}"
-        )
+        raise ValueError(f"LUMINANCE reduction requires exactly 3 input bands, got {current}")
     if target != 1:
-        raise ValueError(
-            f"LUMINANCE reduction produces 1 band, but {target} were requested"
-        )
+        raise ValueError(f"LUMINANCE reduction produces 1 band, but {target} were requested")
 
     weights = np.array([0.2126, 0.7152, 0.0722], dtype=np.float64)
 

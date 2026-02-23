@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Configuration Module — 12-factor, environment-variable-driven runtime config.
 
@@ -39,7 +38,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -85,7 +84,7 @@ class RetryDefaults(BaseModel):
     max_retries: int = Field(default=0, ge=0)
     backoff_base: float = Field(default=1.0, gt=0)
     backoff_max: float = Field(default=60.0, gt=0)
-    retryable_exceptions: List[str] = Field(
+    retryable_exceptions: list[str] = Field(
         default=["RuntimeError", "OSError", "MemoryError"],
     )
 
@@ -94,15 +93,20 @@ class MemoryConfig(BaseModel):
     """Memory estimation and threshold configuration."""
 
     warn_threshold: float = Field(
-        default=0.80, ge=0, le=1.0,
+        default=0.80,
+        ge=0,
+        le=1.0,
         description="Warn when estimated usage exceeds this fraction of available RAM",
     )
     abort_threshold: float = Field(
-        default=0.95, ge=0, le=1.0,
+        default=0.95,
+        ge=0,
+        le=1.0,
         description="Abort when estimated usage exceeds this fraction of available RAM",
     )
     estimation_multiplier: float = Field(
-        default=1.5, gt=0,
+        default=1.5,
+        gt=0,
         description="Safety multiplier applied to input_array.nbytes * n_steps",
     )
 
@@ -112,7 +116,9 @@ class GpuConfig(BaseModel):
 
     prefer_gpu: bool = Field(default=False, description="Prefer GPU execution when available")
     memory_fraction: float = Field(
-        default=0.9, gt=0, le=1.0,
+        default=0.9,
+        gt=0,
+        le=1.0,
         description="Maximum fraction of GPU memory to use",
     )
 
@@ -121,8 +127,9 @@ class TapOutConfig(BaseModel):
     """Tap-out defaults."""
 
     default_format: str = Field(default="npy", description="Default intermediate output format")
-    default_dir: Optional[str] = Field(
-        default=None, description="Default directory for tap-out files",
+    default_dir: str | None = Field(
+        default=None,
+        description="Default directory for tap-out files",
     )
 
 
@@ -133,17 +140,25 @@ class QuotaConfig(BaseModel):
     Set to ``None`` to disable a particular quota.
     """
 
-    max_memory_bytes: Optional[int] = Field(
-        default=None, ge=1, description="Maximum RSS memory in bytes",
+    max_memory_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum RSS memory in bytes",
     )
-    max_cpu_percent: Optional[float] = Field(
-        default=None, gt=0, description="Maximum CPU usage percentage",
+    max_cpu_percent: float | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum CPU usage percentage",
     )
-    max_gpu_memory_bytes: Optional[int] = Field(
-        default=None, ge=1, description="Maximum GPU memory in bytes",
+    max_gpu_memory_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum GPU memory in bytes",
     )
-    max_wall_clock_seconds: Optional[float] = Field(
-        default=None, gt=0, description="Maximum wall-clock seconds for the workflow",
+    max_wall_clock_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum wall-clock seconds for the workflow",
     )
 
 
@@ -159,10 +174,12 @@ class OtelConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
     exporter: str = Field(
-        default="none", description="Trace exporter: 'otlp', 'console', or 'none'",
+        default="none",
+        description="Trace exporter: 'otlp', 'console', or 'none'",
     )
     service_name: str = Field(
-        default="grdl-runtime", description="Service name for OTel resource",
+        default="grdl-runtime",
+        description="Service name for OTel resource",
     )
 
     @field_validator("exporter")
@@ -199,8 +216,9 @@ class RuntimeConfig(BaseModel):
     retry: RetryDefaults = Field(default_factory=RetryDefaults)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     gpu: GpuConfig = Field(default_factory=GpuConfig)
-    catalog_path: Optional[str] = Field(
-        default=None, description="Path to artifact catalog database",
+    catalog_path: str | None = Field(
+        default=None,
+        description="Path to artifact catalog database",
     )
     tap_out: TapOutConfig = Field(default_factory=TapOutConfig)
     quota: QuotaConfig = Field(default_factory=QuotaConfig)
@@ -213,7 +231,7 @@ class RuntimeConfig(BaseModel):
 # ======================================================================
 
 # Mapping from GRDL_RT_* env var name → (section, key) or (None, key) for top-level.
-_ENV_MAP: Dict[str, tuple] = {
+_ENV_MAP: dict[str, tuple] = {
     "GRDL_RT_LOG_LEVEL": ("log", "level"),
     "GRDL_RT_LOG_FORMAT": ("log", "format"),
     "GRDL_RT_RETRY_MAX_RETRIES": ("retry", "max_retries"),
@@ -245,7 +263,7 @@ _BOOL_TRUTHY = {"1", "true", "yes", "on"}
 _BOOL_FALSY = {"0", "false", "no", "off", ""}
 
 
-def _coerce_env_value(raw: str, section: Optional[str], key: str) -> Any:
+def _coerce_env_value(raw: str, section: str | None, key: str) -> Any:
     """Coerce a string env var value to the appropriate Python type."""
     # Boolean fields
     if key in ("prefer_gpu", "enabled"):
@@ -253,9 +271,14 @@ def _coerce_env_value(raw: str, section: Optional[str], key: str) -> Any:
 
     # Float fields
     if key in (
-        "backoff_base", "backoff_max", "warn_threshold",
-        "abort_threshold", "estimation_multiplier", "memory_fraction",
-        "max_cpu_percent", "max_wall_clock_seconds",
+        "backoff_base",
+        "backoff_max",
+        "warn_threshold",
+        "abort_threshold",
+        "estimation_multiplier",
+        "memory_fraction",
+        "max_cpu_percent",
+        "max_wall_clock_seconds",
     ):
         return float(raw)
 
@@ -266,7 +289,7 @@ def _coerce_env_value(raw: str, section: Optional[str], key: str) -> Any:
     return raw
 
 
-def _overlay_env_vars(data: Dict[str, Any]) -> Dict[str, Any]:
+def _overlay_env_vars(data: dict[str, Any]) -> dict[str, Any]:
     """Overlay GRDL_RT_* environment variables onto a config dict."""
     for env_name, (section, key) in _ENV_MAP.items():
         raw = os.environ.get(env_name)
@@ -290,7 +313,7 @@ def _overlay_env_vars(data: Dict[str, Any]) -> Dict[str, Any]:
 # ======================================================================
 
 
-def _load_toml(path: Path) -> Dict[str, Any]:
+def _load_toml(path: Path) -> dict[str, Any]:
     """Load a TOML file, returning a dict.  Returns {} on failure."""
     try:
         import tomllib
@@ -308,7 +331,7 @@ def _load_toml(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
+def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML file, returning a dict.  Returns {} on failure."""
     try:
         import yaml
@@ -316,7 +339,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         logger.debug("yaml_load_skipped", reason="pyyaml not installed")
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             result = yaml.safe_load(f)
             return result if isinstance(result, dict) else {}
     except Exception as e:
@@ -324,7 +347,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _load_file(path: Path) -> Dict[str, Any]:
+def _load_file(path: Path) -> dict[str, Any]:
     """Auto-dispatch to TOML or YAML loader based on extension."""
     suffix = path.suffix.lower()
     if suffix == ".toml":
@@ -341,7 +364,7 @@ def _load_file(path: Path) -> Dict[str, Any]:
 
 
 def load_runtime_config(
-    config_path: Optional[Path] = None,
+    config_path: Path | None = None,
 ) -> RuntimeConfig:
     """Load runtime configuration with 12-factor precedence.
 
@@ -363,7 +386,7 @@ def load_runtime_config(
     RuntimeConfig
         Validated runtime configuration.
     """
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
 
     # 1. Load from file
     if config_path is not None and config_path.exists():
@@ -392,7 +415,7 @@ def load_runtime_config(
 
 
 # Module-level singleton (lazy)
-_runtime_config: Optional[RuntimeConfig] = None
+_runtime_config: RuntimeConfig | None = None
 
 
 def get_runtime_config() -> RuntimeConfig:

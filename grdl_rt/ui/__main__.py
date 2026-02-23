@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Allow ``python -m grdl_rt.ui`` to launch the runner GUI."""
 
 import sys

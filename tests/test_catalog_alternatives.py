@@ -28,10 +28,10 @@ from grdl_rt.catalog.database import SqliteArtifactCatalog
 from grdl_rt.catalog.models import Artifact
 from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_processor(name="proc-a", version="1.0.0", alternatives=None):
     return Artifact(
@@ -49,6 +49,7 @@ def _make_processor(name="proc-a", version="1.0.0", alternatives=None):
 # ---------------------------------------------------------------------------
 # SQLite catalog
 # ---------------------------------------------------------------------------
+
 
 class TestSqliteAlternatives:
 
@@ -191,6 +192,7 @@ class TestSqliteSchemaMigration:
 # YAML catalog
 # ---------------------------------------------------------------------------
 
+
 class TestYamlAlternatives:
 
     @pytest.fixture
@@ -224,9 +226,13 @@ class TestYamlAlternatives:
         proc = _make_processor()
         catalog.add_artifact(proc)
 
-        catalog.set_alternatives("proc-a", "1.0.0", [
-            {"processor_name": "new", "priority": 1},
-        ])
+        catalog.set_alternatives(
+            "proc-a",
+            "1.0.0",
+            [
+                {"processor_name": "new", "priority": 1},
+            ],
+        )
 
         result = catalog.get_alternatives("proc-a", "1.0.0")
         assert len(result) == 1
@@ -241,16 +247,18 @@ class TestYamlAlternatives:
         yaml_path = tmp_path / "old.yaml"
         data = {
             "catalog_meta": {"format_version": 1, "next_id": 2},
-            "artifacts": [{
-                "id": 1,
-                "name": "legacy",
-                "version": "0.1.0",
-                "artifact_type": "grdl_processor",
-                "description": "Old artifact",
-                "author": "",
-                "license": "MIT",
-                # No 'alternatives' key
-            }],
+            "artifacts": [
+                {
+                    "id": 1,
+                    "name": "legacy",
+                    "version": "0.1.0",
+                    "artifact_type": "grdl_processor",
+                    "description": "Old artifact",
+                    "author": "",
+                    "license": "MIT",
+                    # No 'alternatives' key
+                }
+            ],
             "remote_versions": [],
         }
         with open(yaml_path, "w") as f:
@@ -267,6 +275,7 @@ class TestYamlAlternatives:
 # Federated catalog
 # ---------------------------------------------------------------------------
 
+
 class TestFederatedAlternatives:
 
     def test_get_alternatives_delegates(self, tmp_path):
@@ -275,9 +284,11 @@ class TestFederatedAlternatives:
         # Create a YAML backend with alternatives
         yaml_path = tmp_path / "fed.yaml"
         backend = YamlArtifactCatalog(file_path=yaml_path)
-        proc = _make_processor(alternatives=[
-            {"processor_name": "fed-alt", "priority": 1},
-        ])
+        proc = _make_processor(
+            alternatives=[
+                {"processor_name": "fed-alt", "priority": 1},
+            ]
+        )
         backend.add_artifact(proc)
 
         fed = FederatedArtifactCatalog(catalogs=[backend])

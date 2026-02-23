@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Operators — Base classes for aggregation, conditionals, and routing.
 
@@ -28,13 +27,13 @@ Created
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from grdl.image_processing.base import ImageProcessor
 
 if TYPE_CHECKING:
-    from grdl.IO.models.base import ImageMetadata
     from grdl.image_processing.detection.models import DetectionSet
+    from grdl.IO.models.base import ImageMetadata
 
 
 class WorkflowOperator(ImageProcessor):
@@ -59,7 +58,7 @@ class WorkflowOperator(ImageProcessor):
 
     def execute(
         self,
-        metadata: 'ImageMetadata',
+        metadata: ImageMetadata,
         source: Any,
         **kwargs: Any,
     ) -> tuple:
@@ -83,7 +82,7 @@ class WorkflowOperator(ImageProcessor):
     @abstractmethod
     def operate(
         self,
-        metadata: 'ImageMetadata',
+        metadata: ImageMetadata,
         source: Any,
         **kwargs: Any,
     ) -> tuple:
@@ -128,7 +127,7 @@ class DetectionAggregator(WorkflowOperator):
 
     def operate(
         self,
-        metadata: 'ImageMetadata',
+        metadata: ImageMetadata,
         source: Any,
         **kwargs: Any,
     ) -> tuple:
@@ -161,9 +160,9 @@ class DetectionAggregator(WorkflowOperator):
     @abstractmethod
     def aggregate(
         self,
-        inputs: Dict[str, Any],
+        inputs: dict[str, Any],
         **kwargs: Any,
-    ) -> 'DetectionSet':
+    ) -> DetectionSet:
         """Merge multiple detection sets into one.
 
         Parameters

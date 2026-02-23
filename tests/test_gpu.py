@@ -22,10 +22,10 @@ import pytest
 
 from grdl_rt.execution.gpu import GpuBackend, _check_cupy, _check_torch
 
-
 # ---------------------------------------------------------------------------
 # Availability checks
 # ---------------------------------------------------------------------------
+
 
 class TestAvailabilityChecks:
     def test_check_cupy_returns_bool(self):
@@ -40,6 +40,7 @@ class TestAvailabilityChecks:
 # ---------------------------------------------------------------------------
 # GpuBackend construction
 # ---------------------------------------------------------------------------
+
 
 class TestGpuBackendConstruction:
     def test_cpu_only_mode(self):
@@ -57,6 +58,7 @@ class TestGpuBackendConstruction:
 # ---------------------------------------------------------------------------
 # to_gpu / to_cpu (CPU fallback path)
 # ---------------------------------------------------------------------------
+
 
 class TestCpuFallback:
     def test_to_gpu_returns_same_array_without_cupy(self):
@@ -83,6 +85,7 @@ class TestCpuFallback:
 # ---------------------------------------------------------------------------
 # apply_transform
 # ---------------------------------------------------------------------------
+
 
 class TestApplyTransform:
     def test_cpu_transform(self):
@@ -121,24 +124,26 @@ class TestApplyTransform:
 # device_info
 # ---------------------------------------------------------------------------
 
+
 class TestDeviceInfo:
     def test_device_info_cpu_only(self):
         backend = GpuBackend(prefer_gpu=False)
         info = backend.device_info
-        assert info['cupy_available'] is False
-        assert info['torch_available'] is False
-        assert 'cupy_device' not in info
-        assert 'torch_device' not in info
+        assert info["cupy_available"] is False
+        assert info["torch_available"] is False
+        assert "cupy_device" not in info
+        assert "torch_device" not in info
 
 
 # ---------------------------------------------------------------------------
 # apply_torch_model
 # ---------------------------------------------------------------------------
 
+
 class TestApplyTorchModel:
     def test_raises_without_torch(self):
         backend = GpuBackend(prefer_gpu=False)
         source = np.zeros((8, 8))
-        with patch.dict('sys.modules', {'torch': None}):
+        with patch.dict("sys.modules", {"torch": None}):
             with pytest.raises(ImportError, match="PyTorch"):
                 backend.apply_torch_model("model.pt", source)

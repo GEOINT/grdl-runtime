@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Catalog Base - Abstract interface for artifact catalog storage backends.
 
@@ -27,7 +26,7 @@ Created
 
 # Standard library
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # grdl-runtime internal
 from grdl_rt.catalog.models import Artifact
@@ -76,7 +75,7 @@ class ArtifactCatalogBase(ABC):
         ...
 
     @abstractmethod
-    def get_artifact(self, name: str, version: str) -> Optional[Artifact]:
+    def get_artifact(self, name: str, version: str) -> Artifact | None:
         """Retrieve a specific artifact by name and version.
 
         Parameters
@@ -93,8 +92,9 @@ class ArtifactCatalogBase(ABC):
 
     @abstractmethod
     def list_artifacts(
-        self, artifact_type: Optional[str] = None,
-    ) -> List[Artifact]:
+        self,
+        artifact_type: str | None = None,
+    ) -> list[Artifact]:
         """List all artifacts, optionally filtered by type.
 
         Parameters
@@ -109,7 +109,7 @@ class ArtifactCatalogBase(ABC):
         ...
 
     @abstractmethod
-    def search(self, query: str) -> List[Artifact]:
+    def search(self, query: str) -> list[Artifact]:
         """Search artifacts by text query.
 
         The search mechanism is backend-specific. SQLite uses FTS5
@@ -127,7 +127,7 @@ class ArtifactCatalogBase(ABC):
         ...
 
     @abstractmethod
-    def search_by_tags(self, tags: Dict[str, str]) -> List[Artifact]:
+    def search_by_tags(self, tags: dict[str, str]) -> list[Artifact]:
         """Search artifacts by tag key-value pairs (AND logic).
 
         All specified tag key-value pairs must match for an artifact
@@ -146,7 +146,10 @@ class ArtifactCatalogBase(ABC):
 
     @abstractmethod
     def update_remote_version(
-        self, artifact_id: int, source: str, latest_version: str,
+        self,
+        artifact_id: int,
+        source: str,
+        latest_version: str,
     ) -> None:
         """Record the latest remote version for an artifact.
 
@@ -167,8 +170,10 @@ class ArtifactCatalogBase(ABC):
     # --- Default implementations ---
 
     def get_alternatives(
-        self, name: str, version: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str,
+    ) -> list[dict[str, Any]]:
         """Return alternative processor entries for the given artifact.
 
         Default implementation returns an empty list.  Backends that
@@ -190,8 +195,10 @@ class ArtifactCatalogBase(ABC):
         return []
 
     def set_alternatives(
-        self, name: str, version: str,
-        alternatives: List[Dict[str, Any]],
+        self,
+        name: str,
+        version: str,
+        alternatives: list[dict[str, Any]],
     ) -> None:
         """Set alternative processor entries for the given artifact.
 
@@ -208,13 +215,13 @@ class ArtifactCatalogBase(ABC):
             Each dict must have ``processor_name``, ``priority``,
             and ``compatibility_notes`` keys.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support set_alternatives"
-        )
+        raise NotImplementedError(f"{type(self).__name__} does not support set_alternatives")
 
     def get_param_schema(
-        self, name: str, version: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str | None = None,
+    ) -> dict[str, Any] | None:
         """Return the JSON Schema for a processor's tunable parameters.
 
         Default implementation finds the artifact and returns its
@@ -246,7 +253,7 @@ class ArtifactCatalogBase(ABC):
                 return artifact.param_schema
         return None
 
-    def __enter__(self) -> 'ArtifactCatalogBase':
+    def __enter__(self) -> "ArtifactCatalogBase":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:

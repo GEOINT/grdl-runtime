@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 ThreadExecutorPool - Thread pool for background catalog operations.
 
@@ -33,7 +32,6 @@ import subprocess
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional
 
 # grdl-runtime internal
 from grdl_rt.execution.context import get_logger
@@ -41,7 +39,6 @@ from grdl_rt.execution.context import get_logger
 logger = get_logger(__name__)
 
 # grdl-runtime internal
-from grdl_rt.catalog.models import UpdateResult
 from grdl_rt.catalog.updater import ArtifactUpdateWorker
 
 
@@ -78,9 +75,9 @@ class ThreadExecutorPool:
     def submit_download(
         self,
         package: str,
-        target_venv: Optional[Path] = None,
+        target_venv: Path | None = None,
         use_conda: bool = False,
-        conda_channel: Optional[str] = None,
+        conda_channel: str | None = None,
     ) -> Future:
         """Submit a package download/install job.
 
@@ -122,9 +119,9 @@ class ThreadExecutorPool:
     @staticmethod
     def _install_package(
         package: str,
-        target_venv: Optional[Path],
+        target_venv: Path | None,
         use_conda: bool,
-        conda_channel: Optional[str],
+        conda_channel: str | None,
     ) -> subprocess.CompletedProcess:
         """Install a package using pip or conda.
 
@@ -140,23 +137,21 @@ class ThreadExecutorPool:
         subprocess.CompletedProcess
         """
         if use_conda:
-            cmd = ['conda', 'install', '-y']
+            cmd = ["conda", "install", "-y"]
             if conda_channel:
-                cmd.extend(['-c', conda_channel])
+                cmd.extend(["-c", conda_channel])
             cmd.append(package)
         else:
             if target_venv:
-                pip_path = target_venv / 'bin' / 'pip'
+                pip_path = target_venv / "bin" / "pip"
                 if not pip_path.exists():
-                    pip_path = target_venv / 'Scripts' / 'pip.exe'
-                cmd = [str(pip_path), 'install', package]
+                    pip_path = target_venv / "Scripts" / "pip.exe"
+                cmd = [str(pip_path), "install", package]
             else:
-                cmd = [sys.executable, '-m', 'pip', 'install', package]
+                cmd = [sys.executable, "-m", "pip", "install", package]
 
-        logger.info("Installing package", package=package, cmd=' '.join(cmd))
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300
-        )
+        logger.info("Installing package", package=package, cmd=" ".join(cmd))
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             logger.error("Install failed", package=package, stderr=result.stderr)
         else:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Hardware Context — Abstract hardware capability description.
 
@@ -32,8 +31,8 @@ Created
 # Standard library
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from dataclasses import dataclass
+from typing import Any
 
 # grdl-runtime internal
 from grdl_rt.execution.context import get_logger
@@ -65,7 +64,7 @@ class GpuDeviceInfo:
     memory_bytes: int
     device_index: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
 
         Returns
@@ -79,7 +78,7 @@ class GpuDeviceInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'GpuDeviceInfo':
+    def from_dict(cls, data: dict[str, Any]) -> "GpuDeviceInfo":
         """Deserialize from dictionary.
 
         Parameters
@@ -131,7 +130,7 @@ class HardwareContext(ABC):
 
     @property
     @abstractmethod
-    def gpu_devices(self) -> List[GpuDeviceInfo]:
+    def gpu_devices(self) -> list[GpuDeviceInfo]:
         """List of available GPU devices."""
         ...
 
@@ -147,7 +146,7 @@ class HardwareContext(ABC):
         return sum(d.memory_bytes for d in self.gpu_devices)
 
     @abstractmethod
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize the hardware context to a dictionary.
 
         Returns
@@ -185,21 +184,24 @@ class LocalHardwareContext(HardwareContext):
         return 0, 0
 
     @staticmethod
-    def _query_gpu_devices() -> List[GpuDeviceInfo]:
+    def _query_gpu_devices() -> list[GpuDeviceInfo]:
         """Discover GPU devices via torch.cuda and CuPy."""
-        devices: List[GpuDeviceInfo] = []
+        devices: list[GpuDeviceInfo] = []
 
         # Try PyTorch CUDA first (richer device info)
         try:
             import torch
+
             if torch.cuda.is_available():
                 for i in range(torch.cuda.device_count()):
                     props = torch.cuda.get_device_properties(i)
-                    devices.append(GpuDeviceInfo(
-                        name=props.name,
-                        memory_bytes=props.total_memory,
-                        device_index=i,
-                    ))
+                    devices.append(
+                        GpuDeviceInfo(
+                            name=props.name,
+                            memory_bytes=props.total_memory,
+                            device_index=i,
+                        )
+                    )
                 return devices
         except ImportError:
             pass
@@ -209,14 +211,17 @@ class LocalHardwareContext(HardwareContext):
         # Fallback to CuPy
         try:
             import cupy as cp
+
             for i in range(cp.cuda.runtime.getDeviceCount()):
                 with cp.cuda.Device(i):
                     free, total = cp.cuda.runtime.memGetInfo()
-                    devices.append(GpuDeviceInfo(
-                        name=f"CUDA Device {i}",
-                        memory_bytes=total,
-                        device_index=i,
-                    ))
+                    devices.append(
+                        GpuDeviceInfo(
+                            name=f"CUDA Device {i}",
+                            memory_bytes=total,
+                            device_index=i,
+                        )
+                    )
             return devices
         except ImportError:
             pass
@@ -242,10 +247,10 @@ class LocalHardwareContext(HardwareContext):
         return len(self._gpu_devices) > 0
 
     @property
-    def gpu_devices(self) -> List[GpuDeviceInfo]:
+    def gpu_devices(self) -> list[GpuDeviceInfo]:
         return list(self._gpu_devices)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "cpu_count": self.cpu_count,
             "total_memory_bytes": self.total_memory_bytes,

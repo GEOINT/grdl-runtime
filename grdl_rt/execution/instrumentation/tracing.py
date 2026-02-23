@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OpenTelemetry Tracing Hook — workflow traces with per-step spans.
 
@@ -36,13 +35,13 @@ Created
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from grdl_rt.execution.instrumentation import ExecutionHook
 
 try:
-    from opentelemetry import trace as _otel_trace
     from opentelemetry import context as _otel_context
+    from opentelemetry import trace as _otel_trace
 except ImportError:  # pragma: no cover
     _otel_trace = None  # type: ignore[assignment]
     _otel_context = None  # type: ignore[assignment]
@@ -55,7 +54,7 @@ if TYPE_CHECKING:
 def _create_provider(
     service_name: str,
     exporter: str,
-    endpoint: Optional[str] = None,
+    endpoint: str | None = None,
 ) -> Any:
     """Create an OpenTelemetry TracerProvider with the given exporter.
 
@@ -72,8 +71,8 @@ def _create_provider(
     -------
     TracerProvider
     """
-    from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
@@ -84,21 +83,17 @@ def _create_provider(
         )
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        exp_kwargs: Dict[str, Any] = {}
+        exp_kwargs: dict[str, Any] = {}
         if endpoint:
             exp_kwargs["endpoint"] = endpoint
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(**exp_kwargs))
-        )
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(**exp_kwargs)))
     elif exporter == "console":
         from opentelemetry.sdk.trace.export import (
             ConsoleSpanExporter,
             SimpleSpanProcessor,
         )
 
-        provider.add_span_processor(
-            SimpleSpanProcessor(ConsoleSpanExporter())
-        )
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     # "none" — no exporter; useful with InMemorySpanExporter for tests
 
     return provider
@@ -130,7 +125,7 @@ class OtelHook(ExecutionHook):
         tracer_provider: Any = None,
         service_name: str = "grdl-runtime",
         exporter: str = "none",
-        endpoint: Optional[str] = None,
+        endpoint: str | None = None,
     ) -> None:
         if _otel_trace is None:
             raise ImportError(
@@ -145,11 +140,11 @@ class OtelHook(ExecutionHook):
         self._tracer = tracer_provider.get_tracer("grdl_rt")
 
         # Active spans keyed by run_id or run_id:step_index
-        self._workflow_spans: Dict[str, Any] = {}
-        self._workflow_contexts: Dict[str, Any] = {}
-        self._step_spans: Dict[str, Any] = {}
-        self._step_contexts: Dict[str, Any] = {}
-        self._global_pass_spans: Dict[str, Any] = {}
+        self._workflow_spans: dict[str, Any] = {}
+        self._workflow_contexts: dict[str, Any] = {}
+        self._step_spans: dict[str, Any] = {}
+        self._step_contexts: dict[str, Any] = {}
+        self._global_pass_spans: dict[str, Any] = {}
 
     @property
     def provider(self) -> Any:
@@ -286,7 +281,7 @@ class OtelHook(ExecutionHook):
         self,
         ctx: ExecutionContext,
         error: Exception,
-        step_index: Optional[int] = None,
+        step_index: int | None = None,
     ) -> None:
         if step_index is not None:
             key = f"{ctx.run_id}:{step_index}"

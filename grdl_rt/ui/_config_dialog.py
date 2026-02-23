@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Config Dialog — Toplevel window for editing processor tunable parameters.
 
@@ -29,13 +28,13 @@ Created
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk, messagebox
-from typing import Any, Dict, List, Optional
+from tkinter import messagebox, ttk
+from typing import Any
 
 from grdl_rt.ui._importer import ParamInfo
 
-
 # ── Type coercion ────────────────────────────────────────────────────
+
 
 def _coerce_value(raw: str, param_type: str) -> Any:
     """Convert a string entry value to the declared parameter type.
@@ -71,14 +70,14 @@ class _ParamForm(ttk.Frame):
     def __init__(
         self,
         parent: tk.Widget,
-        params: Dict[str, ParamInfo],
-        current_values: Dict[str, Any],
+        params: dict[str, ParamInfo],
+        current_values: dict[str, Any],
     ) -> None:
         super().__init__(parent, padding=8)
         self._params = params
-        self._widgets: Dict[str, Any] = {}
-        self._vars: Dict[str, tk.Variable] = {}
-        self._defaults: Dict[str, Any] = {}
+        self._widgets: dict[str, Any] = {}
+        self._vars: dict[str, tk.Variable] = {}
+        self._defaults: dict[str, Any] = {}
 
         if not params:
             lbl = ttk.Label(self, text="No tunable parameters.", foreground="grey")
@@ -109,8 +108,10 @@ class _ParamForm(ttk.Frame):
         # Description tooltip (shown in a small label if present)
         if info.description:
             desc = ttk.Label(
-                self, text=info.description,
-                foreground="grey", wraplength=300,
+                self,
+                text=info.description,
+                foreground="grey",
+                wraplength=300,
             )
             desc.grid(row=row, column=2, sticky="w", padx=(8, 0), pady=2)
 
@@ -119,7 +120,11 @@ class _ParamForm(ttk.Frame):
             self._build_bool(row, name, current)
         elif info.choices:
             self._build_choices(row, name, info, current)
-        elif info.param_type in ("int", "float") and info.min_value is not None and info.max_value is not None:
+        elif (
+            info.param_type in ("int", "float")
+            and info.min_value is not None
+            and info.max_value is not None
+        ):
             self._build_slider(row, name, info, current)
         else:
             self._build_entry(row, name, info, current)
@@ -132,20 +137,30 @@ class _ParamForm(ttk.Frame):
         self._widgets[name] = cb
 
     def _build_choices(
-        self, row: int, name: str, info: ParamInfo, current: Any,
+        self,
+        row: int,
+        name: str,
+        info: ParamInfo,
+        current: Any,
     ) -> None:
         var = tk.StringVar(value=str(current) if current is not None else "")
         combo = ttk.Combobox(
-            self, textvariable=var,
+            self,
+            textvariable=var,
             values=[str(c) for c in info.choices],
-            state="readonly", width=20,
+            state="readonly",
+            width=20,
         )
         combo.grid(row=row, column=1, sticky="w", pady=2)
         self._vars[name] = var
         self._widgets[name] = combo
 
     def _build_slider(
-        self, row: int, name: str, info: ParamInfo, current: Any,
+        self,
+        row: int,
+        name: str,
+        info: ParamInfo,
+        current: Any,
     ) -> None:
         frame = ttk.Frame(self)
         frame.grid(row=row, column=1, sticky="ew", pady=2)
@@ -156,10 +171,13 @@ class _ParamForm(ttk.Frame):
 
         var = tk.DoubleVar(value=float(val))
 
-        resolution = 1 if info.param_type == "int" else 0.01
         scale = ttk.Scale(
-            frame, from_=info.min_value, to=info.max_value,
-            orient="horizontal", variable=var, length=160,
+            frame,
+            from_=info.min_value,
+            to=info.max_value,
+            orient="horizontal",
+            variable=var,
+            length=160,
         )
         scale.pack(side="left", padx=(0, 4))
 
@@ -194,7 +212,11 @@ class _ParamForm(ttk.Frame):
         self._widgets[name] = (scale, entry)
 
     def _build_entry(
-        self, row: int, name: str, info: ParamInfo, current: Any,
+        self,
+        row: int,
+        name: str,
+        info: ParamInfo,
+        current: Any,
     ) -> None:
         val = str(current) if current is not None else ""
         var = tk.StringVar(value=val)
@@ -205,9 +227,9 @@ class _ParamForm(ttk.Frame):
 
     # ── value extraction ─────────────────────────────────────────
 
-    def get_values(self) -> Dict[str, Any]:
+    def get_values(self) -> dict[str, Any]:
         """Return a dict of parameter name → coerced value."""
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for name, info in self._params.items():
             var = self._vars.get(name)
             if var is None:
@@ -268,16 +290,16 @@ class ConfigDialog(tk.Toplevel):
     def __init__(
         self,
         parent: tk.Widget,
-        steps: List[tuple],
+        steps: list[tuple],
         title: str = "Configure Parameters",
     ) -> None:
         super().__init__(parent)
         self.title(title)
         self.resizable(True, True)
         self.minsize(480, 200)
-        self.result: Optional[Dict[str, Dict[str, Any]]] = None
+        self.result: dict[str, dict[str, Any]] | None = None
 
-        self._forms: Dict[str, _ParamForm] = {}
+        self._forms: dict[str, _ParamForm] = {}
 
         # Build content
         if len(steps) == 1:
@@ -298,15 +320,21 @@ class ConfigDialog(tk.Toplevel):
         btn_frame.pack(fill="x", padx=8, pady=(4, 8))
 
         ttk.Button(
-            btn_frame, text="Reset Defaults", command=self._reset,
+            btn_frame,
+            text="Reset Defaults",
+            command=self._reset,
         ).pack(side="left")
 
         ttk.Button(
-            btn_frame, text="Cancel", command=self._cancel,
+            btn_frame,
+            text="Cancel",
+            command=self._cancel,
         ).pack(side="right", padx=(4, 0))
 
         ttk.Button(
-            btn_frame, text="Apply", command=self._apply,
+            btn_frame,
+            text="Apply",
+            command=self._apply,
         ).pack(side="right")
 
         # Modal behaviour

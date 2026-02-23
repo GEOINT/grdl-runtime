@@ -37,7 +37,7 @@ class TestPythonDsl:
         assert wf.state == WorkflowState.PUBLISHED
         assert len(wf.steps) == 2
         assert wf.steps[0].processor_name == "FilterA"
-        assert wf.steps[0].params == {'threshold': 0.5}
+        assert wf.steps[0].params == {"threshold": 0.5}
         assert wf.steps[1].processor_name == "FilterB"
 
     def test_workflow_with_tags(self):
@@ -76,13 +76,11 @@ class TestDslCompiler:
         compiler = DslCompiler()
 
         wf = WorkflowDefinition(name="YAML Test", version="1.0.0")
-        wf.add_step(
-            ProcessingStep("FilterA", "0.1.0", params={'k': 3})
-        )
+        wf.add_step(ProcessingStep("FilterA", "0.1.0", params={"k": 3}))
 
         yaml_str = compiler.to_yaml(wf)
-        assert 'YAML Test' in yaml_str
-        assert 'FilterA' in yaml_str
+        assert "YAML Test" in yaml_str
+        assert "FilterA" in yaml_str
 
         # Write to file and compile back
         yaml_path = tmp_path / "workflow.yaml"
@@ -90,14 +88,12 @@ class TestDslCompiler:
         restored = compiler.compile_yaml(yaml_path)
         assert restored.name == "YAML Test"
         assert len(restored.steps) == 1
-        assert restored.steps[0].params == {'k': 3}
+        assert restored.steps[0].params == {"k": 3}
 
     def test_yaml_string_roundtrip(self):
         compiler = DslCompiler()
         wf = WorkflowDefinition(name="String Test", version="0.1.0")
-        wf.add_step(
-            ProcessingStep("X", "1.0")
-        )
+        wf.add_step(ProcessingStep("X", "1.0"))
         yaml_str = compiler.to_yaml(wf)
         restored = compiler.compile_yaml_string(yaml_str)
         assert restored.name == "String Test"
@@ -105,18 +101,16 @@ class TestDslCompiler:
     def test_to_python_generates_valid_source(self):
         compiler = DslCompiler()
         wf = WorkflowDefinition(name="Python Gen", version="1.0.0")
-        wf.add_step(ProcessingStep(
-            "Threshold", "1.0.0", params={'t': 0.5, 'mode': 'reflect'}
-        ))
+        wf.add_step(ProcessingStep("Threshold", "1.0.0", params={"t": 0.5, "mode": "reflect"}))
         source = compiler.to_python(wf)
-        assert 'from grdl_rt.execution.dsl import workflow, step' in source
-        assert '@workflow(' in source
-        assert 'def python_gen():' in source
+        assert "from grdl_rt.execution.dsl import workflow, step" in source
+        assert "@workflow(" in source
+        assert "def python_gen():" in source
         assert 'step("Threshold"' in source
-        assert 't=0.5' in source
+        assert "t=0.5" in source
 
     def test_python_generation_empty_workflow(self):
         compiler = DslCompiler()
         wf = WorkflowDefinition(name="Empty Gen")
         source = compiler.to_python(wf)
-        assert 'pass' in source
+        assert "pass" in source

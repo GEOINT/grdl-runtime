@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Builder - Fluent, framework-level API for typed processing workflows.
 
@@ -40,39 +39,34 @@ import functools
 import inspect
 import time
 import tracemalloc
-import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 # Third-party
 import numpy as np
 
-# grdl-runtime internal
-from grdl_rt.execution.config import get_runtime_config
-from grdl_rt.execution.context import ExecutionContext, get_logger
-from grdl_rt.execution.errors import (
-    MemoryThresholdError,
-    StepRetryExhaustedError,
-    StepTimeoutError,
-)
-from grdl_rt.execution.gpu import GpuBackend
-from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
-from grdl_rt.execution.resilience import (
-    RetryPolicy,
-    ShutdownCoordinator,
-    execute_with_retry,
-    execute_with_timeout,
-    run_memory_preflight,
-)
-from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.band_adaptation import (
     BandExpansion,
     BandReduction,
     adapt_bands,
 )
-from grdl_rt.execution.tags import ImageModality, WorkflowTags
+
+# grdl-runtime internal
+from grdl_rt.execution.config import get_runtime_config
+from grdl_rt.execution.context import ExecutionContext, get_logger
+from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
+from grdl_rt.execution.resilience import (
+    RetryPolicy,
+    execute_with_retry,
+    execute_with_timeout,
+    run_memory_preflight,
+)
+from grdl_rt.execution.result import WorkflowResult
+from grdl_rt.execution.tags import ExecutionPhase, ImageModality, OutputFormat, WorkflowTags
 
 logger = get_logger(__name__)
 
@@ -130,15 +124,15 @@ class WorkflowStep:
     fn: Any
     name: str
     gpu_compatible: bool
-    retry: Optional[RetryPolicy] = None
-    timeout_seconds: Optional[float] = None
-    id: Optional[str] = None
-    depends_on: Optional[List[str]] = None
-    condition: Optional[str] = None
-    phase: Optional[str] = None
-    required_bands: Optional[int] = None
-    band_expansion: Optional[str] = None
-    band_reduction: Optional[str] = None
+    retry: RetryPolicy | None = None
+    timeout_seconds: float | None = None
+    id: str | None = None
+    depends_on: list[str] | None = None
+    condition: str | None = None
+    phase: str | None = None
+    required_bands: int | None = None
+    band_expansion: str | None = None
+    band_reduction: str | None = None
 
 
 @dataclass
@@ -173,17 +167,17 @@ class DeferredStep:
     """
 
     processor_cls: type
-    kwargs: Dict[str, Any] = field(default_factory=dict)
+    kwargs: dict[str, Any] = field(default_factory=dict)
     name: str = ""
-    retry: Optional[RetryPolicy] = None
-    timeout_seconds: Optional[float] = None
-    id: Optional[str] = None
-    depends_on: Optional[List[str]] = None
-    condition: Optional[str] = None
-    phase: Optional[str] = None
-    required_bands: Optional[int] = None
-    band_expansion: Optional[str] = None
-    band_reduction: Optional[str] = None
+    retry: RetryPolicy | None = None
+    timeout_seconds: float | None = None
+    id: str | None = None
+    depends_on: list[str] | None = None
+    condition: str | None = None
+    phase: str | None = None
+    required_bands: int | None = None
+    band_expansion: str | None = None
+    band_reduction: str | None = None
 
 
 @dataclass
@@ -209,10 +203,10 @@ class TapOutStep:
     """
 
     path: str
-    format: Optional[str] = None
+    format: str | None = None
     name: str = "tap_out"
-    id: Optional[str] = None
-    depends_on: Optional[List[str]] = None
+    id: str | None = None
+    depends_on: list[str] | None = None
 
 
 class BranchBuilder:
@@ -229,43 +223,45 @@ class BranchBuilder:
 
     def __init__(self, name: str) -> None:
         self._name = name
-        self._steps: List[Union[WorkflowStep, DeferredStep, TapOutStep]] = []
+        self._steps: list[WorkflowStep | DeferredStep | TapOutStep] = []
 
     @property
     def name(self) -> str:
         return self._name
 
     @property
-    def steps(self) -> List[Union[WorkflowStep, DeferredStep, TapOutStep]]:
+    def steps(self) -> list[WorkflowStep | DeferredStep | TapOutStep]:
         return list(self._steps)
 
     def step(
         self,
-        callable_or_class: Union[Callable, Any],
+        callable_or_class: Callable | Any,
         *,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        condition: Optional[str] = None,
-        phase: Optional[str] = None,
-        retry: Optional[RetryPolicy] = None,
-        timeout_seconds: Optional[float] = None,
+        name: str | None = None,
+        id: str | None = None,
+        condition: str | None = None,
+        phase: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout_seconds: float | None = None,
         **kwargs: Any,
-    ) -> 'BranchBuilder':
+    ) -> "BranchBuilder":
         """Add a step to this branch.  Same semantics as Workflow.step()."""
         obj = callable_or_class
 
         if isinstance(obj, type):
             step_name = name or obj.__name__
-            self._steps.append(DeferredStep(
-                processor_cls=obj,
-                kwargs=kwargs,
-                name=step_name,
-                retry=retry,
-                timeout_seconds=timeout_seconds,
-                id=id,
-                condition=condition,
-                phase=phase,
-            ))
+            self._steps.append(
+                DeferredStep(
+                    processor_cls=obj,
+                    kwargs=kwargs,
+                    name=step_name,
+                    retry=retry,
+                    timeout_seconds=timeout_seconds,
+                    id=id,
+                    condition=condition,
+                    phase=phase,
+                )
+            )
             return self
 
         if kwargs:
@@ -277,7 +273,7 @@ class BranchBuilder:
         if ImageTransform is not None and isinstance(obj, ImageTransform):
             fn = obj.apply
             step_name = name or type(obj).__name__
-            gpu_ok = getattr(obj, '__gpu_compatible__', False)
+            gpu_ok = getattr(obj, "__gpu_compatible__", False)
         elif callable(obj):
             fn = obj
             step_name = name or _infer_step_name(obj)
@@ -288,11 +284,18 @@ class BranchBuilder:
                 f"processor class, got {type(obj).__name__}"
             )
 
-        self._steps.append(WorkflowStep(
-            fn=fn, name=step_name, gpu_compatible=gpu_ok,
-            retry=retry, timeout_seconds=timeout_seconds,
-            id=id, condition=condition, phase=phase,
-        ))
+        self._steps.append(
+            WorkflowStep(
+                fn=fn,
+                name=step_name,
+                gpu_compatible=gpu_ok,
+                retry=retry,
+                timeout_seconds=timeout_seconds,
+                id=id,
+                condition=condition,
+                phase=phase,
+            )
+        )
         return self
 
 
@@ -350,22 +353,22 @@ class Workflow:
         *,
         version: str = "0.1.0",
         description: str = "",
-        modalities: Optional[List[str]] = None,
-        tags: Optional[WorkflowTags] = None,
+        modalities: list[str] | None = None,
+        tags: WorkflowTags | None = None,
         band_expansion: str = "repeat",
         band_reduction: str = "first_n",
     ) -> None:
         self._name = name
         self._version = version
         self._description = description
-        self._steps: List[Union[WorkflowStep, DeferredStep, TapOutStep]] = []
-        self._source: Optional[Callable[[], np.ndarray]] = None
-        self._reader_cls: Optional[type] = None
-        self._chip_strategy: Optional[str] = None
-        self._chip_kwargs: Dict[str, Any] = {}
-        self._current_phase: Optional[str] = None
+        self._steps: list[WorkflowStep | DeferredStep | TapOutStep] = []
+        self._source: Callable[[], np.ndarray] | None = None
+        self._reader_cls: type | None = None
+        self._chip_strategy: str | None = None
+        self._chip_kwargs: dict[str, Any] = {}
+        self._current_phase: str | None = None
         self._is_dag: bool = False
-        self._branch_terminal_ids: List[str] = []
+        self._branch_terminal_ids: list[str] = []
         self._step_counter: int = 0
         self._band_expansion = BandExpansion(band_expansion)
         self._band_reduction = BandReduction(band_reduction)
@@ -404,7 +407,7 @@ class Workflow:
         return self._tags
 
     @property
-    def steps(self) -> List[Union[WorkflowStep, DeferredStep, TapOutStep]]:
+    def steps(self) -> list[WorkflowStep | DeferredStep | TapOutStep]:
         """Shallow copy of the step list."""
         return list(self._steps)
 
@@ -419,7 +422,7 @@ class Workflow:
     # Builder
     # ------------------------------------------------------------------
 
-    def reader(self, reader_cls: type) -> 'Workflow':
+    def reader(self, reader_cls: type) -> "Workflow":
         """Declare the reader type for this workflow.
 
         When :meth:`execute` is called with a filepath, the framework
@@ -438,7 +441,7 @@ class Workflow:
         self._reader_cls = reader_cls
         return self
 
-    def chip(self, strategy: str = 'center', **kwargs: Any) -> 'Workflow':
+    def chip(self, strategy: str = "center", **kwargs: Any) -> "Workflow":
         """Declare the chip extraction strategy.
 
         Controls how the framework extracts pixel data from the reader.
@@ -468,7 +471,7 @@ class Workflow:
         fn: Callable[..., np.ndarray],
         *args: Any,
         **kwargs: Any,
-    ) -> 'Workflow':
+    ) -> "Workflow":
         """Set the data source for this workflow.
 
         The source callable is invoked when :meth:`execute` is called
@@ -491,17 +494,17 @@ class Workflow:
 
     def step(
         self,
-        callable_or_class: Union[Callable, Any],
+        callable_or_class: Callable | Any,
         *,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
-        condition: Optional[str] = None,
-        phase: Optional[str] = None,
-        retry: Optional[RetryPolicy] = None,
-        timeout_seconds: Optional[float] = None,
+        name: str | None = None,
+        id: str | None = None,
+        depends_on: list[str] | None = None,
+        condition: str | None = None,
+        phase: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout_seconds: float | None = None,
         **kwargs: Any,
-    ) -> 'Workflow':
+    ) -> "Workflow":
         """Add a processing step to the workflow.
 
         Accepts three kinds of arguments:
@@ -565,23 +568,25 @@ class Workflow:
         if isinstance(obj, type):
             step_name = name or obj.__name__
             # Pop band adaptation kwargs before forwarding to constructor
-            step_band_expansion = kwargs.pop('band_expansion', None)
-            step_band_reduction = kwargs.pop('band_reduction', None)
-            step_required_bands = kwargs.pop('required_bands', None)
-            self._steps.append(DeferredStep(
-                processor_cls=obj,
-                kwargs=kwargs,
-                name=step_name,
-                retry=retry,
-                timeout_seconds=timeout_seconds,
-                id=id,
-                depends_on=depends_on,
-                condition=condition,
-                phase=step_phase,
-                required_bands=step_required_bands,
-                band_expansion=step_band_expansion,
-                band_reduction=step_band_reduction,
-            ))
+            step_band_expansion = kwargs.pop("band_expansion", None)
+            step_band_reduction = kwargs.pop("band_reduction", None)
+            step_required_bands = kwargs.pop("required_bands", None)
+            self._steps.append(
+                DeferredStep(
+                    processor_cls=obj,
+                    kwargs=kwargs,
+                    name=step_name,
+                    retry=retry,
+                    timeout_seconds=timeout_seconds,
+                    id=id,
+                    depends_on=depends_on,
+                    condition=condition,
+                    phase=step_phase,
+                    required_bands=step_required_bands,
+                    band_expansion=step_band_expansion,
+                    band_reduction=step_band_reduction,
+                )
+            )
             return self
 
         # Non-class steps must not receive **kwargs
@@ -593,16 +598,15 @@ class Workflow:
             )
 
         # ImageProcessor instance → store instance for polymorphic dispatch
-        if ImageProcessor is not None and isinstance(obj, ImageProcessor):
+        if (
+            ImageProcessor is not None
+            and isinstance(obj, ImageProcessor)
+            or ImageTransform is not None
+            and isinstance(obj, ImageTransform)
+        ):
             fn = obj
             step_name = name or type(obj).__name__
-            gpu_ok = getattr(obj, '__gpu_compatible__', False)
-
-        # ImageTransform instance (fallback if ImageProcessor not available)
-        elif ImageTransform is not None and isinstance(obj, ImageTransform):
-            fn = obj
-            step_name = name or type(obj).__name__
-            gpu_ok = getattr(obj, '__gpu_compatible__', False)
+            gpu_ok = getattr(obj, "__gpu_compatible__", False)
 
         # Callable (bound method, function, lambda, etc.)
         elif callable(obj):
@@ -616,19 +620,26 @@ class Workflow:
                 f"processor class, got {type(obj).__name__}"
             )
 
-        self._steps.append(WorkflowStep(
-            fn=fn, name=step_name, gpu_compatible=gpu_ok,
-            retry=retry, timeout_seconds=timeout_seconds,
-            id=id, depends_on=depends_on, condition=condition,
-            phase=step_phase,
-        ))
+        self._steps.append(
+            WorkflowStep(
+                fn=fn,
+                name=step_name,
+                gpu_compatible=gpu_ok,
+                retry=retry,
+                timeout_seconds=timeout_seconds,
+                id=id,
+                depends_on=depends_on,
+                condition=condition,
+                phase=step_phase,
+            )
+        )
         return self
 
     def tap_out(
         self,
-        path: Union[str, Path],
-        format: Optional[str] = None,
-    ) -> 'Workflow':
+        path: str | Path,
+        format: str | OutputFormat | None = None,
+    ) -> "Workflow":
         """Insert a tap-out point that writes current data to disk.
 
         The data is written to the specified path and then passed through
@@ -639,20 +650,24 @@ class Workflow:
         ----------
         path : str or Path
             Output file path.
-        format : str, optional
-            Writer format override.  If ``None``, auto-detected from
-            the file extension.
+        format : str or OutputFormat, optional
+            Writer format override.  Accepts ``OutputFormat`` enum values
+            or raw strings (e.g., ``"geotiff"``, ``"numpy"``).
+            If ``None``, auto-detected from the file extension.
 
         Returns
         -------
         Workflow
             Self, for fluent chaining.
         """
-        self._steps.append(TapOutStep(
-            path=str(path),
-            format=format,
-            name=f"tap_out({Path(path).name})",
-        ))
+        fmt = format.value if isinstance(format, OutputFormat) else format
+        self._steps.append(
+            TapOutStep(
+                path=str(path),
+                format=fmt,
+                name=f"tap_out({Path(path).name})",
+            )
+        )
         return self
 
     # ------------------------------------------------------------------
@@ -674,7 +689,7 @@ class Workflow:
         """
         return BranchBuilder(name)
 
-    def branches(self, *branch_builders: BranchBuilder) -> 'Workflow':
+    def branches(self, *branch_builders: BranchBuilder) -> "Workflow":
         """Add parallel branches that fan out from the last step.
 
         All branches depend on the last step added before this call.
@@ -723,16 +738,16 @@ class Workflow:
 
     def merge(
         self,
-        callable_or_class: Union[Callable, Any],
+        callable_or_class: Callable | Any,
         *,
-        name: Optional[str] = None,
-        id: Optional[str] = None,
-        condition: Optional[str] = None,
-        phase: Optional[str] = None,
-        retry: Optional[RetryPolicy] = None,
-        timeout_seconds: Optional[float] = None,
+        name: str | None = None,
+        id: str | None = None,
+        condition: str | None = None,
+        phase: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout_seconds: float | None = None,
         **kwargs: Any,
-    ) -> 'Workflow':
+    ) -> "Workflow":
         """Add a merge step that consumes all preceding branch outputs.
 
         The merge step depends on the terminal step of every branch
@@ -782,44 +797,44 @@ class Workflow:
     # Phase-Scoped Builders
     # ------------------------------------------------------------------
 
-    def io_phase(self) -> 'Workflow':
+    def io_phase(self) -> "Workflow":
         """Set the current phase to IO for subsequent steps."""
-        self._current_phase = "io"
+        self._current_phase = ExecutionPhase.IO.value
         return self
 
-    def processing_phase(self) -> 'Workflow':
+    def processing_phase(self) -> "Workflow":
         """Set the current phase to GLOBAL_PROCESSING."""
-        self._current_phase = "global_processing"
+        self._current_phase = ExecutionPhase.GLOBAL_PROCESSING.value
         return self
 
-    def data_prep_phase(self) -> 'Workflow':
+    def data_prep_phase(self) -> "Workflow":
         """Set the current phase to DATA_PREP."""
-        self._current_phase = "data_prep"
+        self._current_phase = ExecutionPhase.DATA_PREP.value
         return self
 
-    def tiling_phase(self) -> 'Workflow':
+    def tiling_phase(self) -> "Workflow":
         """Set the current phase to TILING."""
-        self._current_phase = "tiling"
+        self._current_phase = ExecutionPhase.TILING.value
         return self
 
-    def tile_processing_phase(self) -> 'Workflow':
+    def tile_processing_phase(self) -> "Workflow":
         """Set the current phase to TILE_PROCESSING."""
-        self._current_phase = "tile_processing"
+        self._current_phase = ExecutionPhase.TILE_PROCESSING.value
         return self
 
-    def extraction_phase(self) -> 'Workflow':
+    def extraction_phase(self) -> "Workflow":
         """Set the current phase to EXTRACTION."""
-        self._current_phase = "extraction"
+        self._current_phase = ExecutionPhase.EXTRACTION.value
         return self
 
-    def vector_phase(self) -> 'Workflow':
+    def vector_phase(self) -> "Workflow":
         """Set the current phase to VECTOR_PROCESSING."""
-        self._current_phase = "vector_processing"
+        self._current_phase = ExecutionPhase.VECTOR_PROCESSING.value
         return self
 
-    def finalization_phase(self) -> 'Workflow':
+    def finalization_phase(self) -> "Workflow":
         """Set the current phase to FINALIZATION."""
-        self._current_phase = "finalization"
+        self._current_phase = ExecutionPhase.FINALIZATION.value
         return self
 
     # ------------------------------------------------------------------
@@ -828,14 +843,14 @@ class Workflow:
 
     def execute(
         self,
-        source: Optional[Union[np.ndarray, str, Path]] = None,
+        source: np.ndarray | str | Path | None = None,
         *,
         prefer_gpu: bool = False,
-        progress_callback: Optional[Callable[[float], None]] = None,
-        metadata: Optional[Any] = None,
+        progress_callback: Callable[[float], None] | None = None,
+        metadata: Any | None = None,
         auto_tap_out: bool = False,
-        tap_out_format: str = 'npy',
-        tap_out_dir: Optional[Union[str, Path]] = None,
+        tap_out_format: str = "npy",
+        tap_out_dir: str | Path | None = None,
     ) -> WorkflowResult:
         """Execute the workflow pipeline.
 
@@ -889,7 +904,7 @@ class Workflow:
         RuntimeError
             If any step fails.
         """
-        source_path: Optional[Path] = None
+        source_path: Path | None = None
 
         # File mode → framework orchestration
         if isinstance(source, (str, Path)):
@@ -909,7 +924,8 @@ class Workflow:
             steps = self._resolve_steps(metadata)
             if auto_tap_out:
                 return self._run_pipeline_with_auto_tap_out(
-                    source, steps,
+                    source,
+                    steps,
                     prefer_gpu=prefer_gpu,
                     progress_callback=progress_callback,
                     source_path=None,
@@ -917,7 +933,8 @@ class Workflow:
                     tap_out_dir=Path(tap_out_dir) if tap_out_dir else None,
                 )
             return self._run_pipeline(
-                source, steps,
+                source,
+                steps,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
                 metadata=metadata,
@@ -930,7 +947,8 @@ class Workflow:
                 steps = self._resolve_steps(metadata)
                 if auto_tap_out:
                     return self._run_pipeline_with_auto_tap_out(
-                        array, steps,
+                        array,
+                        steps,
                         prefer_gpu=prefer_gpu,
                         progress_callback=progress_callback,
                         source_path=None,
@@ -938,7 +956,8 @@ class Workflow:
                         tap_out_dir=Path(tap_out_dir) if tap_out_dir else None,
                     )
                 return self._run_pipeline(
-                    array, steps,
+                    array,
+                    steps,
                     prefer_gpu=prefer_gpu,
                     progress_callback=progress_callback,
                     metadata=metadata,
@@ -949,17 +968,16 @@ class Workflow:
             )
 
         raise TypeError(
-            f"execute() expects a filepath, np.ndarray, or None, "
-            f"got {type(source).__name__}"
+            f"execute() expects a filepath, np.ndarray, or None, " f"got {type(source).__name__}"
         )
 
     def execute_batch(
         self,
-        sources: List[np.ndarray],
+        sources: list[np.ndarray],
         *,
         prefer_gpu: bool = False,
-        progress_callback: Optional[Callable[[float], None]] = None,
-    ) -> List[WorkflowResult]:
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> list[WorkflowResult]:
         """Execute the workflow on multiple inputs.
 
         Runs the full pipeline on each source array in order.
@@ -982,9 +1000,10 @@ class Workflow:
         n_sources = len(sources)
         n_steps = len(self._steps) or 1
         total_units = n_sources * n_steps
-        results: List[WorkflowResult] = []
+        results: list[WorkflowResult] = []
 
         for src_idx, src in enumerate(sources):
+
             def _batch_progress(
                 step_frac: float,
                 _si: int = src_idx,
@@ -1012,11 +1031,11 @@ class Workflow:
         filepath: Path,
         *,
         prefer_gpu: bool,
-        progress_callback: Optional[Callable[[float], None]],
-        metadata_override: Optional[Any],
+        progress_callback: Callable[[float], None] | None,
+        metadata_override: Any | None,
         auto_tap_out: bool = False,
-        tap_out_format: str = 'npy',
-        tap_out_dir: Optional[Path] = None,
+        tap_out_format: str = "npy",
+        tap_out_dir: Path | None = None,
     ) -> WorkflowResult:
         """Open reader, read chip, resolve steps, and run pipeline."""
         if self._reader_cls is None:
@@ -1037,7 +1056,8 @@ class Workflow:
             # Run the pipeline
             if auto_tap_out:
                 return self._run_pipeline_with_auto_tap_out(
-                    chip, resolved,
+                    chip,
+                    resolved,
                     prefer_gpu=prefer_gpu,
                     progress_callback=progress_callback,
                     source_path=filepath,
@@ -1045,7 +1065,8 @@ class Workflow:
                     tap_out_dir=tap_out_dir,
                 )
             return self._run_pipeline(
-                chip, resolved,
+                chip,
+                resolved,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
                 metadata=meta,
@@ -1066,35 +1087,38 @@ class Workflow:
         """
         rows, cols = reader.get_shape()
 
-        if self._chip_strategy is None or self._chip_strategy == 'full':
+        if self._chip_strategy is None or self._chip_strategy == "full":
             return reader.read_full()
 
-        if self._chip_strategy == 'center':
+        if self._chip_strategy == "center":
             if ChipExtractor is None:
                 raise ImportError(
                     "grdl.data_prep.ChipExtractor is required for chip "
                     "strategies but grdl is not installed."
                 )
-            size = self._chip_kwargs.get('size', 5000)
+            size = self._chip_kwargs.get("size", 5000)
             extractor = ChipExtractor(nrows=rows, ncols=cols)
             region = extractor.chip_at_point(
-                rows // 2, cols // 2,
-                row_width=size, col_width=size,
+                rows // 2,
+                cols // 2,
+                row_width=size,
+                col_width=size,
             )
             return reader.read_chip(
-                region.row_start, region.row_end,
-                region.col_start, region.col_end,
+                region.row_start,
+                region.row_end,
+                region.col_start,
+                region.col_end,
             )
 
         raise ValueError(
-            f"Unknown chip strategy '{self._chip_strategy}'.  "
-            f"Supported: 'center', 'full'."
+            f"Unknown chip strategy '{self._chip_strategy}'.  " f"Supported: 'center', 'full'."
         )
 
     def _resolve_steps(
         self,
-        metadata: Optional[Any],
-    ) -> List[Union[WorkflowStep, TapOutStep]]:
+        metadata: Any | None,
+    ) -> list[WorkflowStep | TapOutStep]:
         """Resolve deferred steps into callable WorkflowSteps.
 
         ``TapOutStep`` instances pass through unchanged.
@@ -1109,7 +1133,7 @@ class Workflow:
         List[Union[WorkflowStep, TapOutStep]]
             Fully resolved step list.
         """
-        resolved: List[Union[WorkflowStep, TapOutStep]] = []
+        resolved: list[WorkflowStep | TapOutStep] = []
         for step in self._steps:
             if isinstance(step, TapOutStep):
                 resolved.append(step)
@@ -1122,7 +1146,7 @@ class Workflow:
     def _resolve_deferred(
         self,
         ds: DeferredStep,
-        metadata: Optional[Any],
+        metadata: Any | None,
     ) -> WorkflowStep:
         """Construct a processor from a DeferredStep.
 
@@ -1146,8 +1170,8 @@ class Workflow:
         # with apply()/detect()/decompose().
         if (
             (ImageProcessor is not None and isinstance(instance, ImageProcessor))
-            or hasattr(instance, 'execute')
-            or hasattr(instance, 'apply')
+            or hasattr(instance, "execute")
+            or hasattr(instance, "apply")
             or callable(instance)
         ):
             fn = instance
@@ -1157,15 +1181,18 @@ class Workflow:
                 f"that has no execute(), apply(), or __call__ method."
             )
 
-        gpu_ok = getattr(instance, '__gpu_compatible__', False)
+        gpu_ok = getattr(instance, "__gpu_compatible__", False)
 
         # Resolve required_bands: explicit step override > @processor_tags
-        tags = getattr(ds.processor_cls, '__processor_tags__', {})
-        required_bands = ds.required_bands or tags.get('required_bands')
+        tags = getattr(ds.processor_cls, "__processor_tags__", {})
+        required_bands = ds.required_bands or tags.get("required_bands")
 
         return WorkflowStep(
-            fn=fn, name=ds.name, gpu_compatible=gpu_ok,
-            retry=ds.retry, timeout_seconds=ds.timeout_seconds,
+            fn=fn,
+            name=ds.name,
+            gpu_compatible=gpu_ok,
+            retry=ds.retry,
+            timeout_seconds=ds.timeout_seconds,
             required_bands=required_bands,
             band_expansion=ds.band_expansion,
             band_reduction=ds.band_reduction,
@@ -1174,11 +1201,11 @@ class Workflow:
     def _run_pipeline(
         self,
         source: np.ndarray,
-        steps: List[Union[WorkflowStep, TapOutStep]],
+        steps: list[WorkflowStep | TapOutStep],
         *,
         prefer_gpu: bool,
-        progress_callback: Optional[Callable[[float], None]],
-        metadata: Optional[Any] = None,
+        progress_callback: Callable[[float], None] | None,
+        metadata: Any | None = None,
     ) -> WorkflowResult:
         """Execute resolved steps sequentially on source data.
 
@@ -1207,16 +1234,16 @@ class Workflow:
         if not tracemalloc_was_running:
             tracemalloc.start()
 
-        started_at = datetime.now(timezone.utc).isoformat()
+        started_at = datetime.now(UTC).isoformat()
         pipeline_wall_t0 = time.perf_counter()
         pipeline_cpu_t0 = time.process_time()
-        step_metrics_list: List[StepMetrics] = []
+        step_metrics_list: list[StepMetrics] = []
         overall_peak_rss = 0
 
         if not steps:
             pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
             pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
-            completed_at = datetime.now(timezone.utc).isoformat()
+            completed_at = datetime.now(UTC).isoformat()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -1251,7 +1278,7 @@ class Workflow:
         n_steps = len(steps)
         current = source
         current_meta = metadata
-        metadata_trace: List[Dict[str, Any]] = []
+        metadata_trace: list[dict[str, Any]] = []
 
         for i, ws in enumerate(steps):
             if isinstance(ws, TapOutStep):
@@ -1271,10 +1298,7 @@ class Workflow:
                 )
 
                 # Band adaptation (only for ndarray inputs)
-                if (
-                    ws.required_bands is not None
-                    and isinstance(current, np.ndarray)
-                ):
+                if ws.required_bands is not None and isinstance(current, np.ndarray):
                     exp = (
                         BandExpansion(ws.band_expansion)
                         if ws.band_expansion
@@ -1286,8 +1310,10 @@ class Workflow:
                         else self._band_reduction
                     )
                     current = adapt_bands(
-                        current, ws.required_bands,
-                        expansion=exp, reduction=red,
+                        current,
+                        ws.required_bands,
+                        expansion=exp,
+                        reduction=red,
                     )
 
                 # Capture step-level metrics
@@ -1295,48 +1321,52 @@ class Workflow:
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
-                current, current_meta, gpu_used = (
-                    self._execute_step_gpu_aware(
-                        ws, current, gpu, i, n_steps,
-                        metadata=current_meta,
-                    )
+                current, current_meta, gpu_used = self._execute_step_gpu_aware(
+                    ws,
+                    current,
+                    gpu,
+                    i,
+                    n_steps,
+                    metadata=current_meta,
                 )
 
                 # Record metadata snapshot for trace
                 if current_meta is not None:
-                    metadata_trace.append({
-                        'step_index': i,
-                        'step_name': ws.name,
-                        'metadata': current_meta,
-                    })
+                    metadata_trace.append(
+                        {
+                            "step_index": i,
+                            "step_name": ws.name,
+                            "metadata": current_meta,
+                        }
+                    )
 
                 step_wall_elapsed = time.perf_counter() - step_wall_t0
                 step_cpu_elapsed = time.process_time() - step_cpu_t0
                 snapshot_after = tracemalloc.take_snapshot()
 
                 # Compute peak memory delta
-                stats = snapshot_after.compare_to(snapshot_before, 'lineno')
-                step_peak_rss = sum(
-                    s.size_diff for s in stats if s.size_diff > 0
-                )
+                stats = snapshot_after.compare_to(snapshot_before, "lineno")
+                step_peak_rss = sum(s.size_diff for s in stats if s.size_diff > 0)
                 if step_peak_rss > overall_peak_rss:
                     overall_peak_rss = step_peak_rss
 
-                step_metrics_list.append(StepMetrics(
-                    step_index=i,
-                    processor_name=ws.name,
-                    wall_time_s=step_wall_elapsed,
-                    cpu_time_s=step_cpu_elapsed,
-                    peak_rss_bytes=step_peak_rss,
-                    gpu_used=gpu_used,
-                ))
+                step_metrics_list.append(
+                    StepMetrics(
+                        step_index=i,
+                        processor_name=ws.name,
+                        wall_time_s=step_wall_elapsed,
+                        cpu_time_s=step_cpu_elapsed,
+                        peak_rss_bytes=step_peak_rss,
+                        gpu_used=gpu_used,
+                    )
+                )
 
             if progress_callback is not None:
                 progress_callback((i + 1) / n_steps)
 
         pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
         pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
-        completed_at = datetime.now(timezone.utc).isoformat()
+        completed_at = datetime.now(UTC).isoformat()
 
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
@@ -1355,20 +1385,21 @@ class Workflow:
             tracemalloc.stop()
 
         return WorkflowResult(
-            result=current, metrics=wf_metrics,
+            result=current,
+            metrics=wf_metrics,
             metadata_trace=metadata_trace,
         )
 
     def _run_pipeline_with_auto_tap_out(
         self,
         source: np.ndarray,
-        steps: List[Union[WorkflowStep, TapOutStep]],
+        steps: list[WorkflowStep | TapOutStep],
         *,
         prefer_gpu: bool,
-        progress_callback: Optional[Callable[[float], None]],
-        source_path: Optional[Path],
-        tap_out_format: str = 'npy',
-        tap_out_dir: Optional[Path] = None,
+        progress_callback: Callable[[float], None] | None,
+        source_path: Path | None,
+        tap_out_format: str = "npy",
+        tap_out_dir: Path | None = None,
     ) -> WorkflowResult:
         """Execute pipeline, writing all intermediates to a timestamped directory.
 
@@ -1412,10 +1443,10 @@ class Workflow:
         if not tracemalloc_was_running:
             tracemalloc.start()
 
-        started_at = datetime.now(timezone.utc).isoformat()
+        started_at = datetime.now(UTC).isoformat()
         pipeline_wall_t0 = time.perf_counter()
         pipeline_cpu_t0 = time.process_time()
-        step_metrics_list: List[StepMetrics] = []
+        step_metrics_list: list[StepMetrics] = []
         overall_peak_rss = 0
 
         # Determine output directory
@@ -1423,16 +1454,16 @@ class Workflow:
             run_dir = tap_out_dir
         else:
             base_dir = source_path.parent if source_path else Path.cwd()
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             run_dir = base_dir / f"grdl_run_{timestamp}"
 
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        ext = tap_out_format.lstrip('.')
+        ext = tap_out_format.lstrip(".")
         gpu = GpuBackend(prefer_gpu=prefer_gpu)
         n_steps = len(steps)
         current = source
-        manifest_entries: List[Dict[str, Any]] = []
+        manifest_entries: list[dict[str, Any]] = []
         step_counter = 0
 
         for i, ws in enumerate(steps):
@@ -1441,15 +1472,17 @@ class Workflow:
                 tap_wall_t0 = time.perf_counter()
                 self._execute_tap_out(ws, current)
                 tap_elapsed = time.perf_counter() - tap_wall_t0
-                manifest_entries.append({
-                    'index': i,
-                    'type': 'tap_out',
-                    'name': ws.name,
-                    'path': ws.path,
-                    'elapsed_s': round(tap_elapsed, 4),
-                    'shape': list(current.shape),
-                    'dtype': str(current.dtype),
-                })
+                manifest_entries.append(
+                    {
+                        "index": i,
+                        "type": "tap_out",
+                        "name": ws.name,
+                        "path": ws.path,
+                        "elapsed_s": round(tap_elapsed, 4),
+                        "shape": list(current.shape),
+                        "dtype": str(current.dtype),
+                    }
+                )
             else:
                 logger.debug(
                     "step_start",
@@ -1471,8 +1504,10 @@ class Workflow:
                         else self._band_reduction
                     )
                     current = adapt_bands(
-                        current, ws.required_bands,
-                        expansion=exp, reduction=red,
+                        current,
+                        ws.required_bands,
+                        expansion=exp,
+                        reduction=red,
                     )
 
                 # Capture step-level metrics
@@ -1481,7 +1516,11 @@ class Workflow:
                 step_cpu_t0 = time.process_time()
 
                 current, _meta, gpu_used = self._execute_step_gpu_aware(
-                    ws, current, gpu, i, n_steps,
+                    ws,
+                    current,
+                    gpu,
+                    i,
+                    n_steps,
                 )
 
                 step_wall_elapsed = time.perf_counter() - step_wall_t0
@@ -1489,21 +1528,21 @@ class Workflow:
                 snapshot_after = tracemalloc.take_snapshot()
 
                 # Compute peak memory delta
-                stats = snapshot_after.compare_to(snapshot_before, 'lineno')
-                step_peak_rss = sum(
-                    s.size_diff for s in stats if s.size_diff > 0
-                )
+                stats = snapshot_after.compare_to(snapshot_before, "lineno")
+                step_peak_rss = sum(s.size_diff for s in stats if s.size_diff > 0)
                 if step_peak_rss > overall_peak_rss:
                     overall_peak_rss = step_peak_rss
 
-                step_metrics_list.append(StepMetrics(
-                    step_index=i,
-                    processor_name=ws.name,
-                    wall_time_s=step_wall_elapsed,
-                    cpu_time_s=step_cpu_elapsed,
-                    peak_rss_bytes=step_peak_rss,
-                    gpu_used=gpu_used,
-                ))
+                step_metrics_list.append(
+                    StepMetrics(
+                        step_index=i,
+                        processor_name=ws.name,
+                        wall_time_s=step_wall_elapsed,
+                        cpu_time_s=step_cpu_elapsed,
+                        peak_rss_bytes=step_peak_rss,
+                        gpu_used=gpu_used,
+                    )
+                )
 
                 step_counter += 1
 
@@ -1513,21 +1552,26 @@ class Workflow:
                 out_path = run_dir / filename
                 try:
                     from grdl.IO import write as io_write
+
                     io_write(current, out_path)
                 except Exception as e:
                     logger.warning(
-                        "Auto tap-out write failed for '%s': %s", out_path, e,
+                        "Auto tap-out write failed for '%s': %s",
+                        out_path,
+                        e,
                     )
 
-                manifest_entries.append({
-                    'index': i,
-                    'type': 'processing',
-                    'name': ws.name,
-                    'file': filename,
-                    'elapsed_s': round(step_wall_elapsed, 4),
-                    'shape': list(current.shape),
-                    'dtype': str(current.dtype),
-                })
+                manifest_entries.append(
+                    {
+                        "index": i,
+                        "type": "processing",
+                        "name": ws.name,
+                        "file": filename,
+                        "elapsed_s": round(step_wall_elapsed, 4),
+                        "shape": list(current.shape),
+                        "dtype": str(current.dtype),
+                    }
+                )
 
             if progress_callback is not None:
                 progress_callback((i + 1) / n_steps)
@@ -1536,6 +1580,7 @@ class Workflow:
         final_filename = f"final_output.{ext}"
         try:
             from grdl.IO import write as io_write
+
             io_write(current, run_dir / final_filename)
         except Exception as e:
             logger.warning("Auto tap-out final output write failed: %s", e)
@@ -1543,20 +1588,20 @@ class Workflow:
         # Write workflow_params.yaml
         try:
             import yaml
+
             params = {
-                'name': self._name,
-                'version': self._version,
-                'description': self._description,
-                'steps': [
-                    ws.name if not isinstance(ws, TapOutStep)
-                    else f"tap_out({ws.path})"
+                "name": self._name,
+                "version": self._version,
+                "description": self._description,
+                "steps": [
+                    ws.name if not isinstance(ws, TapOutStep) else f"tap_out({ws.path})"
                     for ws in steps
                 ],
             }
             yaml_path = run_dir / "workflow_params.yaml"
             yaml_path.write_text(
                 yaml.dump(params, default_flow_style=False, sort_keys=False),
-                encoding='utf-8',
+                encoding="utf-8",
             )
         except Exception as e:
             logger.warning("Auto tap-out workflow_params.yaml write failed: %s", e)
@@ -1564,16 +1609,16 @@ class Workflow:
         # Write manifest.json
         try:
             manifest = {
-                'workflow_name': self._name,
-                'source_path': str(source_path) if source_path else None,
-                'tap_out_format': tap_out_format,
-                'final_output': final_filename,
-                'steps': manifest_entries,
+                "workflow_name": self._name,
+                "source_path": str(source_path) if source_path else None,
+                "tap_out_format": tap_out_format,
+                "final_output": final_filename,
+                "steps": manifest_entries,
             }
             manifest_path = run_dir / "manifest.json"
             manifest_path.write_text(
                 json.dumps(manifest, indent=2),
-                encoding='utf-8',
+                encoding="utf-8",
             )
         except Exception as e:
             logger.warning("Auto tap-out manifest.json write failed: %s", e)
@@ -1582,7 +1627,7 @@ class Workflow:
 
         pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
         pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
-        completed_at = datetime.now(timezone.utc).isoformat()
+        completed_at = datetime.now(UTC).isoformat()
 
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
@@ -1610,11 +1655,13 @@ class Workflow:
         """Write current pipeline data to disk without modifying it."""
         try:
             from grdl.IO import write as io_write
+
             io_write(data, tap.path, format=tap.format)
         except Exception as e:
             logger.warning(
                 "Tap-out to '%s' failed: %s (continuing pipeline)",
-                tap.path, e,
+                tap.path,
+                e,
             )
 
     def _execute_step_gpu_aware(
@@ -1625,8 +1672,8 @@ class Workflow:
         step_index: int,
         n_steps: int,
         *,
-        metadata: Optional[Any] = None,
-    ) -> Tuple[Any, Any, bool]:
+        metadata: Any | None = None,
+    ) -> tuple[Any, Any, bool]:
         """Execute a single step with optional GPU acceleration, retry, and timeout.
 
         Uses ``execute_processor()`` for polymorphic dispatch — works with
@@ -1649,17 +1696,16 @@ class Workflow:
             ``(result, updated_metadata, gpu_used)``
         """
         from grdl_rt.execution.dispatch import (
+            _minimal_metadata,
             execute_processor,
             supports_gpu_transfer,
-            _minimal_metadata,
         )
 
         step_meta = metadata
-        if step_meta is None:
-            if isinstance(source, np.ndarray):
-                step_meta = _minimal_metadata(source)
+        if step_meta is None and isinstance(source, np.ndarray):
+            step_meta = _minimal_metadata(source)
 
-        def _do_raw_step() -> Tuple[Any, Any, bool]:
+        def _do_raw_step() -> tuple[Any, Any, bool]:
             try:
                 if (
                     gpu.cupy_available
@@ -1670,18 +1716,22 @@ class Workflow:
                     try:
                         gpu_source = gpu.to_gpu(source)
                         result, out_meta = execute_processor(
-                            ws.fn, step_meta, gpu_source,
+                            ws.fn,
+                            step_meta,
+                            gpu_source,
                         )
                         return gpu.to_cpu(result), out_meta, True
                     except Exception as gpu_err:
                         logger.warning(
-                            "GPU execution failed for step '%s', "
-                            "falling back to CPU: %s",
-                            ws.name, gpu_err,
+                            "GPU execution failed for step '%s', " "falling back to CPU: %s",
+                            ws.name,
+                            gpu_err,
                         )
 
                 result, out_meta = execute_processor(
-                    ws.fn, step_meta, source,
+                    ws.fn,
+                    step_meta,
+                    source,
                 )
                 return result, out_meta, False
 
@@ -1689,13 +1739,21 @@ class Workflow:
                 if GrdlError is not None and isinstance(e, GrdlError):
                     logger.error(
                         "Workflow '%s' step %d/%d '%s' GRDL error (%s): %s",
-                        self._name, step_index + 1, n_steps, ws.name,
-                        type(e).__name__, e,
+                        self._name,
+                        step_index + 1,
+                        n_steps,
+                        ws.name,
+                        type(e).__name__,
+                        e,
                     )
                 else:
                     logger.error(
                         "Workflow '%s' step %d/%d '%s' failed: %s",
-                        self._name, step_index + 1, n_steps, ws.name, e,
+                        self._name,
+                        step_index + 1,
+                        n_steps,
+                        ws.name,
+                        e,
                     )
                 raise RuntimeError(
                     f"Workflow '{self._name}' step {step_index + 1}/{n_steps} "
@@ -1705,16 +1763,20 @@ class Workflow:
         timeout = ws.timeout_seconds
         retry = ws.retry
 
-        def _step_with_timeout() -> Tuple[Any, Any, bool]:
+        def _step_with_timeout() -> tuple[Any, Any, bool]:
             if timeout is not None:
                 return execute_with_timeout(
-                    _do_raw_step, timeout, ws.name,
+                    _do_raw_step,
+                    timeout,
+                    ws.name,
                 )
             return _do_raw_step()
 
         if retry is not None and retry.max_retries > 0:
             return execute_with_retry(
-                _step_with_timeout, retry, ws.name,
+                _step_with_timeout,
+                retry,
+                ws.name,
             )
 
         return _step_with_timeout()
@@ -1727,8 +1789,8 @@ class Workflow:
 
 def _construct_processor(
     cls: type,
-    kwargs: Dict[str, Any],
-    metadata: Optional[Any],
+    kwargs: dict[str, Any],
+    metadata: Any | None,
 ) -> Any:
     """Instantiate a processor class with convention-based metadata injection.
 
@@ -1752,7 +1814,7 @@ def _construct_processor(
     sig = inspect.signature(cls.__init__)
     params = sig.parameters
 
-    if 'metadata' in params and 'metadata' not in kwargs:
+    if "metadata" in params and "metadata" not in kwargs:
         if metadata is None:
             raise ValueError(
                 f"Processor '{cls.__name__}' requires metadata but none is "
@@ -1770,11 +1832,11 @@ def _infer_step_name(obj: Any) -> str:
         cls_name = type(obj.__self__).__name__
         return f"{cls_name}.{obj.__name__}"
 
-    qualname = getattr(obj, '__qualname__', None)
+    qualname = getattr(obj, "__qualname__", None)
     if qualname:
         return qualname
 
-    name = getattr(obj, '__name__', None)
+    name = getattr(obj, "__name__", None)
     if name:
         return name
 
@@ -1783,9 +1845,9 @@ def _infer_step_name(obj: Any) -> str:
 
 def _infer_gpu_compatible(obj: Any) -> bool:
     """Check whether a callable's owning instance is GPU-compatible."""
-    owner = getattr(obj, '__self__', None)
+    owner = getattr(obj, "__self__", None)
     if owner is not None:
-        return bool(getattr(owner, '__gpu_compatible__', False))
+        return bool(getattr(owner, "__gpu_compatible__", False))
 
     return False
 
@@ -1797,6 +1859,7 @@ def _sanitize_filename(name: str) -> str:
     and strips non-alphanumeric characters.
     """
     import re
-    safe = re.sub(r'[^\w\-]', '_', name)
-    safe = re.sub(r'_+', '_', safe).strip('_')
-    return safe or 'step'
+
+    safe = re.sub(r"[^\w\-]", "_", name)
+    safe = re.sub(r"_+", "_", safe).strip("_")
+    return safe or "step"

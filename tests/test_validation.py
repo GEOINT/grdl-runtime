@@ -22,10 +22,10 @@ from grdl_rt.execution.workflow import (
     WorkflowDefinition,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _SimpleProcessor:
     """Processor with no required params."""
@@ -51,6 +51,7 @@ class _RequiredParamProcessor:
 # Empty workflow
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyWorkflow:
     def test_empty_workflow_error(self):
         wf = WorkflowDefinition(name="Empty")
@@ -71,8 +72,9 @@ class TestEmptyWorkflow:
 # Processor resolution
 # ---------------------------------------------------------------------------
 
+
 class TestProcessorResolution:
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_unresolvable_processor(self, mock_resolve):
         mock_resolve.side_effect = ImportError("Cannot resolve 'NoSuch'")
 
@@ -85,7 +87,7 @@ class TestProcessorResolution:
         assert errors[0].step_index == 0
         assert errors[0].processor_name == "NoSuch"
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_resolvable_processor_no_error(self, mock_resolve):
         mock_resolve.return_value = _SimpleProcessor
 
@@ -95,7 +97,7 @@ class TestProcessorResolution:
 
         assert len(errors) == 0
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_fqn_processor_resolves(self, mock_resolve):
         mock_resolve.return_value = _SimpleProcessor
 
@@ -110,8 +112,9 @@ class TestProcessorResolution:
 # Required parameters
 # ---------------------------------------------------------------------------
 
+
 class TestRequiredParams:
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_missing_required_param(self, mock_resolve):
         mock_resolve.return_value = _RequiredParamProcessor
 
@@ -123,28 +126,36 @@ class TestRequiredParams:
         assert errors[0].code == "MISSING_REQUIRED_PARAM"
         assert "window_size" in errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_required_param_satisfied(self, mock_resolve):
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredParam", "1.0", params={"window_size": 5},
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredParam",
+                "1.0",
+                params={"window_size": 5},
+            )
+        )
         errors = validate_workflow(wf)
 
         assert len(errors) == 0
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_metadata_param_excluded(self, mock_resolve):
         """'metadata' parameter should not be treated as required."""
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
         # Only provide window_size, not metadata — should be fine
-        wf.add_step(ProcessingStep(
-            "RequiredParam", "1.0", params={"window_size": 3},
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredParam",
+                "1.0",
+                params={"window_size": 3},
+            )
+        )
         errors = validate_workflow(wf)
 
         assert len(errors) == 0
@@ -154,8 +165,9 @@ class TestRequiredParams:
 # TapOutStepDef skipped
 # ---------------------------------------------------------------------------
 
+
 class TestTapOutSkipped:
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_tap_out_not_validated(self, mock_resolve):
         mock_resolve.return_value = _SimpleProcessor
 
@@ -171,8 +183,9 @@ class TestTapOutSkipped:
 # WorkflowDefinition.validate()
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowDefinitionValidate:
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_validate_method_delegates(self, mock_resolve):
         mock_resolve.return_value = _SimpleProcessor
 

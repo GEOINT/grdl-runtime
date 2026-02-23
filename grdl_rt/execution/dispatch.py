@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Polymorphic Processor Dispatch — Central dispatch for ``execute()`` protocol.
 
@@ -26,7 +25,7 @@ Created
 
 from __future__ import annotations
 
-from typing import Any, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -51,10 +50,10 @@ except ImportError:
 
 def execute_processor(
     processor: Any,
-    metadata: 'ImageMetadata',
+    metadata: ImageMetadata,
     source: Any,
     **kwargs: Any,
-) -> Tuple[Any, 'ImageMetadata']:
+) -> tuple[Any, ImageMetadata]:
     """Call processor.execute() with fallback for legacy processors.
 
     Dispatch order:
@@ -95,14 +94,14 @@ def execute_processor(
 
     # Path 2: Non-GRDL object with explicit execute() defined on its class.
     if (
-        hasattr(processor, 'execute')
+        hasattr(processor, "execute")
         and callable(processor.execute)
-        and 'execute' in type(processor).__dict__
+        and "execute" in type(processor).__dict__
     ):
         return processor.execute(metadata, source, **kwargs)
 
     # Path 3: Legacy .apply() fallback
-    if hasattr(processor, 'apply') and callable(processor.apply):
+    if hasattr(processor, "apply") and callable(processor.apply):
         logger.debug(
             "dispatch_legacy_apply",
             processor=type(processor).__name__,
@@ -114,7 +113,7 @@ def execute_processor(
     if callable(processor):
         logger.debug(
             "dispatch_raw_callable",
-            processor=getattr(processor, '__name__', repr(processor)),
+            processor=getattr(processor, "__name__", repr(processor)),
         )
         result = processor(source, **kwargs)
         return result, metadata
@@ -142,11 +141,11 @@ def supports_gpu_transfer(processor: Any) -> bool:
     bool
     """
     if ImageTransform is not None and isinstance(processor, ImageTransform):
-        return bool(getattr(processor, '__gpu_compatible__', False))
+        return bool(getattr(processor, "__gpu_compatible__", False))
     return False
 
 
-def _minimal_metadata(source: np.ndarray) -> 'ImageMetadata':
+def _minimal_metadata(source: np.ndarray) -> ImageMetadata:
     """Synthesize minimal ``ImageMetadata`` from an ndarray.
 
     Used as a backward-compatibility shim when callers don't provide
@@ -169,7 +168,7 @@ def _minimal_metadata(source: np.ndarray) -> 'ImageMetadata':
     bands = source.shape[2] if source.ndim == 3 else 1
 
     return ImageMetadata(
-        format='synthetic',
+        format="synthetic",
         rows=rows,
         cols=cols,
         dtype=str(source.dtype),

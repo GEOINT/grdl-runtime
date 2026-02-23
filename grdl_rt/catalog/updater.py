@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Artifact Update Worker - Check PyPI/conda for updates to known artifacts.
 
@@ -35,11 +34,10 @@ Modified
 
 # Standard library
 import json
-from typing import List, Optional
 
 # Third-party
 import requests
-from packaging.version import Version, InvalidVersion
+from packaging.version import InvalidVersion, Version
 
 # grdl-runtime internal
 from grdl_rt.execution.context import get_logger
@@ -48,8 +46,7 @@ logger = get_logger(__name__)
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
-from grdl_rt.catalog.models import Artifact, UpdateResult
-
+from grdl_rt.catalog.models import UpdateResult
 
 _PYPI_URL = "https://pypi.org/pypi/{package}/json"
 _CONDA_URL = "https://conda.anaconda.org/{channel}/{platform}/repodata.json"
@@ -74,7 +71,7 @@ class ArtifactUpdateWorker:
         self._catalog = catalog
         self._timeout = timeout
 
-    def check_pypi(self, package_name: str) -> Optional[str]:
+    def check_pypi(self, package_name: str) -> str | None:
         """Query PyPI JSON API for the latest version of a package.
 
         Parameters
@@ -92,7 +89,7 @@ class ArtifactUpdateWorker:
             resp = requests.get(url, timeout=self._timeout)
             resp.raise_for_status()
             data = resp.json()
-            return data['info']['version']
+            return data["info"]["version"]
         except (requests.RequestException, KeyError, json.JSONDecodeError) as e:
             logger.warning("PyPI check failed", package=package_name, error=str(e))
             return None
@@ -101,7 +98,7 @@ class ArtifactUpdateWorker:
         self,
         package_name: str,
         channel: str = "conda-forge",
-    ) -> Optional[str]:
+    ) -> str | None:
         """Query conda repodata for the latest version of a package.
 
         Parameters
@@ -117,20 +114,20 @@ class ArtifactUpdateWorker:
             Latest version string, or None if the query fails.
         """
         # Query the noarch repodata first, then platform-specific
-        for platform in ('noarch', 'win-64', 'linux-64'):
+        for platform in ("noarch", "win-64", "linux-64"):
             url = _CONDA_URL.format(channel=channel, platform=platform)
             try:
                 resp = requests.get(url, timeout=self._timeout)
                 resp.raise_for_status()
                 data = resp.json()
-                packages = data.get('packages', {})
-                packages.update(data.get('packages.conda', {}))
+                packages = data.get("packages", {})
+                packages.update(data.get("packages.conda", {}))
 
-                latest: Optional[Version] = None
+                latest: Version | None = None
                 for pkg_info in packages.values():
-                    if pkg_info.get('name') == package_name:
+                    if pkg_info.get("name") == package_name:
                         try:
-                            v = Version(pkg_info['version'])
+                            v = Version(pkg_info["version"])
                             if latest is None or v > latest:
                                 latest = v
                         except InvalidVersion:
@@ -168,7 +165,7 @@ class ArtifactUpdateWorker:
         except InvalidVersion:
             return False
 
-    def run(self) -> List[UpdateResult]:
+    def run(self) -> list[UpdateResult]:
         """Check all known artifacts for updates.
 
         Queries PyPI and/or conda for each artifact that has a package
@@ -179,7 +176,7 @@ class ArtifactUpdateWorker:
         List[UpdateResult]
             Results for each artifact checked.
         """
-        results: List[UpdateResult] = []
+        results: list[UpdateResult] = []
         artifacts = self._catalog.list_artifacts()
 
         for artifact in artifacts:
@@ -187,43 +184,37 @@ class ArtifactUpdateWorker:
                 latest = self.check_pypi(artifact.pypi_package)
                 update_available = False
                 if latest:
-                    update_available = self._is_newer(
-                        artifact.version, latest
-                    )
+                    update_available = self._is_newer(artifact.version, latest)
                     if artifact.id is not None:
-                        self._catalog.update_remote_version(
-                            artifact.id, 'pypi', latest
-                        )
-                results.append(UpdateResult(
-                    artifact=artifact,
-                    source='pypi',
-                    current_version=artifact.version,
-                    latest_version=latest,
-                    update_available=update_available,
-                    error=None if latest else 'PyPI query failed',
-                ))
+                        self._catalog.update_remote_version(artifact.id, "pypi", latest)
+                results.append(
+                    UpdateResult(
+                        artifact=artifact,
+                        source="pypi",
+                        current_version=artifact.version,
+                        latest_version=latest,
+                        update_available=update_available,
+                        error=None if latest else "PyPI query failed",
+                    )
+                )
 
             if artifact.conda_package:
-                channel = artifact.conda_channel or 'conda-forge'
-                latest = self.check_conda(
-                    artifact.conda_package, channel
-                )
+                channel = artifact.conda_channel or "conda-forge"
+                latest = self.check_conda(artifact.conda_package, channel)
                 update_available = False
                 if latest:
-                    update_available = self._is_newer(
-                        artifact.version, latest
-                    )
+                    update_available = self._is_newer(artifact.version, latest)
                     if artifact.id is not None:
-                        self._catalog.update_remote_version(
-                            artifact.id, 'conda', latest
-                        )
-                results.append(UpdateResult(
-                    artifact=artifact,
-                    source='conda',
-                    current_version=artifact.version,
-                    latest_version=latest,
-                    update_available=update_available,
-                    error=None if latest else 'Conda query failed',
-                ))
+                        self._catalog.update_remote_version(artifact.id, "conda", latest)
+                results.append(
+                    UpdateResult(
+                        artifact=artifact,
+                        source="conda",
+                        current_version=artifact.version,
+                        latest_version=latest,
+                        update_available=update_available,
+                        error=None if latest else "Conda query failed",
+                    )
+                )
 
         return results

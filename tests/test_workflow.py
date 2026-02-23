@@ -35,27 +35,29 @@ class TestProcessingStep:
 
     def test_with_params(self):
         step = ProcessingStep(
-            "AdaptiveThreshold", "1.0.0",
-            params={'threshold': 0.65, 'kernel_size': 7},
+            "AdaptiveThreshold",
+            "1.0.0",
+            params={"threshold": 0.65, "kernel_size": 7},
         )
-        assert step.params['threshold'] == 0.65
-        assert step.params['kernel_size'] == 7
+        assert step.params["threshold"] == 0.65
+        assert step.params["kernel_size"] == 7
 
     def test_roundtrip(self):
         step = ProcessingStep(
-            "MyFilter", "2.0.0",
-            params={'alpha': 0.5, 'mode': 'reflect'},
+            "MyFilter",
+            "2.0.0",
+            params={"alpha": 0.5, "mode": "reflect"},
         )
         d = step.to_dict()
         restored = ProcessingStep.from_dict(d)
         assert restored.processor_name == "MyFilter"
         assert restored.processor_version == "2.0.0"
-        assert restored.params == {'alpha': 0.5, 'mode': 'reflect'}
+        assert restored.params == {"alpha": 0.5, "mode": "reflect"}
 
     def test_to_dict_no_params(self):
         step = ProcessingStep("Orthorectifier", "0.1.0")
         d = step.to_dict()
-        assert 'params' not in d
+        assert "params" not in d
 
 
 class TestWorkflowDefinition:
@@ -104,7 +106,7 @@ class TestWorkflowDefinition:
             description="A test pipeline",
             steps=[
                 ProcessingStep("PauliDecomposition", "0.1.0"),
-                ProcessingStep("Threshold", "1.0.0", params={'t': 0.5}),
+                ProcessingStep("Threshold", "1.0.0", params={"t": 0.5}),
             ],
             tags=tags,
             state=WorkflowState.TESTING,
@@ -115,7 +117,7 @@ class TestWorkflowDefinition:
         assert restored.version == "1.0.0"
         assert restored.state == WorkflowState.TESTING
         assert len(restored.steps) == 2
-        assert restored.steps[1].params == {'t': 0.5}
+        assert restored.steps[1].params == {"t": 0.5}
         assert restored.tags.modalities == [ImageModality.SAR]
 
 

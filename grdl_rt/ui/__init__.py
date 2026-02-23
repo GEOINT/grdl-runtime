@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 grdl-rt UI — Lightweight workflow runner GUI for component developers.
 
@@ -46,15 +45,14 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Optional
 
 __all__ = ["launch", "main"]
 
 
 def launch(
     *,
-    workflow: Optional[str] = None,
-    input_path: Optional[str] = None,
+    workflow: str | None = None,
+    input_path: str | None = None,
 ) -> None:
     """Launch the grdl-rt runner GUI.
 
@@ -94,13 +92,15 @@ def main(argv=None) -> int:
         description="grdl-rt Runner — lightweight workflow execution GUI",
     )
     parser.add_argument(
-        "--workflow", "-w",
+        "--workflow",
+        "-w",
         type=str,
         default=None,
         help="Path to a workflow YAML or component .py file to pre-load.",
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         type=str,
         default=None,
         help="Path to an input image file to pre-load.",

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Federated Catalog - Composite catalog that broadcasts queries to multiple backends.
 
@@ -27,7 +26,8 @@ Created
 """
 
 # Standard library
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -54,14 +54,12 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
 
     def __init__(self, catalogs: Sequence[ArtifactCatalogBase]) -> None:
         if not catalogs:
-            raise ValueError(
-                "FederatedArtifactCatalog requires at least one backend catalog."
-            )
-        self._catalogs: List[ArtifactCatalogBase] = list(catalogs)
+            raise ValueError("FederatedArtifactCatalog requires at least one backend catalog.")
+        self._catalogs: list[ArtifactCatalogBase] = list(catalogs)
 
     # -- Read operations (federated) --------------------------------------
 
-    def get_artifact(self, name: str, version: str) -> Optional[Artifact]:
+    def get_artifact(self, name: str, version: str) -> Artifact | None:
         """Return the first matching artifact across all backends."""
         for catalog in self._catalogs:
             result = catalog.get_artifact(name, version)
@@ -70,16 +68,17 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
         return None
 
     def list_artifacts(
-        self, artifact_type: Optional[str] = None,
-    ) -> List[Artifact]:
+        self,
+        artifact_type: str | None = None,
+    ) -> list[Artifact]:
         """List artifacts from all backends, deduplicated."""
         return self._federate_query("list_artifacts", artifact_type=artifact_type)
 
-    def search(self, query: str) -> List[Artifact]:
+    def search(self, query: str) -> list[Artifact]:
         """Search all backends, deduplicated."""
         return self._federate_query("search", query)
 
-    def search_by_tags(self, tags: Dict[str, str]) -> List[Artifact]:
+    def search_by_tags(self, tags: dict[str, str]) -> list[Artifact]:
         """Search by tags across all backends, deduplicated."""
         return self._federate_query("search_by_tags", tags)
 
@@ -110,7 +109,10 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
         )
 
     def update_remote_version(
-        self, artifact_id: int, source: str, latest_version: str,
+        self,
+        artifact_id: int,
+        source: str,
+        latest_version: str,
     ) -> None:
         """Not supported on federated catalogs.
 
@@ -126,8 +128,10 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
     # -- Alternative processors -------------------------------------------
 
     def get_alternatives(
-        self, name: str, version: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str,
+    ) -> list[dict[str, Any]]:
         """Return alternatives from the first backend with the artifact."""
         for catalog in self._catalogs:
             result = catalog.get_artifact(name, version)
@@ -136,8 +140,10 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
         return []
 
     def set_alternatives(
-        self, name: str, version: str,
-        alternatives: List[Dict[str, Any]],
+        self,
+        name: str,
+        version: str,
+        alternatives: list[dict[str, Any]],
     ) -> None:
         """Not supported on federated catalogs.
 
@@ -153,8 +159,10 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
     # -- Parameter schema --------------------------------------------------
 
     def get_param_schema(
-        self, name: str, version: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        name: str,
+        version: str | None = None,
+    ) -> dict[str, Any] | None:
         """Return param schema from the first backend that has it."""
         for catalog in self._catalogs:
             schema = catalog.get_param_schema(name, version)
@@ -172,7 +180,7 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
     # -- Introspection -----------------------------------------------------
 
     @property
-    def catalogs(self) -> List[ArtifactCatalogBase]:
+    def catalogs(self) -> list[ArtifactCatalogBase]:
         """Ordered list of backend catalogs (read-only copy)."""
         return list(self._catalogs)
 
@@ -183,14 +191,14 @@ class FederatedArtifactCatalog(ArtifactCatalogBase):
         method_name: str,
         *args,
         **kwargs,
-    ) -> List[Artifact]:
+    ) -> list[Artifact]:
         """Broadcast a read query to all backends and deduplicate results.
 
         Deduplication uses ``(name, version)`` as the identity key;
         the first occurrence (from the highest-priority catalog) wins.
         """
         seen: set = set()
-        results: List[Artifact] = []
+        results: list[Artifact] = []
         for catalog in self._catalogs:
             method = getattr(catalog, method_name)
             for artifact in method(*args, **kwargs):

@@ -38,31 +38,35 @@ from grdl_rt.execution.plan import (
 )
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ---------------------------------------------------------------------------
 # Mock processors
 # ---------------------------------------------------------------------------
 
+
 class _SuccessProcessor:
     """Returns input * 2."""
+
     def apply(self, source, **kwargs):
         return source * 2.0
 
 
 class _FailProcessor:
     """Always raises RuntimeError."""
+
     def apply(self, source, **kwargs):
         raise RuntimeError("primary failed")
 
 
 class _FallbackProcessor:
     """Returns input * 10 (distinguishable from primary)."""
+
     def apply(self, source, **kwargs):
         return source * 10.0
 
 
 class _FailFallbackProcessor:
     """Fallback that also fails."""
+
     def apply(self, source, **kwargs):
         raise RuntimeError("fallback also failed")
 
@@ -84,6 +88,7 @@ def _mock_resolve(name):
 # ---------------------------------------------------------------------------
 # Mock catalog for alternatives
 # ---------------------------------------------------------------------------
+
 
 def _make_yaml_catalog(tmp_path, alternatives_map=None):
     """Create a YamlArtifactCatalog with processor artifacts + alternatives."""
@@ -109,6 +114,7 @@ def _make_yaml_catalog(tmp_path, alternatives_map=None):
 # Helper: make a minimal ResolvedExecutionPlan
 # ---------------------------------------------------------------------------
 
+
 def _make_plan(steps_dict, hw_context=None):
     return ResolvedExecutionPlan(
         workflow_name="Test",
@@ -117,8 +123,7 @@ def _make_plan(steps_dict, hw_context=None):
         hardware_context=hw_context or {"cpu_count": 4},
         steps=steps_dict,
         parallel_groups=[
-            ParallelGroup(level=0, step_ids=list(steps_dict.keys()),
-                          estimated_peak_memory_bytes=0),
+            ParallelGroup(level=0, step_ids=list(steps_dict.keys()), estimated_peak_memory_bytes=0),
         ],
         global_pass_steps=[],
         substitutions=[],
@@ -131,17 +136,25 @@ def _make_plan(steps_dict, hw_context=None):
 # Runtime fallback tests
 # ---------------------------------------------------------------------------
 
+
 class TestRuntimeFallback:
 
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_fallback_on_failure(self, mock_resolve, tmp_path):
         """Primary processor fails → fallback used → output is fallback's."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Fail": [{"processor_name": "Fallback", "priority": 1}],
-        })
-        wf = WorkflowDefinition(name="FallbackTest", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Fail": [{"processor_name": "Fallback", "priority": 1}],
+            },
+        )
+        wf = WorkflowDefinition(
+            name="FallbackTest",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf, catalog=cat)
         source = np.array([3.0])
 
@@ -158,12 +171,19 @@ class TestRuntimeFallback:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_fallback_metrics_status(self, mock_resolve, tmp_path):
         """Step metrics show 'fallback' status when fallback used."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Fail": [{"processor_name": "Fallback", "priority": 1}],
-        })
-        wf = WorkflowDefinition(name="FBStatus", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Fail": [{"processor_name": "Fallback", "priority": 1}],
+            },
+        )
+        wf = WorkflowDefinition(
+            name="FBStatus",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf, catalog=cat)
         result = executor.execute(np.array([1.0]), enable_memory_check=False)
 
@@ -173,12 +193,19 @@ class TestRuntimeFallback:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_fallback_also_fails_raises_original(self, mock_resolve, tmp_path):
         """If fallback also fails, original exception propagates."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Fail": [{"processor_name": "FailFallback", "priority": 1}],
-        })
-        wf = WorkflowDefinition(name="BothFail", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Fail": [{"processor_name": "FailFallback", "priority": 1}],
+            },
+        )
+        wf = WorkflowDefinition(
+            name="BothFail",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf, catalog=cat)
 
         with pytest.raises(RuntimeError, match="primary failed"):
@@ -187,12 +214,19 @@ class TestRuntimeFallback:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_no_alternatives_raises(self, mock_resolve, tmp_path):
         """No alternatives in catalog → original exception propagates."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Fail": [],  # No alternatives
-        })
-        wf = WorkflowDefinition(name="NoAlt", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Fail": [],  # No alternatives
+            },
+        )
+        wf = WorkflowDefinition(
+            name="NoAlt",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf, catalog=cat)
 
         with pytest.raises(RuntimeError, match="primary failed"):
@@ -201,9 +235,13 @@ class TestRuntimeFallback:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_no_catalog_no_fallback(self, mock_resolve):
         """No catalog configured → no fallback attempted."""
-        wf = WorkflowDefinition(name="NoCat", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
+        wf = WorkflowDefinition(
+            name="NoCat",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf)  # No catalog
 
         with pytest.raises(RuntimeError, match="primary failed"):
@@ -212,12 +250,19 @@ class TestRuntimeFallback:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_success_no_fallback(self, mock_resolve, tmp_path):
         """Successful step does not trigger fallback."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Success": [{"processor_name": "Fallback", "priority": 1}],
-        })
-        wf = WorkflowDefinition(name="OK", version="1.0.0", steps=[
-            ProcessingStep("Success", "1.0", id="s1"),
-        ])
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Success": [{"processor_name": "Fallback", "priority": 1}],
+            },
+        )
+        wf = WorkflowDefinition(
+            name="OK",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Success", "1.0", id="s1"),
+            ],
+        )
         executor = DAGExecutor(wf, catalog=cat)
         result = executor.execute(np.array([5.0]), enable_memory_check=False)
 
@@ -229,30 +274,37 @@ class TestRuntimeFallback:
 # As-planned / as-executed manifest tests
 # ---------------------------------------------------------------------------
 
+
 class TestAsPlannedManifest:
 
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_as_planned_written(self, mock_resolve, tmp_path):
         """as_planned.json is written before execution starts."""
-        wf = WorkflowDefinition(name="Planned", version="1.0.0", steps=[
-            ProcessingStep("Success", "1.0", id="s1"),
-        ])
-        plan = _make_plan({
-            "s1": ResolvedStep(
-                step_id="s1",
-                original_processor="Success",
-                resolved_processor="Success",
-                processor_class_fqn="mock.Success",
-                params={},
-                gpu_capability="cpu_only",
-                will_use_gpu=False,
-                requires_global_pass=False,
-                substitution_reason=None,
-                estimated_memory_bytes=0,
-                retry=None,
-                timeout_seconds=None,
-            ),
-        })
+        wf = WorkflowDefinition(
+            name="Planned",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Success", "1.0", id="s1"),
+            ],
+        )
+        plan = _make_plan(
+            {
+                "s1": ResolvedStep(
+                    step_id="s1",
+                    original_processor="Success",
+                    resolved_processor="Success",
+                    processor_class_fqn="mock.Success",
+                    params={},
+                    gpu_capability="cpu_only",
+                    will_use_gpu=False,
+                    requires_global_pass=False,
+                    substitution_reason=None,
+                    estimated_memory_bytes=0,
+                    retry=None,
+                    timeout_seconds=None,
+                ),
+            }
+        )
         run_folder = tmp_path / "run_001"
         executor = DAGExecutor(wf)
         executor.execute(
@@ -271,9 +323,13 @@ class TestAsPlannedManifest:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_no_plan_no_file(self, mock_resolve, tmp_path):
         """No resolved_plan → no as_planned.json written."""
-        wf = WorkflowDefinition(name="NoPlan", version="1.0.0", steps=[
-            ProcessingStep("Success", "1.0", id="s1"),
-        ])
+        wf = WorkflowDefinition(
+            name="NoPlan",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Success", "1.0", id="s1"),
+            ],
+        )
         run_folder = tmp_path / "run_002"
         executor = DAGExecutor(wf)
         executor.execute(
@@ -290,25 +346,31 @@ class TestAsExecutedManifest:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_as_executed_success(self, mock_resolve, tmp_path):
         """as_executed.json written with status=success."""
-        wf = WorkflowDefinition(name="Exec", version="1.0.0", steps=[
-            ProcessingStep("Success", "1.0", id="s1"),
-        ])
-        plan = _make_plan({
-            "s1": ResolvedStep(
-                step_id="s1",
-                original_processor="Success",
-                resolved_processor="Success",
-                processor_class_fqn="mock.Success",
-                params={},
-                gpu_capability="cpu_only",
-                will_use_gpu=False,
-                requires_global_pass=False,
-                substitution_reason=None,
-                estimated_memory_bytes=0,
-                retry=None,
-                timeout_seconds=None,
-            ),
-        })
+        wf = WorkflowDefinition(
+            name="Exec",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Success", "1.0", id="s1"),
+            ],
+        )
+        plan = _make_plan(
+            {
+                "s1": ResolvedStep(
+                    step_id="s1",
+                    original_processor="Success",
+                    resolved_processor="Success",
+                    processor_class_fqn="mock.Success",
+                    params={},
+                    gpu_capability="cpu_only",
+                    will_use_gpu=False,
+                    requires_global_pass=False,
+                    substitution_reason=None,
+                    estimated_memory_bytes=0,
+                    retry=None,
+                    timeout_seconds=None,
+                ),
+            }
+        )
         run_folder = tmp_path / "run_003"
         executor = DAGExecutor(wf)
         executor.execute(
@@ -330,25 +392,31 @@ class TestAsExecutedManifest:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_as_executed_failure(self, mock_resolve, tmp_path):
         """as_executed.json written with status=failed on error."""
-        wf = WorkflowDefinition(name="FailExec", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
-        plan = _make_plan({
-            "s1": ResolvedStep(
-                step_id="s1",
-                original_processor="Fail",
-                resolved_processor="Fail",
-                processor_class_fqn="mock.Fail",
-                params={},
-                gpu_capability="cpu_only",
-                will_use_gpu=False,
-                requires_global_pass=False,
-                substitution_reason=None,
-                estimated_memory_bytes=0,
-                retry=None,
-                timeout_seconds=None,
-            ),
-        })
+        wf = WorkflowDefinition(
+            name="FailExec",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
+        plan = _make_plan(
+            {
+                "s1": ResolvedStep(
+                    step_id="s1",
+                    original_processor="Fail",
+                    resolved_processor="Fail",
+                    processor_class_fqn="mock.Fail",
+                    params={},
+                    gpu_capability="cpu_only",
+                    will_use_gpu=False,
+                    requires_global_pass=False,
+                    substitution_reason=None,
+                    estimated_memory_bytes=0,
+                    retry=None,
+                    timeout_seconds=None,
+                ),
+            }
+        )
         run_folder = tmp_path / "run_004"
         executor = DAGExecutor(wf)
 
@@ -368,28 +436,37 @@ class TestAsExecutedManifest:
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_as_executed_with_fallback(self, mock_resolve, tmp_path):
         """as_executed.json reflects runtime substitution on fallback."""
-        cat = _make_yaml_catalog(tmp_path, {
-            "Fail": [{"processor_name": "Fallback", "priority": 1}],
-        })
-        wf = WorkflowDefinition(name="FBExec", version="1.0.0", steps=[
-            ProcessingStep("Fail", "1.0", id="s1"),
-        ])
-        plan = _make_plan({
-            "s1": ResolvedStep(
-                step_id="s1",
-                original_processor="Fail",
-                resolved_processor="Fail",
-                processor_class_fqn="mock.Fail",
-                params={},
-                gpu_capability="cpu_only",
-                will_use_gpu=False,
-                requires_global_pass=False,
-                substitution_reason=None,
-                estimated_memory_bytes=0,
-                retry=None,
-                timeout_seconds=None,
-            ),
-        })
+        cat = _make_yaml_catalog(
+            tmp_path,
+            {
+                "Fail": [{"processor_name": "Fallback", "priority": 1}],
+            },
+        )
+        wf = WorkflowDefinition(
+            name="FBExec",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Fail", "1.0", id="s1"),
+            ],
+        )
+        plan = _make_plan(
+            {
+                "s1": ResolvedStep(
+                    step_id="s1",
+                    original_processor="Fail",
+                    resolved_processor="Fail",
+                    processor_class_fqn="mock.Fail",
+                    params={},
+                    gpu_capability="cpu_only",
+                    will_use_gpu=False,
+                    requires_global_pass=False,
+                    substitution_reason=None,
+                    estimated_memory_bytes=0,
+                    retry=None,
+                    timeout_seconds=None,
+                ),
+            }
+        )
         run_folder = tmp_path / "run_005"
         executor = DAGExecutor(wf, catalog=cat)
         executor.execute(

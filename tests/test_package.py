@@ -20,7 +20,7 @@ class TestPackageImport:
 
         assert hasattr(grdl_rt, "__version__")
         assert isinstance(grdl_rt.__version__, str)
-        assert grdl_rt.__version__ == "0.1.0"
+        assert grdl_rt.__version__ == "0.1.1"
 
 
 class TestSubpackageImport:

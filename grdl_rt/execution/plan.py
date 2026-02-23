@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Execution Plan Models — Data models for resolved execution plans.
 
@@ -28,7 +27,7 @@ Created
 
 # Standard library
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -69,17 +68,17 @@ class ResolvedStep:
     original_processor: str
     resolved_processor: str
     processor_class_fqn: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
     gpu_capability: str
     will_use_gpu: bool
     requires_global_pass: bool
-    substitution_reason: Optional[str]
+    substitution_reason: str | None
     estimated_memory_bytes: int
-    retry: Optional[Dict[str, Any]]
-    timeout_seconds: Optional[float]
-    depends_on: List[str] = field(default_factory=list)
+    retry: dict[str, Any] | None
+    timeout_seconds: float | None
+    depends_on: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
             "step_id": self.step_id,
@@ -98,7 +97,7 @@ class ResolvedStep:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ResolvedStep':
+    def from_dict(cls, data: dict[str, Any]) -> "ResolvedStep":
         """Deserialize from dictionary."""
         return cls(
             step_id=data["step_id"],
@@ -132,10 +131,10 @@ class ParallelGroup:
     """
 
     level: int
-    step_ids: List[str]
+    step_ids: list[str]
     estimated_peak_memory_bytes: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
             "level": self.level,
@@ -144,7 +143,7 @@ class ParallelGroup:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ParallelGroup':
+    def from_dict(cls, data: dict[str, Any]) -> "ParallelGroup":
         """Deserialize from dictionary."""
         return cls(
             level=data["level"],
@@ -174,7 +173,7 @@ class Substitution:
     replacement_processor: str
     reason: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
             "step_id": self.step_id,
@@ -184,7 +183,7 @@ class Substitution:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Substitution':
+    def from_dict(cls, data: dict[str, Any]) -> "Substitution":
         """Deserialize from dictionary."""
         return cls(
             step_id=data["step_id"],
@@ -227,15 +226,15 @@ class ResolvedExecutionPlan:
     workflow_name: str
     workflow_version: str
     resolved_at: str
-    hardware_context: Dict[str, Any]
-    steps: Dict[str, ResolvedStep]
-    parallel_groups: List[ParallelGroup]
-    global_pass_steps: List[str]
-    substitutions: List[Substitution]
+    hardware_context: dict[str, Any]
+    steps: dict[str, ResolvedStep]
+    parallel_groups: list[ParallelGroup]
+    global_pass_steps: list[str]
+    substitutions: list[Substitution]
     estimated_total_memory_bytes: int
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
         return {
             "workflow_name": self.workflow_name,
@@ -251,24 +250,17 @@ class ResolvedExecutionPlan:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ResolvedExecutionPlan':
+    def from_dict(cls, data: dict[str, Any]) -> "ResolvedExecutionPlan":
         """Deserialize from dictionary."""
         return cls(
             workflow_name=data["workflow_name"],
             workflow_version=data["workflow_version"],
             resolved_at=data["resolved_at"],
             hardware_context=data["hardware_context"],
-            steps={
-                k: ResolvedStep.from_dict(v)
-                for k, v in data["steps"].items()
-            },
-            parallel_groups=[
-                ParallelGroup.from_dict(g) for g in data["parallel_groups"]
-            ],
+            steps={k: ResolvedStep.from_dict(v) for k, v in data["steps"].items()},
+            parallel_groups=[ParallelGroup.from_dict(g) for g in data["parallel_groups"]],
             global_pass_steps=data["global_pass_steps"],
-            substitutions=[
-                Substitution.from_dict(s) for s in data["substitutions"]
-            ],
+            substitutions=[Substitution.from_dict(s) for s in data["substitutions"]],
             estimated_total_memory_bytes=data["estimated_total_memory_bytes"],
             warnings=data.get("warnings", []),
         )
@@ -314,13 +306,13 @@ class ExecutedStepRecord:
     cpu_time_s: float = 0.0
     peak_rss_bytes: int = 0
     gpu_used: bool = False
-    fallback_processor: Optional[str] = None
-    fallback_reason: Optional[str] = None
-    error_message: Optional[str] = None
+    fallback_processor: str | None = None
+    fallback_reason: str | None = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "step_id": self.step_id,
             "processor_name": self.processor_name,
             "status": self.status,
@@ -368,18 +360,18 @@ class AsExecutedManifest:
     started_at: str
     completed_at: str
     status: str
-    hardware_context: Dict[str, Any]
-    planned_steps: Dict[str, Any]
-    executed_steps: List[ExecutedStepRecord]
-    runtime_substitutions: List[Dict[str, Any]]
+    hardware_context: dict[str, Any]
+    planned_steps: dict[str, Any]
+    executed_steps: list[ExecutedStepRecord]
+    runtime_substitutions: list[dict[str, Any]]
     total_wall_time_s: float
     total_cpu_time_s: float
     peak_rss_bytes: int
-    data_lineage: Optional[Dict[str, Any]] = None
+    data_lineage: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "workflow_name": self.workflow_name,
             "workflow_version": self.workflow_version,
             "run_id": self.run_id,

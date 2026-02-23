@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Execution Resolver — Plans execution paths through a workflow DAG.
 
@@ -28,8 +27,8 @@ Created
 """
 
 # Standard library
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -112,17 +111,15 @@ class Resolver:
         # Validate DAG first
         dag_errors = workflow.validate_dag()
         if dag_errors:
-            raise ValueError(
-                f"Invalid workflow DAG: {'; '.join(dag_errors)}"
-            )
+            raise ValueError(f"Invalid workflow DAG: {'; '.join(dag_errors)}")
 
         levels = workflow.topological_sort()
         hw_dict = hardware.to_dict()
 
-        resolved_steps: Dict[str, ResolvedStep] = {}
-        substitutions: List[Substitution] = []
-        global_pass_steps: List[str] = []
-        warnings: List[str] = []
+        resolved_steps: dict[str, ResolvedStep] = {}
+        substitutions: list[Substitution] = []
+        global_pass_steps: list[str] = []
+        warnings: list[str] = []
 
         for step in workflow.steps:
             if isinstance(step, TapOutStepDef):
@@ -131,7 +128,10 @@ class Resolver:
 
             assert isinstance(step, ProcessingStep)
             resolved = self._resolve_step(
-                step, hardware, substitutions, warnings,
+                step,
+                hardware,
+                substitutions,
+                warnings,
             )
             resolved_steps[step.id] = resolved
 
@@ -139,18 +139,20 @@ class Resolver:
                 global_pass_steps.append(step.id)
 
         # Build parallel groups from topological levels
-        parallel_groups: List[ParallelGroup] = []
+        parallel_groups: list[ParallelGroup] = []
         for level_idx, level_ids in enumerate(levels):
             group_memory = sum(
                 resolved_steps[sid].estimated_memory_bytes
                 for sid in level_ids
                 if sid in resolved_steps
             )
-            parallel_groups.append(ParallelGroup(
-                level=level_idx,
-                step_ids=level_ids,
-                estimated_peak_memory_bytes=group_memory,
-            ))
+            parallel_groups.append(
+                ParallelGroup(
+                    level=level_idx,
+                    step_ids=level_ids,
+                    estimated_peak_memory_bytes=group_memory,
+                )
+            )
 
         # Peak memory is the max across parallel groups
         estimated_total = max(
@@ -161,7 +163,7 @@ class Resolver:
         plan = ResolvedExecutionPlan(
             workflow_name=workflow.name,
             workflow_version=workflow.version,
-            resolved_at=datetime.now(timezone.utc).isoformat(),
+            resolved_at=datetime.now(UTC).isoformat(),
             hardware_context=hw_dict,
             steps=resolved_steps,
             parallel_groups=parallel_groups,
@@ -185,8 +187,8 @@ class Resolver:
         self,
         step: ProcessingStep,
         hardware: HardwareContext,
-        substitutions: List[Substitution],
-        warnings: List[str],
+        substitutions: list[Substitution],
+        warnings: list[str],
     ) -> ResolvedStep:
         """Resolve a single processing step.
 
@@ -215,7 +217,8 @@ class Resolver:
             processor_cls = resolve_processor_class(step.processor_name)
         except ImportError as exc:
             raise ResolutionError(
-                step.id, step.processor_name,
+                step.id,
+                step.processor_name,
                 f"Processor not found: {exc}",
             ) from exc
 
@@ -224,26 +227,29 @@ class Resolver:
         global_pass = has_global_pass(processor_cls)
 
         resolved_name = step.processor_name
-        substitution_reason: Optional[str] = None
+        substitution_reason: str | None = None
 
         # Check GPU compatibility
         if gpu_cap == "required" and not hardware.gpu_available:
             # Need an alternative
             alt_result = self._find_alternative(
-                step, hardware, warnings,
+                step,
+                hardware,
+                warnings,
             )
             if alt_result is not None:
                 alt_cls, alt_name, alt_fqn, alt_gpu_cap = alt_result
                 substitution_reason = (
-                    f"GPU required but not available; "
-                    f"substituted with '{alt_name}'"
+                    f"GPU required but not available; " f"substituted with '{alt_name}'"
                 )
-                substitutions.append(Substitution(
-                    step_id=step.id,
-                    original_processor=step.processor_name,
-                    replacement_processor=alt_name,
-                    reason=substitution_reason,
-                ))
+                substitutions.append(
+                    Substitution(
+                        step_id=step.id,
+                        original_processor=step.processor_name,
+                        replacement_processor=alt_name,
+                        reason=substitution_reason,
+                    )
+                )
                 processor_cls = alt_cls
                 resolved_name = alt_name
                 fqn = alt_fqn
@@ -251,7 +257,8 @@ class Resolver:
                 global_pass = has_global_pass(alt_cls)
             else:
                 raise ResolutionError(
-                    step.id, step.processor_name,
+                    step.id,
+                    step.processor_name,
                     "GPU required but not available, and no "
                     "compatible alternative exists in the catalog",
                 )
@@ -289,8 +296,8 @@ class Resolver:
         self,
         step: ProcessingStep,
         hardware: HardwareContext,
-        warnings: List[str],
-    ) -> Optional[tuple]:
+        warnings: list[str],
+    ) -> tuple | None:
         """Find a compatible alternative for a step.
 
         Queries the catalog for alternatives to the step's processor,
@@ -338,8 +345,9 @@ class Resolver:
         return None
 
     def _get_alternatives_for_processor(
-        self, processor_name: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        processor_name: str,
+    ) -> list[dict[str, Any]]:
         """Get alternatives for a processor from the catalog.
 
         Searches the catalog for artifacts matching the processor name

@@ -27,10 +27,10 @@ from grdl_rt.execution.dsl import DslCompiler
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ---------------------------------------------------------------------------
 # Helper mock processor
 # ---------------------------------------------------------------------------
+
 
 class _ScaleTransform:
     """Trivial processor that multiplies by a scale factor."""
@@ -43,6 +43,7 @@ class _ScaleTransform:
 # ---------------------------------------------------------------------------
 # Helper: build a simple workflow dict / object for reuse
 # ---------------------------------------------------------------------------
+
 
 def _sample_workflow_dict():
     return {
@@ -74,6 +75,7 @@ def _write_yaml_file(tmp_path):
 # ---------------------------------------------------------------------------
 # TestLoadWorkflow
 # ---------------------------------------------------------------------------
+
 
 class TestLoadWorkflow:
     def test_load_from_yaml_file(self, tmp_path):
@@ -127,11 +129,7 @@ class TestLoadWorkflow:
     def test_load_nonexistent_string_as_yaml(self):
         """A string that is not an existing file is treated as YAML content."""
         yaml_text = (
-            "name: QuickWorkflow\n"
-            "version: '1.0'\n"
-            "steps: []\n"
-            "state: draft\n"
-            "tags: {}\n"
+            "name: QuickWorkflow\n" "version: '1.0'\n" "steps: []\n" "state: draft\n" "tags: {}\n"
         )
         wf = load_workflow(yaml_text)
 
@@ -143,6 +141,7 @@ class TestLoadWorkflow:
 # ---------------------------------------------------------------------------
 # TestExecuteWorkflow
 # ---------------------------------------------------------------------------
+
 
 class TestExecuteWorkflow:
     @patch("grdl_rt.execution.executor.resolve_processor_class")

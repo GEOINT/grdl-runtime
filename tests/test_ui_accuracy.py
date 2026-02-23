@@ -20,7 +20,6 @@ from grdl_rt.ui._accuracy import (
     load_geojson,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -212,12 +211,24 @@ class TestComputeAccuracy:
     def test_perfect_detection(self, gt_geojson: Path):
         """Detections that exactly match ground truth → P=R=F1=1."""
         detections = [
-            {"geometry": {"type": "Polygon",
-                          "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]}},
-            {"geometry": {"type": "Polygon",
-                          "coordinates": [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]]}},
-            {"geometry": {"type": "Polygon",
-                          "coordinates": [[[50, 50], [60, 50], [60, 60], [50, 60], [50, 50]]]}},
+            {
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+                }
+            },
+            {
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]],
+                }
+            },
+            {
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[50, 50], [60, 50], [60, 60], [50, 60], [50, 50]]],
+                }
+            },
         ]
         report = compute_accuracy([detections], gt_geojson)
         assert report.true_positives == 3
@@ -254,11 +265,19 @@ class TestComputeAccuracy:
         """One matching detection + one false positive → partial scores."""
         detections = [
             # Matches GT feature 1
-            {"geometry": {"type": "Polygon",
-                          "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]}},
+            {
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+                }
+            },
             # False positive (no GT match)
-            {"geometry": {"type": "Polygon",
-                          "coordinates": [[[80, 80], [90, 80], [90, 90], [80, 90], [80, 80]]]}},
+            {
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[80, 80], [90, 80], [90, 90], [80, 90], [80, 80]]],
+                }
+            },
         ]
         report = compute_accuracy([detections], gt_geojson)
         assert report.true_positives == 1

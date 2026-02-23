@@ -35,7 +35,6 @@ from grdl_rt.execution.executor import WorkflowExecutor
 from grdl_rt.execution.metrics import StepMetrics
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ---------------------------------------------------------------------------
 # Test processors (defined at module level for resolve_processor_class)
 # ---------------------------------------------------------------------------
@@ -49,7 +48,7 @@ class _MedianThresholdProcessor:
     """
 
     __has_global_pass__ = True
-    __global_callbacks__ = ('compute_median',)
+    __global_callbacks__ = ("compute_median",)
 
     def __init__(self):
         self._median = None
@@ -69,7 +68,7 @@ class _MutatingGlobalProcessor:
     """Processor that tries to mutate the buffer during global pass."""
 
     __has_global_pass__ = True
-    __global_callbacks__ = ('attempt_mutation',)
+    __global_callbacks__ = ("attempt_mutation",)
 
     def __init__(self):
         self._ran = False
@@ -93,7 +92,7 @@ class _MultiCallbackProcessor:
     """Processor with two global callbacks that accumulate stats."""
 
     __has_global_pass__ = True
-    __global_callbacks__ = ('compute_mean', 'compute_std')
+    __global_callbacks__ = ("compute_mean", "compute_std")
 
     def __init__(self):
         self._mean = None
@@ -115,6 +114,7 @@ class _MultiCallbackProcessor:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_workflow(steps):
     """Build a WorkflowDefinition from a list of ProcessingStep objects."""
     wf = WorkflowDefinition(name="TestGlobalPass")
@@ -131,14 +131,14 @@ def _make_workflow(steps):
 class TestGlobalPassExecution:
     """Verify the two-pass execution flow."""
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_median_threshold_workflow(self, mock_resolve):
         """Global pass computes median, transform thresholds using it."""
         mock_resolve.return_value = _MedianThresholdProcessor
 
         step = ProcessingStep(
-            processor_name='MedianThresholdProcessor',
-            processor_version='1.0',
+            processor_name="MedianThresholdProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -148,21 +148,23 @@ class TestGlobalPassExecution:
         wr = executor.execute(source)
 
         # Values >= 5.0 become 1.0, below become 0.0
-        expected = np.array([
-            [0.0, 0.0, 0.0],
-            [0.0, 1.0, 1.0],
-            [1.0, 1.0, 1.0],
-        ])
+        expected = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
         np.testing.assert_array_equal(wr.result, expected)
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_global_pass_state_on_self(self, mock_resolve):
         """Global pass accumulates state accessible in transform."""
         mock_resolve.return_value = _MultiCallbackProcessor
 
         step = ProcessingStep(
-            processor_name='MultiCallbackProcessor',
-            processor_version='1.0',
+            processor_name="MultiCallbackProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -185,15 +187,15 @@ class TestGlobalPassExecution:
 class TestGlobalPassMutationDefense:
     """Verify read-only buffer blocks writes and execution continues."""
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_mutation_raises_valueerror_and_continues(self, mock_resolve):
         """Writing to the buffer during global pass raises ValueError
         which is caught and logged, and execution proceeds."""
         mock_resolve.return_value = _MutatingGlobalProcessor
 
         step = ProcessingStep(
-            processor_name='MutatingGlobalProcessor',
-            processor_version='1.0',
+            processor_name="MutatingGlobalProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -228,14 +230,14 @@ class TestGlobalPassMutationDefense:
 class TestNonGlobalProcessorUnaffected:
     """Non-global processors have no overhead from global pass logic."""
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_plain_processor_no_global_pass(self, mock_resolve):
         """A processor without __has_global_pass__ skips the global pass."""
         mock_resolve.return_value = _PlainProcessor
 
         step = ProcessingStep(
-            processor_name='PlainProcessor',
-            processor_version='1.0',
+            processor_name="PlainProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -244,14 +246,14 @@ class TestNonGlobalProcessorUnaffected:
         wr = executor.execute(source)
         np.testing.assert_array_equal(wr.result, np.ones((3, 3)) * 2.0)
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_no_global_pass_metrics_for_plain(self, mock_resolve):
         """Non-global processor StepMetrics have None for global fields."""
         mock_resolve.return_value = _PlainProcessor
 
         step = ProcessingStep(
-            processor_name='PlainProcessor',
-            processor_version='1.0',
+            processor_name="PlainProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -271,14 +273,14 @@ class TestNonGlobalProcessorUnaffected:
 class TestGlobalPassMetrics:
     """Verify global pass timing and memory are captured."""
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_global_pass_duration_recorded(self, mock_resolve):
         """StepMetrics for a global-pass processor has duration > 0."""
         mock_resolve.return_value = _MedianThresholdProcessor
 
         step = ProcessingStep(
-            processor_name='MedianThresholdProcessor',
-            processor_version='1.0',
+            processor_name="MedianThresholdProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -290,14 +292,14 @@ class TestGlobalPassMetrics:
         assert sm.global_pass_duration is not None
         assert sm.global_pass_duration >= 0.0
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_global_pass_memory_recorded(self, mock_resolve):
         """StepMetrics for a global-pass processor has memory >= 0."""
         mock_resolve.return_value = _MedianThresholdProcessor
 
         step = ProcessingStep(
-            processor_name='MedianThresholdProcessor',
-            processor_version='1.0',
+            processor_name="MedianThresholdProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -309,14 +311,14 @@ class TestGlobalPassMetrics:
         assert sm.global_pass_memory is not None
         assert sm.global_pass_memory >= 0
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_global_pass_metrics_in_dict(self, mock_resolve):
         """to_dict() includes global pass metrics when present."""
         mock_resolve.return_value = _MedianThresholdProcessor
 
         step = ProcessingStep(
-            processor_name='MedianThresholdProcessor',
-            processor_version='1.0',
+            processor_name="MedianThresholdProcessor",
+            processor_version="1.0",
         )
         wf = _make_workflow([step])
         executor = WorkflowExecutor(wf)
@@ -337,21 +339,21 @@ class TestGlobalPassMetrics:
 class TestMixedPipeline:
     """Pipeline with both global-pass and plain processors."""
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_mixed_pipeline_correct_order(self, mock_resolve):
         """Global-pass processor followed by plain: both work correctly."""
         call_count = [0]
 
         def _resolve(name):
-            if name == 'MedianThresholdProcessor':
+            if name == "MedianThresholdProcessor":
                 return _MedianThresholdProcessor
             return _PlainProcessor
 
         mock_resolve.side_effect = _resolve
 
         steps = [
-            ProcessingStep('MedianThresholdProcessor', '1.0'),
-            ProcessingStep('PlainProcessor', '1.0'),
+            ProcessingStep("MedianThresholdProcessor", "1.0"),
+            ProcessingStep("PlainProcessor", "1.0"),
         ]
         wf = _make_workflow(steps)
         executor = WorkflowExecutor(wf)
@@ -361,26 +363,29 @@ class TestMixedPipeline:
 
         # Step 1: threshold at median=5.0 -> binary 0/1
         # Step 2: multiply by 2.0
-        expected = np.array([
-            [0.0, 0.0, 0.0],
-            [0.0, 2.0, 2.0],
-            [2.0, 2.0, 2.0],
-        ])
+        expected = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 2.0, 2.0],
+                [2.0, 2.0, 2.0],
+            ]
+        )
         np.testing.assert_array_equal(wr.result, expected)
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_mixed_pipeline_metrics(self, mock_resolve):
         """Global pass metrics only on the global-pass step."""
+
         def _resolve(name):
-            if name == 'MedianThresholdProcessor':
+            if name == "MedianThresholdProcessor":
                 return _MedianThresholdProcessor
             return _PlainProcessor
 
         mock_resolve.side_effect = _resolve
 
         steps = [
-            ProcessingStep('MedianThresholdProcessor', '1.0'),
-            ProcessingStep('PlainProcessor', '1.0'),
+            ProcessingStep("MedianThresholdProcessor", "1.0"),
+            ProcessingStep("PlainProcessor", "1.0"),
         ]
         wf = _make_workflow(steps)
         executor = WorkflowExecutor(wf)

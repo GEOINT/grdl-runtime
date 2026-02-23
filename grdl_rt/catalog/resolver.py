@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Catalog Path Resolver - Locate the GRDK artifact catalog database.
 
@@ -34,8 +33,6 @@ Modified
 import json
 import os
 from pathlib import Path
-from typing import Optional
-
 
 _ENV_VAR = "GRDK_CATALOG_PATH"
 _CONFIG_DIR = ".grdl"
@@ -68,9 +65,9 @@ def resolve_catalog_path() -> Path:
     config_path = config_dir / _CONFIG_FILE
     if config_path.exists():
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-            catalog_path = config.get('catalog_path')
+            catalog_path = config.get("catalog_path")
             if catalog_path:
                 return Path(catalog_path)
         except (json.JSONDecodeError, OSError):

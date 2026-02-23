@@ -101,20 +101,20 @@ class TestArtifactCatalogTags:
         catalog.add_artifact(sample_workflow)
         loaded = catalog.get_artifact("sar-vehicle-detection", "2.0.0")
         assert loaded is not None
-        assert 'modality' in loaded.tags
-        assert 'SAR' in loaded.tags['modality']
-        assert 'detection_type' in loaded.tags
-        assert 'classification' in loaded.tags['detection_type']
+        assert "modality" in loaded.tags
+        assert "SAR" in loaded.tags["modality"]
+        assert "detection_type" in loaded.tags
+        assert "classification" in loaded.tags["detection_type"]
 
     def test_search_by_tags(self, catalog, sample_workflow):
         catalog.add_artifact(sample_workflow)
-        results = catalog.search_by_tags({'modality': 'SAR'})
+        results = catalog.search_by_tags({"modality": "SAR"})
         assert len(results) == 1
         assert results[0].name == "sar-vehicle-detection"
 
     def test_search_by_tags_no_match(self, catalog, sample_workflow):
         catalog.add_artifact(sample_workflow)
-        results = catalog.search_by_tags({'modality': 'PAN'})
+        results = catalog.search_by_tags({"modality": "PAN"})
         assert len(results) == 0
 
 
@@ -122,9 +122,9 @@ class TestArtifactCatalogRemoteVersions:
 
     def test_update_remote_version(self, catalog, sample_processor):
         artifact_id = catalog.add_artifact(sample_processor)
-        catalog.update_remote_version(artifact_id, 'pypi', '1.1.0')
+        catalog.update_remote_version(artifact_id, "pypi", "1.1.0")
         # Verify it was stored (no crash)
-        catalog.update_remote_version(artifact_id, 'pypi', '1.2.0')
+        catalog.update_remote_version(artifact_id, "pypi", "1.2.0")
 
 
 class TestArtifactCatalogContextManager:
@@ -132,10 +132,13 @@ class TestArtifactCatalogContextManager:
     def test_context_manager(self, tmp_path):
         db_path = tmp_path / "ctx_test.db"
         with SqliteArtifactCatalog(db_path=db_path) as cat:
-            cat.add_artifact(Artifact(
-                name="test", version="1.0.0",
-                artifact_type="grdl_processor",
-            ))
+            cat.add_artifact(
+                Artifact(
+                    name="test",
+                    version="1.0.0",
+                    artifact_type="grdl_processor",
+                )
+            )
         # Connection should be closed, but we can open a new one
         with SqliteArtifactCatalog(db_path=db_path) as cat:
             assert cat.get_artifact("test", "1.0.0") is not None
@@ -154,16 +157,18 @@ class TestArtifactModels:
 
     def test_update_result_repr_update_available(self):
         from grdl_rt.catalog.models import UpdateResult
+
         a = Artifact(name="x", version="1.0", artifact_type="grdl_processor")
-        r = UpdateResult(a, source="pypi", current_version="1.0",
-                         latest_version="2.0", update_available=True)
+        r = UpdateResult(
+            a, source="pypi", current_version="1.0", latest_version="2.0", update_available=True
+        )
         assert "2.0" in repr(r)
 
     def test_update_result_repr_up_to_date(self):
         from grdl_rt.catalog.models import UpdateResult
+
         a = Artifact(name="x", version="1.0", artifact_type="grdl_processor")
-        r = UpdateResult(a, source="pypi", current_version="1.0",
-                         update_available=False)
+        r = UpdateResult(a, source="pypi", current_version="1.0", update_available=False)
         assert "up to date" in repr(r)
 
 
@@ -181,11 +186,14 @@ class TestArtifactCatalogSchemaVersion:
 class TestArtifactCatalogDefaultPath:
 
     def test_default_path_resolution(self, tmp_path):
-        with mock.patch(
-            'grdl_rt.catalog.database.resolve_catalog_path',
-            return_value=tmp_path / "resolved.db",
-        ), mock.patch(
-            'grdl_rt.catalog.database.ensure_config_dir',
+        with (
+            mock.patch(
+                "grdl_rt.catalog.database.resolve_catalog_path",
+                return_value=tmp_path / "resolved.db",
+            ),
+            mock.patch(
+                "grdl_rt.catalog.database.ensure_config_dir",
+            ),
         ):
             cat = SqliteArtifactCatalog(db_path=None)
             try:
@@ -199,6 +207,7 @@ class TestArtifactCatalogMigrations:
     def test_migration_runs(self, tmp_path):
         """A pre-existing DB at version 1 triggers the v2 migration."""
         import sqlite3
+
         db_path = tmp_path / "migrate_test.db"
 
         # Seed a v1 database without the requires_global_pass column

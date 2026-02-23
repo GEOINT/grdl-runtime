@@ -24,14 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: geoint-org/GRDL
-          path: grdl
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install -e grdl/
       - run: pip install -e ".[dev]"
       - run: mypy grdl_rt/
 
@@ -50,15 +45,10 @@ jobs:
     continue-on-error: ${{ matrix.experimental || false }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: geoint-org/GRDL
-          path: grdl
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
-      - run: pip install -e grdl/
       - run: pip install -e ".[dev]"
       - run: >-
           pytest tests/

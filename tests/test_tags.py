@@ -44,6 +44,7 @@ class TestImageModality:
     def test_canonical_source_is_grdl(self):
         """Enums are imported from grdl.vocabulary, not defined locally."""
         from grdl.vocabulary import ImageModality as canonical
+
         assert ImageModality is canonical
 
 
@@ -129,5 +130,5 @@ class TestWorkflowTags:
             detection_types=[DetectionType.CLASSIFICATION],
         )
         d = tags.to_dict()
-        assert d['modalities'] == ['SAR']
-        assert d['detection_types'] == ['classification']
+        assert d["modalities"] == ["SAR"]
+        assert d["detection_types"] == ["classification"]

@@ -20,10 +20,10 @@ import pytest
 
 from grdl_rt.execution.chip import Chip, ChipLabel, ChipSet, PolygonRegion
 
-
 # ---------------------------------------------------------------------------
 # ChipLabel
 # ---------------------------------------------------------------------------
+
 
 class TestChipLabel:
     def test_enum_values(self):
@@ -33,13 +33,16 @@ class TestChipLabel:
 
     def test_all_members(self):
         assert set(ChipLabel) == {
-            ChipLabel.POSITIVE, ChipLabel.NEGATIVE, ChipLabel.UNKNOWN,
+            ChipLabel.POSITIVE,
+            ChipLabel.NEGATIVE,
+            ChipLabel.UNKNOWN,
         }
 
 
 # ---------------------------------------------------------------------------
 # PolygonRegion
 # ---------------------------------------------------------------------------
+
 
 class TestPolygonRegion:
     def test_basic_construction(self):
@@ -52,28 +55,28 @@ class TestPolygonRegion:
         verts = np.array([[10.5, 20.3], [10.5, 80.7], [50.8, 80.7], [50.8, 20.3]])
         region = PolygonRegion(vertices=verts)
         bb = region.bounding_box
-        assert bb['row_start'] == 10
-        assert bb['row_end'] == 51
-        assert bb['col_start'] == 20
-        assert bb['col_end'] == 81
+        assert bb["row_start"] == 10
+        assert bb["row_end"] == 51
+        assert bb["col_start"] == 20
+        assert bb["col_end"] == 81
 
     def test_bounding_box_single_point(self):
         verts = np.array([[5.0, 10.0]])
         region = PolygonRegion(vertices=verts)
         bb = region.bounding_box
-        assert bb['row_start'] == 5
-        assert bb['row_end'] == 5
-        assert bb['col_start'] == 10
-        assert bb['col_end'] == 10
+        assert bb["row_start"] == 5
+        assert bb["row_end"] == 5
+        assert bb["col_start"] == 10
+        assert bb["col_end"] == 10
 
     def test_bounding_box_negative_coords(self):
         verts = np.array([[-10.5, -20.3], [-5.2, -3.1]])
         region = PolygonRegion(vertices=verts)
         bb = region.bounding_box
-        assert bb['row_start'] == -11
-        assert bb['row_end'] == -5
-        assert bb['col_start'] == -21
-        assert bb['col_end'] == -3
+        assert bb["row_start"] == -11
+        assert bb["row_end"] == -5
+        assert bb["col_start"] == -21
+        assert bb["col_end"] == -3
 
     def test_to_dict_from_dict_roundtrip(self):
         verts = np.array([[10, 20], [30, 40]])
@@ -92,6 +95,7 @@ class TestPolygonRegion:
 # ---------------------------------------------------------------------------
 # Chip
 # ---------------------------------------------------------------------------
+
 
 class TestChip:
     def _make_region(self):
@@ -133,6 +137,7 @@ class TestChip:
 # ChipSet
 # ---------------------------------------------------------------------------
 
+
 class TestChipSet:
     def _make_chip(self, region, label=ChipLabel.UNKNOWN, idx=0):
         return Chip(
@@ -150,10 +155,12 @@ class TestChipSet:
 
     def test_len_and_iter(self):
         region = PolygonRegion(np.array([[0, 0], [0, 4], [4, 4], [4, 0]]))
-        cs = ChipSet(chips=[
-            self._make_chip(region, idx=0),
-            self._make_chip(region, idx=1),
-        ])
+        cs = ChipSet(
+            chips=[
+                self._make_chip(region, idx=0),
+                self._make_chip(region, idx=1),
+            ]
+        )
         assert len(cs) == 2
         assert all(isinstance(c, Chip) for c in cs)
 
@@ -174,12 +181,14 @@ class TestChipSet:
 
     def test_label_counts(self):
         region = PolygonRegion(np.array([[0, 0], [0, 4], [4, 4], [4, 0]]))
-        cs = ChipSet(chips=[
-            self._make_chip(region, ChipLabel.POSITIVE, 0),
-            self._make_chip(region, ChipLabel.POSITIVE, 1),
-            self._make_chip(region, ChipLabel.NEGATIVE, 2),
-            self._make_chip(region, ChipLabel.UNKNOWN, 3),
-        ])
+        cs = ChipSet(
+            chips=[
+                self._make_chip(region, ChipLabel.POSITIVE, 0),
+                self._make_chip(region, ChipLabel.POSITIVE, 1),
+                self._make_chip(region, ChipLabel.NEGATIVE, 2),
+                self._make_chip(region, ChipLabel.UNKNOWN, 3),
+            ]
+        )
         counts = cs.label_counts
         assert counts["positive"] == 2
         assert counts["negative"] == 1

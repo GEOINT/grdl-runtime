@@ -37,10 +37,10 @@ from grdl_rt.execution.dispatch import (
     _minimal_metadata,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
+
 
 class DoubleTransform(ImageTransform):
     def apply(self, source, **kwargs):
@@ -58,13 +58,13 @@ class StubDetector(ImageDetector):
     def detect(self, source, geolocation=None, **kwargs):
         det = Detection(
             pixel_geometry=box(0, 0, 5, 5),
-            properties={'test': True},
+            properties={"test": True},
             confidence=0.8,
         )
         return DetectionSet(
             detections=[det],
-            detector_name='StubDetector',
-            detector_version='1.0.0',
+            detector_name="StubDetector",
+            detector_version="1.0.0",
         )
 
     @property
@@ -74,6 +74,7 @@ class StubDetector(ImageDetector):
 
 class LegacyProcessor:
     """Non-GRDL processor with only apply()."""
+
     def apply(self, source, **kwargs):
         return source - 1
 
@@ -82,10 +83,15 @@ class LegacyProcessor:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def meta():
     return ImageMetadata(
-        format='test', rows=10, cols=12, dtype='float32', bands=3,
+        format="test",
+        rows=10,
+        cols=12,
+        dtype="float32",
+        bands=3,
     )
 
 
@@ -98,6 +104,7 @@ def source():
 # execute_processor() tests
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteProcessor:
 
     def test_execute_transform(self, meta, source):
@@ -106,7 +113,7 @@ class TestExecuteProcessor:
         result, out_meta = execute_processor(t, meta, source)
         np.testing.assert_allclose(result, source * 2.0)
         assert isinstance(out_meta, ImageMetadata)
-        assert out_meta.dtype == 'float32'
+        assert out_meta.dtype == "float32"
 
     def test_execute_detector(self, meta, source):
         """ImageDetector dispatches via execute(), returns DetectionSet."""
@@ -142,11 +149,11 @@ class TestExecuteProcessor:
         """Transform chain updates metadata at each step."""
         t = DoubleTransform()
         result1, meta1 = execute_processor(t, meta, source)
-        assert meta1.dtype == 'float32'
+        assert meta1.dtype == "float32"
         assert meta1.rows == 10
         assert meta1.cols == 12
         result2, meta2 = execute_processor(t, meta1, result1)
-        assert meta2.dtype == 'float32'
+        assert meta2.dtype == "float32"
 
     def test_metadata_unchanged_for_detector(self, meta, source):
         """Detector returns input metadata unchanged."""
@@ -165,6 +172,7 @@ class TestExecuteProcessor:
 # ---------------------------------------------------------------------------
 # supports_gpu_transfer() tests
 # ---------------------------------------------------------------------------
+
 
 class TestSupportsGpuTransfer:
 
@@ -189,6 +197,7 @@ class TestSupportsGpuTransfer:
 # _minimal_metadata() tests
 # ---------------------------------------------------------------------------
 
+
 class TestMinimalMetadata:
 
     def test_2d_array(self):
@@ -196,14 +205,14 @@ class TestMinimalMetadata:
         assert meta.rows == 10
         assert meta.cols == 20
         assert meta.bands == 1
-        assert meta.dtype == 'float32'
+        assert meta.dtype == "float32"
 
     def test_3d_array(self):
         meta = _minimal_metadata(np.zeros((10, 20, 4), dtype=np.complex64))
         assert meta.rows == 10
         assert meta.cols == 20
         assert meta.bands == 4
-        assert meta.dtype == 'complex64'
+        assert meta.dtype == "complex64"
 
     def test_1d_array(self):
         meta = _minimal_metadata(np.zeros(5, dtype=np.float64))

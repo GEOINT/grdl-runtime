@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Catalog Models - Data models for artifact metadata.
 
@@ -29,7 +28,7 @@ Modified
 """
 
 # Standard library
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class Artifact:
@@ -92,21 +91,21 @@ class Artifact:
         description: str = "",
         author: str = "",
         license: str = "MIT",
-        pypi_package: Optional[str] = None,
-        conda_package: Optional[str] = None,
-        conda_channel: Optional[str] = None,
-        processor_class: Optional[str] = None,
-        processor_version: Optional[str] = None,
-        processor_type: Optional[str] = None,
-        yaml_definition: Optional[str] = None,
-        python_dsl: Optional[str] = None,
-        tags: Optional[Dict[str, List[str]]] = None,
-        id: Optional[int] = None,
+        pypi_package: str | None = None,
+        conda_package: str | None = None,
+        conda_channel: str | None = None,
+        processor_class: str | None = None,
+        processor_version: str | None = None,
+        processor_type: str | None = None,
+        yaml_definition: str | None = None,
+        python_dsl: str | None = None,
+        tags: dict[str, list[str]] | None = None,
+        id: int | None = None,
         requires_global_pass: bool = False,
-        alternatives: Optional[List[Dict[str, Any]]] = None,
-        param_schema: Optional[Dict[str, Any]] = None,
+        alternatives: list[dict[str, Any]] | None = None,
+        param_schema: dict[str, Any] | None = None,
     ) -> None:
-        if artifact_type not in ('grdl_processor', 'grdk_workflow'):
+        if artifact_type not in ("grdl_processor", "grdk_workflow"):
             raise ValueError(
                 f"artifact_type must be 'grdl_processor' or 'grdk_workflow', "
                 f"got {artifact_type!r}"
@@ -128,8 +127,8 @@ class Artifact:
         self.python_dsl = python_dsl
         self.tags = tags or {}
         self.requires_global_pass = requires_global_pass
-        self.alternatives: List[Dict[str, Any]] = alternatives or []
-        self.param_schema: Optional[Dict[str, Any]] = param_schema
+        self.alternatives: list[dict[str, Any]] = alternatives or []
+        self.param_schema: dict[str, Any] | None = param_schema
 
     def __repr__(self) -> str:
         return (
@@ -162,9 +161,9 @@ class UpdateResult:
         artifact: Artifact,
         source: str,
         current_version: str,
-        latest_version: Optional[str] = None,
+        latest_version: str | None = None,
         update_available: bool = False,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         self.artifact = artifact
         self.source = source

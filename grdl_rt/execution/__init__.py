@@ -1,72 +1,42 @@
-# -*- coding: utf-8 -*-
 """grdl-runtime execution subpackage — workflow engine and processor orchestration."""
 
-from grdl_rt.execution.tags import (
-    ImageModality,
-    DetectionType,
-    GpuCapability,
-    SegmentationType,
-    ProjectTags,
-    WorkflowTags,
-)
-from grdl_rt.execution.chip import (
-    ChipLabel,
-    PolygonRegion,
-    Chip,
-    ChipSet,
-)
-from grdl_rt.execution.config import (
-    RuntimeConfig,
-    LogConfig,
-    RetryDefaults,
-    MemoryConfig,
-    GpuConfig,
-    TapOutConfig,
-    QuotaConfig,
-    PrometheusConfig,
-    OtelConfig,
-    load_runtime_config,
-    get_runtime_config,
-    reset_runtime_config,
-)
-from grdl_rt.execution.gpu import (
-    GpuBackend,
-)
-from grdl_rt.execution.discovery import (
-    discover_processors,
-    resolve_processor_class,
-    get_processor_tags,
-    get_gpu_capability,
-    get_all_modalities,
-    get_all_categories,
-    filter_processors,
-)
-from grdl_rt.execution.workflow import (
-    SCHEMA_VERSION,
-    WorkflowState,
-    ExecutionPhase,
-    ProcessingStep,
-    TapOutStepDef,
-    WorkflowDefinition,
-)
-from grdl_rt.execution.dsl import (
-    step,
-    tap_out,
-    workflow,
-    DslCompiler,
-)
-from grdl_rt.execution.project import (
-    GrdkProject,
-)
 from grdl_rt.execution.builder import (
-    Workflow,
-    WorkflowStep,
+    BranchBuilder,
     DeferredStep,
     TapOutStep,
-    BranchBuilder,
+    Workflow,
+    WorkflowStep,
 )
-from grdl_rt.execution.executor import (
-    WorkflowExecutor,
+from grdl_rt.execution.checkpoint import (
+    CHECKPOINT_SCHEMA_VERSION,
+    CheckpointManager,
+    CheckpointState,
+    compute_workflow_hash,
+)
+from grdl_rt.execution.chip import (
+    Chip,
+    ChipLabel,
+    ChipSet,
+    PolygonRegion,
+)
+from grdl_rt.execution.config import (
+    GpuConfig,
+    LogConfig,
+    MemoryConfig,
+    OtelConfig,
+    PrometheusConfig,
+    QuotaConfig,
+    RetryDefaults,
+    RuntimeConfig,
+    TapOutConfig,
+    get_runtime_config,
+    load_runtime_config,
+    reset_runtime_config,
+)
+from grdl_rt.execution.context import (
+    ExecutionContext,
+    configure_logging,
+    get_logger,
 )
 from grdl_rt.execution.dag import (
     evaluate_condition,
@@ -74,69 +44,47 @@ from grdl_rt.execution.dag import (
 from grdl_rt.execution.dag_executor import (
     DAGExecutor,
 )
-from grdl_rt.execution.context import (
-    ExecutionContext,
-    configure_logging,
-    get_logger,
+from grdl_rt.execution.discovery import (
+    discover_processors,
+    filter_processors,
+    get_all_categories,
+    get_all_modalities,
+    get_gpu_capability,
+    get_processor_tags,
+    resolve_processor_class,
 )
-from grdl_rt.execution.metrics import (
-    StepMetrics,
-    WorkflowMetrics,
-)
-from grdl_rt.execution.result import (
-    WorkflowResult,
-)
-from grdl_rt.execution.validation import (
-    ValidationError,
-    validate_workflow,
+from grdl_rt.execution.dsl import (
+    DslCompiler,
+    step,
+    tap_out,
+    workflow,
 )
 from grdl_rt.execution.errors import (
+    CheckpointError,
+    ConditionError,
+    DAGCycleError,
+    FallbackExhaustedError,
+    MemoryThresholdError,
+    QuotaExceededError,
+    ResolutionError,
+    ResumeError,
     StepRetryExhaustedError,
     StepTimeoutError,
-    MemoryThresholdError,
-    CheckpointError,
-    ResumeError,
-    DAGCycleError,
-    ConditionError,
-    ResolutionError,
-    FallbackExhaustedError,
-    QuotaExceededError,
+)
+from grdl_rt.execution.executor import (
+    WorkflowExecutor,
+)
+from grdl_rt.execution.gpu import (
+    GpuBackend,
 )
 from grdl_rt.execution.hardware import (
     GpuDeviceInfo,
     HardwareContext,
     LocalHardwareContext,
 )
-from grdl_rt.execution.plan import (
-    ResolvedStep,
-    ParallelGroup,
-    Substitution,
-    ResolvedExecutionPlan,
-    ExecutedStepRecord,
-    AsExecutedManifest,
-)
-from grdl_rt.execution.resolver import (
-    Resolver,
-)
-from grdl_rt.execution.resilience import (
-    RetryPolicy,
-    CircuitBreaker,
-    ShutdownCoordinator,
-    TilingStrategy,
-)
-from grdl_rt.execution.checkpoint import (
-    CheckpointState,
-    CheckpointManager,
-    compute_workflow_hash,
-    CHECKPOINT_SCHEMA_VERSION,
-)
 from grdl_rt.execution.history import (
-    ExecutionRecord,
     ExecutionHistoryDB,
-)
-from grdl_rt.execution.quota import (
-    ResourceQuota,
-    QuotaEnforcer,
+    ExecutionRecord,
 )
 from grdl_rt.execution.instrumentation import (
     ExecutionHook,
@@ -144,16 +92,70 @@ from grdl_rt.execution.instrumentation import (
 from grdl_rt.execution.lineage import (
     DataLineage,
     LineageTransform,
-    compute_array_hash,
     build_lineage,
+    compute_array_hash,
     embed_lineage_geotiff,
+)
+from grdl_rt.execution.metrics import (
+    StepMetrics,
+    WorkflowMetrics,
+)
+from grdl_rt.execution.plan import (
+    AsExecutedManifest,
+    ExecutedStepRecord,
+    ParallelGroup,
+    ResolvedExecutionPlan,
+    ResolvedStep,
+    Substitution,
+)
+from grdl_rt.execution.project import (
+    GrdkProject,
+)
+from grdl_rt.execution.quota import (
+    QuotaEnforcer,
+    ResourceQuota,
+)
+from grdl_rt.execution.resilience import (
+    CircuitBreaker,
+    RetryPolicy,
+    ShutdownCoordinator,
+    TilingStrategy,
+)
+from grdl_rt.execution.resolver import (
+    Resolver,
+)
+from grdl_rt.execution.result import (
+    WorkflowResult,
+)
+from grdl_rt.execution.tags import (
+    DetectionType,
+    ExecutionPhase,
+    GpuCapability,
+    ImageModality,
+    OutputFormat,
+    ProjectTags,
+    SegmentationType,
+    WorkflowTags,
+)
+from grdl_rt.execution.validation import (
+    ValidationError,
+    validate_workflow,
+)
+from grdl_rt.execution.workflow import (
+    SCHEMA_VERSION,
+    ProcessingStep,
+    TapOutStepDef,
+    WorkflowDefinition,
+    WorkflowState,
 )
 
 __all__ = [
     # tags
     "ImageModality",
     "DetectionType",
+    "ExecutionPhase",
     "GpuCapability",
+    "OutputFormat",
     "SegmentationType",
     "ProjectTags",
     "WorkflowTags",

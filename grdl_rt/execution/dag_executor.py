@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 DAG Executor — Parallel workflow execution over a directed acyclic graph.
 
@@ -27,15 +26,17 @@ Created
 """
 
 # Standard library
+import contextlib
 import json
 import threading
 import time
 import tracemalloc
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 # Third-party
 import numpy as np
@@ -45,23 +46,21 @@ from grdl_rt.catalog.base import ArtifactCatalogBase
 from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.dag import evaluate_condition
-from grdl_rt.execution.discovery import get_gpu_capability, resolve_processor_class
+from grdl_rt.execution.discovery import resolve_processor_class
 from grdl_rt.execution.errors import (
     ConditionError,
-    FallbackExhaustedError,
     StepRetryExhaustedError,
-    StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.instrumentation import ExecutionHook
 from grdl_rt.execution.lineage import build_lineage
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
-from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 from grdl_rt.execution.plan import (
     AsExecutedManifest,
     ExecutedStepRecord,
     ResolvedExecutionPlan,
 )
+from grdl_rt.execution.quota import ResourceQuota
 from grdl_rt.execution.resilience import (
     CircuitBreaker,
     RetryPolicy,
@@ -87,7 +86,7 @@ except ImportError:
 
 def _iso_now() -> str:
     """Return current UTC time as ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class DAGExecutor:
@@ -114,13 +113,13 @@ class DAGExecutor:
     def __init__(
         self,
         workflow: WorkflowDefinition,
-        gpu: Optional[GpuBackend] = None,
+        gpu: GpuBackend | None = None,
         *,
-        catalog: Optional[ArtifactCatalogBase] = None,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        max_workers: Optional[int] = None,
-        resource_quota: Optional[ResourceQuota] = None,
-        hooks: Optional[List[ExecutionHook]] = None,
+        catalog: ArtifactCatalogBase | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        max_workers: int | None = None,
+        resource_quota: ResourceQuota | None = None,
+        hooks: list[ExecutionHook] | None = None,
     ) -> None:
         self._workflow = workflow
         self._gpu = gpu or GpuBackend(prefer_gpu=False)
@@ -128,27 +127,25 @@ class DAGExecutor:
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
         self._max_workers = max_workers
         self._resource_quota = resource_quota
-        self._hooks: List[ExecutionHook] = list(hooks or [])
-        self._runtime_substitutions: List[Dict[str, Any]] = []
+        self._hooks: list[ExecutionHook] = list(hooks or [])
+        self._runtime_substitutions: list[dict[str, Any]] = []
         self._runtime_subs_lock = threading.Lock()
 
     def _call_hooks(self, method: str, *args: Any, **kwargs: Any) -> None:
         """Call a hook method on all registered hooks, swallowing errors."""
         for hook in self._hooks:
-            try:
+            with contextlib.suppress(Exception):
                 getattr(hook, method)(*args, **kwargs)
-            except Exception:
-                pass
 
     def execute(
         self,
         source: np.ndarray,
-        progress_callback: Optional[Callable[[float], None]] = None,
+        progress_callback: Callable[[float], None] | None = None,
         *,
         enable_memory_check: bool = True,
-        execution_context: Optional[Dict[str, Any]] = None,
-        resolved_plan: Optional[ResolvedExecutionPlan] = None,
-        run_folder: Optional[Path] = None,
+        execution_context: dict[str, Any] | None = None,
+        resolved_plan: ResolvedExecutionPlan | None = None,
+        run_folder: Path | None = None,
         **kwargs: Any,
     ) -> WorkflowResult:
         """Execute the DAG workflow on a single input.
@@ -187,9 +184,7 @@ class DAGExecutor:
         # Validate DAG
         dag_errors = self._workflow.validate_dag()
         if dag_errors:
-            raise ValueError(
-                f"Invalid workflow DAG: {'; '.join(dag_errors)}"
-            )
+            raise ValueError(f"Invalid workflow DAG: {'; '.join(dag_errors)}")
 
         # Topological sort into levels
         levels = self._workflow.topological_sort()
@@ -197,10 +192,7 @@ class DAGExecutor:
 
         # Memory pre-flight
         if enable_memory_check:
-            processing_steps = [
-                s for s in self._workflow.steps
-                if isinstance(s, ProcessingStep)
-            ]
+            processing_steps = [s for s in self._workflow.steps if isinstance(s, ProcessingStep)]
             if processing_steps:
                 # Estimate based on widest parallel level
                 max_width = max(len(level) for level in levels) if levels else 1
@@ -228,8 +220,8 @@ class DAGExecutor:
         self._runtime_substitutions = []
 
         # Results map: step_id -> output array
-        results: Dict[str, np.ndarray] = {}
-        step_metrics_list: List[StepMetrics] = []
+        results: dict[str, np.ndarray] = {}
+        step_metrics_list: list[StepMetrics] = []
         completed_steps = 0
 
         # Determine max workers
@@ -241,14 +233,17 @@ class DAGExecutor:
         t0_cpu = time.process_time()
 
         try:
-            for level_idx, level in enumerate(levels):
+            for _level_idx, level in enumerate(levels):
                 if len(level) == 1:
                     # Single step — no threading overhead
                     step_id = level[0]
                     sm = self._execute_single_step(
-                        step_id, source, results,
+                        step_id,
+                        source,
+                        results,
                         user_context=user_context,
-                        log=log, **kwargs,
+                        log=log,
+                        **kwargs,
                     )
                     step_metrics_list.append(sm)
                     completed_steps += 1
@@ -259,9 +254,12 @@ class DAGExecutor:
                         for step_id in level:
                             future = pool.submit(
                                 self._execute_single_step,
-                                step_id, source, results,
+                                step_id,
+                                source,
+                                results,
                                 user_context=user_context,
-                                log=log, **kwargs,
+                                log=log,
+                                **kwargs,
                             )
                             futures[future] = step_id
 
@@ -313,7 +311,8 @@ class DAGExecutor:
             lineage = None
             try:
                 lineage = build_lineage(
-                    source, final_result,
+                    source,
+                    final_result,
                     self._workflow.steps,
                     step_metrics_list,
                 )
@@ -321,7 +320,8 @@ class DAGExecutor:
                 log.warning("lineage_build_failed", error=str(e))
 
             log.info(
-                "dag_workflow_complete", status="success",
+                "dag_workflow_complete",
+                status="success",
                 total_wall_time_s=round(total_wall, 4),
                 step_count=len(step_metrics_list),
             )
@@ -338,9 +338,7 @@ class DAGExecutor:
                     total_wall=total_wall,
                     total_cpu=total_cpu,
                     total_peak=total_peak,
-                    lineage_dict=(
-                        lineage.to_dict() if lineage else None
-                    ),
+                    lineage_dict=(lineage.to_dict() if lineage else None),
                     log=log,
                 )
 
@@ -400,9 +398,9 @@ class DAGExecutor:
         self,
         step_id: str,
         source: np.ndarray,
-        results: Dict[str, np.ndarray],
+        results: dict[str, np.ndarray],
         *,
-        user_context: Dict[str, Any],
+        user_context: dict[str, Any],
         log: Any,
         **kwargs: Any,
     ) -> StepMetrics:
@@ -431,20 +429,15 @@ class DAGExecutor:
 
         # Gather inputs
         if step.depends_on:
-            dep_results = {
-                dep_id: results[dep_id] for dep_id in step.depends_on
-            }
-            if len(dep_results) == 1:
-                step_input = next(iter(dep_results.values()))
-            else:
-                step_input = dep_results
+            dep_results = {dep_id: results[dep_id] for dep_id in step.depends_on}
+            step_input = next(iter(dep_results.values())) if len(dep_results) == 1 else dep_results
         else:
             step_input = source
 
         # Evaluate condition
         if isinstance(step, ProcessingStep) and step.condition is not None:
             cond_context = dict(user_context)
-            cond_context['results'] = results
+            cond_context["results"] = results
             try:
                 cond_result = evaluate_condition(step.condition, cond_context)
             except (ValueError, KeyError, AttributeError, TypeError) as e:
@@ -452,7 +445,8 @@ class DAGExecutor:
 
             if not cond_result:
                 log.debug(
-                    "step_skipped_condition", step_id=step_id,
+                    "step_skipped_condition",
+                    step_id=step_id,
                     condition=step.condition,
                 )
                 # Propagate input unchanged
@@ -464,7 +458,7 @@ class DAGExecutor:
                 results[step_id] = output
                 return StepMetrics(
                     step_index=0,
-                    processor_name=getattr(step, 'processor_name', 'tap_out'),
+                    processor_name=getattr(step, "processor_name", "tap_out"),
                     wall_time_s=0.0,
                     cpu_time_s=0.0,
                     peak_rss_bytes=0,
@@ -481,6 +475,7 @@ class DAGExecutor:
             # Tap-out: write to disk, pass through
             try:
                 from grdl.IO import write as io_write
+
                 if isinstance(step_input, dict):
                     write_data = next(iter(step_input.values()))
                 else:
@@ -488,33 +483,38 @@ class DAGExecutor:
                 io_write(write_data, step.path, format=step.format)
             except Exception as e:
                 log.warning(
-                    "tap_out_failed", step_id=step_id,
-                    path=step.path, error=str(e),
+                    "tap_out_failed",
+                    step_id=step_id,
+                    path=step.path,
+                    error=str(e),
                 )
-            if isinstance(step_input, dict):
-                output = next(iter(step_input.values()))
-            else:
-                output = step_input
+            output = next(iter(step_input.values())) if isinstance(step_input, dict) else step_input
             step_status = "success"
 
         elif isinstance(step, ProcessingStep):
             # Circuit breaker check
             if self._circuit_breaker.is_open(step.processor_name):
                 raise RuntimeError(
-                    f"Circuit breaker open for processor "
-                    f"'{step.processor_name}'"
+                    f"Circuit breaker open for processor " f"'{step.processor_name}'"
                 )
 
             try:
                 output = self._execute_processor_resilient(
-                    step, step_input, log=log, **kwargs,
+                    step,
+                    step_input,
+                    log=log,
+                    **kwargs,
                 )
                 self._circuit_breaker.record_success(step.processor_name)
                 step_status = "success"
             except (StepRetryExhaustedError, RuntimeError) as exc:
                 self._circuit_breaker.record_failure(step.processor_name)
                 fallback_output = self._attempt_fallback(
-                    step, step_input, exc, log=log, **kwargs,
+                    step,
+                    step_input,
+                    exc,
+                    log=log,
+                    **kwargs,
                 )
                 if fallback_output is not None:
                     output = fallback_output
@@ -530,9 +530,10 @@ class DAGExecutor:
 
         results[step_id] = output
 
-        processor_name = getattr(step, 'processor_name', 'tap_out')
+        processor_name = getattr(step, "processor_name", "tap_out")
         log.debug(
-            "dag_step_complete", step_id=step_id,
+            "dag_step_complete",
+            step_id=step_id,
             processor_name=processor_name,
             wall_time_s=round(step_wall, 4),
         )
@@ -551,7 +552,7 @@ class DAGExecutor:
     def _execute_processor_resilient(
         self,
         step: ProcessingStep,
-        step_input: Union[np.ndarray, Dict[str, np.ndarray]],
+        step_input: np.ndarray | dict[str, np.ndarray],
         *,
         log: Any = None,
         **kwargs: Any,
@@ -588,18 +589,23 @@ class DAGExecutor:
         timeout = step.timeout_seconds
 
         def _do_step() -> np.ndarray:
-            raw_fn = lambda: self._execute_processor(
-                step, step_input, **kwargs
-            )
+            def raw_fn():
+                return self._execute_processor(step, step_input, **kwargs)
+
             if timeout is not None:
                 return execute_with_timeout(
-                    raw_fn, timeout, step.processor_name,
+                    raw_fn,
+                    timeout,
+                    step.processor_name,
                 )
             return raw_fn()
 
         if retry.max_retries > 0:
             return execute_with_retry(
-                _do_step, retry, step.processor_name, log=log,
+                _do_step,
+                retry,
+                step.processor_name,
+                log=log,
             )
 
         return _do_step()
@@ -607,7 +613,7 @@ class DAGExecutor:
     def _execute_processor(
         self,
         step: ProcessingStep,
-        step_input: Union[np.ndarray, Dict[str, np.ndarray]],
+        step_input: np.ndarray | dict[str, np.ndarray],
         **kwargs: Any,
     ) -> np.ndarray:
         """Execute a single processing step (no resilience wrapping).
@@ -629,40 +635,35 @@ class DAGExecutor:
             processor_cls = resolve_processor_class(step.processor_name)
             processor = processor_cls()
         except (ImportError, Exception) as e:
-            raise ImportError(
-                f"Failed to resolve processor '{step.processor_name}': {e}"
-            ) from e
+            raise ImportError(f"Failed to resolve processor '{step.processor_name}': {e}") from e
 
         # Merge step params with kwargs
         merged_kwargs = {**kwargs, **step.params}
 
         try:
-            result = self._gpu.apply_transform(
-                processor, step_input, **merged_kwargs
-            )
+            result = self._gpu.apply_transform(processor, step_input, **merged_kwargs)
         except Exception as e:
             if GrdlError is not None and isinstance(e, GrdlError):
                 log.error(
                     "step_grdl_error",
-                    error_type=type(e).__name__, error=str(e),
+                    error_type=type(e).__name__,
+                    error=str(e),
                 )
             else:
                 log.error("step_failed", error=str(e))
-            raise RuntimeError(
-                f"DAG step '{step.processor_name}' ({step.id}) failed: {e}"
-            ) from e
+            raise RuntimeError(f"DAG step '{step.processor_name}' ({step.id}) failed: {e}") from e
 
         return result
 
     def _attempt_fallback(
         self,
         step: ProcessingStep,
-        step_input: Union[np.ndarray, Dict[str, np.ndarray]],
+        step_input: np.ndarray | dict[str, np.ndarray],
         original_error: Exception,
         *,
         log: Any = None,
         **kwargs: Any,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Attempt to execute a fallback processor for a failed step.
 
         Queries the catalog for alternatives, tries the first compatible
@@ -690,7 +691,8 @@ class DAGExecutor:
         alternatives = self._get_step_alternatives(step.processor_name)
         if not alternatives:
             log.warning(
-                "step_no_alternatives", step_id=step.id,
+                "step_no_alternatives",
+                step_id=step.id,
                 processor=step.processor_name,
             )
             return None
@@ -701,7 +703,8 @@ class DAGExecutor:
                 continue
 
             log.warning(
-                "step_fallback_attempt", step_id=step.id,
+                "step_fallback_attempt",
+                step_id=step.id,
                 original=step.processor_name,
                 fallback=alt_name,
             )
@@ -711,42 +714,49 @@ class DAGExecutor:
                 alt_processor = alt_cls()
                 merged_kwargs = {**kwargs, **step.params}
                 output = self._gpu.apply_transform(
-                    alt_processor, step_input, **merged_kwargs,
+                    alt_processor,
+                    step_input,
+                    **merged_kwargs,
                 )
 
                 with self._runtime_subs_lock:
-                    self._runtime_substitutions.append({
-                        "step_id": step.id,
-                        "original_processor": step.processor_name,
-                        "replacement_processor": alt_name,
-                        "reason": (
-                            f"Primary processor failed: {original_error}"
-                        ),
-                    })
+                    self._runtime_substitutions.append(
+                        {
+                            "step_id": step.id,
+                            "original_processor": step.processor_name,
+                            "replacement_processor": alt_name,
+                            "reason": (f"Primary processor failed: {original_error}"),
+                        }
+                    )
 
                 log.info(
-                    "step_fallback_success", step_id=step.id,
+                    "step_fallback_success",
+                    step_id=step.id,
                     fallback=alt_name,
                 )
                 return output
 
             except Exception as fallback_exc:
                 log.warning(
-                    "step_fallback_failed", step_id=step.id,
-                    fallback=alt_name, error=str(fallback_exc),
+                    "step_fallback_failed",
+                    step_id=step.id,
+                    fallback=alt_name,
+                    error=str(fallback_exc),
                 )
                 continue
 
         log.error(
-            "step_fallback_exhausted", step_id=step.id,
+            "step_fallback_exhausted",
+            step_id=step.id,
             processor=step.processor_name,
             tried=[a.get("processor_name", "") for a in alternatives],
         )
         return None
 
     def _get_step_alternatives(
-        self, processor_name: str,
-    ) -> List[Dict[str, Any]]:
+        self,
+        processor_name: str,
+    ) -> list[dict[str, Any]]:
         """Get alternative processors for a step from the catalog.
 
         Parameters
@@ -791,40 +801,37 @@ class DAGExecutor:
         run_folder: Path,
         started_at: str,
         status: str,
-        resolved_plan: Optional[ResolvedExecutionPlan],
-        step_metrics_list: List[StepMetrics],
+        resolved_plan: ResolvedExecutionPlan | None,
+        step_metrics_list: list[StepMetrics],
         total_wall: float,
         total_cpu: float,
         total_peak: int,
-        error_message: Optional[str] = None,
-        lineage_dict: Optional[Dict[str, Any]] = None,
+        error_message: str | None = None,
+        lineage_dict: dict[str, Any] | None = None,
         log: Any = None,
     ) -> None:
         """Write as_executed.json to the run folder."""
         log = log or logger
-        executed_records: List[ExecutedStepRecord] = []
+        executed_records: list[ExecutedStepRecord] = []
         for sm in step_metrics_list:
             sub = next(
-                (s for s in self._runtime_substitutions
-                 if s["step_id"] == sm.step_id),
+                (s for s in self._runtime_substitutions if s["step_id"] == sm.step_id),
                 None,
             )
-            executed_records.append(ExecutedStepRecord(
-                step_id=sm.step_id or "",
-                processor_name=sm.processor_name,
-                status=sm.status,
-                wall_time_s=sm.wall_time_s,
-                cpu_time_s=sm.cpu_time_s,
-                peak_rss_bytes=sm.peak_rss_bytes,
-                gpu_used=sm.gpu_used,
-                fallback_processor=(
-                    sub["replacement_processor"] if sub else None
-                ),
-                fallback_reason=sub["reason"] if sub else None,
-                error_message=(
-                    error_message if sm.status == "failed" else None
-                ),
-            ))
+            executed_records.append(
+                ExecutedStepRecord(
+                    step_id=sm.step_id or "",
+                    processor_name=sm.processor_name,
+                    status=sm.status,
+                    wall_time_s=sm.wall_time_s,
+                    cpu_time_s=sm.cpu_time_s,
+                    peak_rss_bytes=sm.peak_rss_bytes,
+                    gpu_used=sm.gpu_used,
+                    fallback_processor=(sub["replacement_processor"] if sub else None),
+                    fallback_reason=sub["reason"] if sub else None,
+                    error_message=(error_message if sm.status == "failed" else None),
+                )
+            )
 
         manifest = AsExecutedManifest(
             workflow_name=self._workflow.name,
@@ -833,12 +840,9 @@ class DAGExecutor:
             started_at=started_at,
             completed_at=_iso_now(),
             status=status,
-            hardware_context=(
-                resolved_plan.hardware_context if resolved_plan else {}
-            ),
+            hardware_context=(resolved_plan.hardware_context if resolved_plan else {}),
             planned_steps=(
-                {k: v.to_dict() for k, v in resolved_plan.steps.items()}
-                if resolved_plan else {}
+                {k: v.to_dict() for k, v in resolved_plan.steps.items()} if resolved_plan else {}
             ),
             executed_steps=executed_records,
             runtime_substitutions=list(self._runtime_substitutions),

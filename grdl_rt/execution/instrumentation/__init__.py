@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Instrumentation subpackage — execution hooks for metrics and tracing.
 
@@ -28,7 +27,7 @@ Created
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from grdl_rt.execution.context import ExecutionContext
@@ -96,7 +95,7 @@ class ExecutionHook:
         self,
         ctx: ExecutionContext,
         error: Exception,
-        step_index: Optional[int] = None,
+        step_index: int | None = None,
     ) -> None:
         """Called when an error occurs during execution."""
 

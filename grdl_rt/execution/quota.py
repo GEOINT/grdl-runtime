@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Resource Quota System — per-workflow memory, CPU, GPU, and wall-clock limits.
 
@@ -33,7 +32,6 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -69,20 +67,16 @@ class ResourceQuota:
         Maximum wall-clock seconds for the entire workflow execution.
     """
 
-    max_memory_bytes: Optional[int] = None
-    max_cpu_percent: Optional[float] = None
-    max_gpu_memory_bytes: Optional[int] = None
-    max_wall_clock_seconds: Optional[float] = None
+    max_memory_bytes: int | None = None
+    max_cpu_percent: float | None = None
+    max_gpu_memory_bytes: int | None = None
+    max_wall_clock_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.max_memory_bytes is not None and self.max_memory_bytes <= 0:
-            raise ValueError(
-                f"max_memory_bytes must be positive, got {self.max_memory_bytes}"
-            )
+            raise ValueError(f"max_memory_bytes must be positive, got {self.max_memory_bytes}")
         if self.max_cpu_percent is not None and self.max_cpu_percent <= 0:
-            raise ValueError(
-                f"max_cpu_percent must be positive, got {self.max_cpu_percent}"
-            )
+            raise ValueError(f"max_cpu_percent must be positive, got {self.max_cpu_percent}")
         if self.max_gpu_memory_bytes is not None and self.max_gpu_memory_bytes <= 0:
             raise ValueError(
                 f"max_gpu_memory_bytes must be positive, got {self.max_gpu_memory_bytes}"
@@ -137,10 +131,10 @@ class QuotaEnforcer:
     def __init__(self, quota: ResourceQuota) -> None:
         self._quota = quota
         self._start_time: float = 0.0
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._violation_event = threading.Event()
-        self._violation_detail: Optional[str] = None
+        self._violation_detail: str | None = None
 
     @property
     def quota(self) -> ResourceQuota:

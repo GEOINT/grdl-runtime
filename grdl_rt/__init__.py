@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 grdl-runtime — Headless execution engine for GRDL workflows.
 
@@ -15,140 +14,142 @@ Created
 2026-02-09
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Claude Code (Anthropic)"
 
 # ── API convenience functions ────────────────────────────────────────
-from grdl_rt.api import load_workflow, execute_workflow, resolve_workflow
-
-# ── Execution subpackage ─────────────────────────────────────────────
-from grdl_rt.execution import (
-    # tags
-    ImageModality,
-    DetectionType,
-    GpuCapability,
-    SegmentationType,
-    ProjectTags,
-    WorkflowTags,
-    # chip
-    ChipLabel,
-    PolygonRegion,
-    Chip,
-    ChipSet,
-    # config
-    RuntimeConfig,
-    LogConfig,
-    RetryDefaults,
-    MemoryConfig,
-    GpuConfig,
-    TapOutConfig,
-    QuotaConfig,
-    PrometheusConfig,
-    OtelConfig,
-    load_runtime_config,
-    get_runtime_config,
-    reset_runtime_config,
-    # gpu
-    GpuBackend,
-    # discovery
-    discover_processors,
-    resolve_processor_class,
-    get_processor_tags,
-    get_gpu_capability,
-    get_all_modalities,
-    get_all_categories,
-    filter_processors,
-    # workflow
-    WorkflowState,
-    ProcessingStep,
-    TapOutStepDef,
-    WorkflowDefinition,
-    # dsl
-    step,
-    tap_out,
-    workflow,
-    DslCompiler,
-    # project
-    GrdkProject,
-    # builder
-    Workflow,
-    WorkflowStep,
-    TapOutStep,
-    # executor
-    WorkflowExecutor,
-    # context
-    ExecutionContext,
-    configure_logging,
-    get_logger,
-    # metrics
-    StepMetrics,
-    WorkflowMetrics,
-    # result
-    WorkflowResult,
-    # validation
-    ValidationError,
-    validate_workflow,
-    # errors
-    StepRetryExhaustedError,
-    StepTimeoutError,
-    MemoryThresholdError,
-    CheckpointError,
-    ResumeError,
-    ResolutionError,
-    FallbackExhaustedError,
-    QuotaExceededError,
-    # hardware
-    GpuDeviceInfo,
-    HardwareContext,
-    LocalHardwareContext,
-    # plan
-    ResolvedStep,
-    ParallelGroup,
-    Substitution,
-    ResolvedExecutionPlan,
-    ExecutedStepRecord,
-    AsExecutedManifest,
-    # resolver
-    Resolver,
-    # resilience
-    RetryPolicy,
-    CircuitBreaker,
-    ShutdownCoordinator,
-    TilingStrategy,
-    # checkpoint
-    CheckpointState,
-    CheckpointManager,
-    compute_workflow_hash,
-    CHECKPOINT_SCHEMA_VERSION,
-    # history
-    ExecutionRecord,
-    ExecutionHistoryDB,
-    # quota
-    ResourceQuota,
-    QuotaEnforcer,
-    # instrumentation
-    ExecutionHook,
-    # lineage
-    DataLineage,
-    LineageTransform,
-    compute_array_hash,
-    build_lineage,
-    embed_lineage_geotiff,
-)
+from grdl_rt.api import execute_workflow, load_workflow, resolve_workflow
 
 # ── Catalog subpackage ───────────────────────────────────────────────
 from grdl_rt.catalog import (
     Artifact,
-    UpdateResult,
-    resolve_catalog_path,
-    ensure_config_dir,
-    ArtifactCatalogBase,
-    SqliteArtifactCatalog,
     ArtifactCatalog,
-    YamlArtifactCatalog,
-    FederatedArtifactCatalog,
+    ArtifactCatalogBase,
     ArtifactUpdateWorker,
+    FederatedArtifactCatalog,
+    SqliteArtifactCatalog,
     ThreadExecutorPool,
+    UpdateResult,
+    YamlArtifactCatalog,
+    ensure_config_dir,
+    resolve_catalog_path,
+)
+
+# ── Execution subpackage ─────────────────────────────────────────────
+from grdl_rt.execution import (
+    CHECKPOINT_SCHEMA_VERSION,
+    AsExecutedManifest,
+    CheckpointError,
+    CheckpointManager,
+    # checkpoint
+    CheckpointState,
+    Chip,
+    # chip
+    ChipLabel,
+    ChipSet,
+    CircuitBreaker,
+    # lineage
+    DataLineage,
+    DetectionType,
+    DslCompiler,
+    ExecutedStepRecord,
+    # context
+    ExecutionContext,
+    ExecutionHistoryDB,
+    # instrumentation
+    ExecutionHook,
+    ExecutionPhase,
+    # history
+    ExecutionRecord,
+    FallbackExhaustedError,
+    # gpu
+    GpuBackend,
+    GpuCapability,
+    GpuConfig,
+    # hardware
+    GpuDeviceInfo,
+    # project
+    GrdkProject,
+    HardwareContext,
+    # tags
+    ImageModality,
+    LineageTransform,
+    LocalHardwareContext,
+    LogConfig,
+    MemoryConfig,
+    MemoryThresholdError,
+    OtelConfig,
+    OutputFormat,
+    ParallelGroup,
+    PolygonRegion,
+    ProcessingStep,
+    ProjectTags,
+    PrometheusConfig,
+    QuotaConfig,
+    QuotaEnforcer,
+    QuotaExceededError,
+    ResolutionError,
+    ResolvedExecutionPlan,
+    # plan
+    ResolvedStep,
+    # resolver
+    Resolver,
+    # quota
+    ResourceQuota,
+    ResumeError,
+    RetryDefaults,
+    # resilience
+    RetryPolicy,
+    # config
+    RuntimeConfig,
+    SegmentationType,
+    ShutdownCoordinator,
+    # metrics
+    StepMetrics,
+    # errors
+    StepRetryExhaustedError,
+    StepTimeoutError,
+    Substitution,
+    TapOutConfig,
+    TapOutStep,
+    TapOutStepDef,
+    TilingStrategy,
+    # validation
+    ValidationError,
+    # builder
+    Workflow,
+    WorkflowDefinition,
+    # executor
+    WorkflowExecutor,
+    WorkflowMetrics,
+    # result
+    WorkflowResult,
+    # workflow
+    WorkflowState,
+    WorkflowStep,
+    WorkflowTags,
+    build_lineage,
+    compute_array_hash,
+    compute_workflow_hash,
+    configure_logging,
+    # discovery
+    discover_processors,
+    embed_lineage_geotiff,
+    filter_processors,
+    get_all_categories,
+    get_all_modalities,
+    get_gpu_capability,
+    get_logger,
+    get_processor_tags,
+    get_runtime_config,
+    load_runtime_config,
+    reset_runtime_config,
+    resolve_processor_class,
+    # dsl
+    step,
+    tap_out,
+    validate_workflow,
+    workflow,
 )
 
 __all__ = [
@@ -159,7 +160,9 @@ __all__ = [
     # execution: tags
     "ImageModality",
     "DetectionType",
+    "ExecutionPhase",
     "GpuCapability",
+    "OutputFormat",
     "SegmentationType",
     "ProjectTags",
     "WorkflowTags",

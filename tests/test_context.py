@@ -25,10 +25,10 @@ from grdl_rt.execution.context import (
     get_logger,
 )
 
-
 # ---------------------------------------------------------------------------
 # ExecutionContext
 # ---------------------------------------------------------------------------
+
 
 class TestExecutionContext:
     def test_fields_assigned(self):
@@ -75,6 +75,7 @@ class TestExecutionContext:
 # configure_logging
 # ---------------------------------------------------------------------------
 
+
 class TestConfigureLogging:
     def test_json_output_produces_parseable_json(self):
         configure_logging(json_output=True, level=logging.DEBUG)
@@ -110,6 +111,7 @@ class TestConfigureLogging:
 # ---------------------------------------------------------------------------
 # get_logger
 # ---------------------------------------------------------------------------
+
 
 class TestGetLogger:
     def test_returns_bound_logger(self):

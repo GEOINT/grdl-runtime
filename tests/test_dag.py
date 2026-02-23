@@ -39,10 +39,10 @@ from grdl_rt.execution.workflow import (
     WorkflowState,
 )
 
-
 # ---------------------------------------------------------------------------
 # Condition Evaluator — Safe evaluation
 # ---------------------------------------------------------------------------
+
 
 class TestEvaluateCondition:
 
@@ -69,8 +69,10 @@ class TestEvaluateCondition:
 
     def test_dotted_attribute_object(self):
         """Dotted access falls back to getattr for objects."""
+
         class Meta:
             band_count = 4
+
         ctx = {"metadata": Meta()}
         assert evaluate_condition("metadata.band_count > 2", ctx) is True
 
@@ -150,6 +152,7 @@ class TestEvaluateCondition:
 # Condition Evaluator — Safety checks
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateConditionSafety:
 
     def test_rejects_function_call(self):
@@ -185,6 +188,7 @@ class TestEvaluateConditionSafety:
 # ---------------------------------------------------------------------------
 # Workflow DAG — Step ID assignment and linear inference
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowDAGStructure:
 
@@ -242,10 +246,13 @@ class TestWorkflowDAGStructure:
         assert set(terminals) == {"b1", "b2"}
 
     def test_terminal_step_ids_linear(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0"),
-            ProcessingStep("B", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0"),
+                ProcessingStep("B", "1.0"),
+            ],
+        )
         terminals = wf.terminal_step_ids()
         assert len(terminals) == 1
         assert terminals[0] == wf.steps[-1].id
@@ -255,14 +262,18 @@ class TestWorkflowDAGStructure:
 # Topological Sort
 # ---------------------------------------------------------------------------
 
+
 class TestTopologicalSort:
 
     def test_linear_pipeline(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0"),
-            ProcessingStep("B", "1.0"),
-            ProcessingStep("C", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0"),
+                ProcessingStep("B", "1.0"),
+                ProcessingStep("C", "1.0"),
+            ],
+        )
         levels = wf.topological_sort()
         # Linear: each level has one step
         assert len(levels) == 3
@@ -272,12 +283,15 @@ class TestTopologicalSort:
 
     def test_branching_dag(self):
         """root → [b1, b2] → merge"""
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="root"),
-            ProcessingStep("B", "1.0", id="b1", depends_on=["root"]),
-            ProcessingStep("C", "1.0", id="b2", depends_on=["root"]),
-            ProcessingStep("D", "1.0", id="merge", depends_on=["b1", "b2"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="root"),
+                ProcessingStep("B", "1.0", id="b1", depends_on=["root"]),
+                ProcessingStep("C", "1.0", id="b2", depends_on=["root"]),
+                ProcessingStep("D", "1.0", id="merge", depends_on=["b1", "b2"]),
+            ],
+        )
         levels = wf.topological_sort()
         # Level 0: root; Level 1: b1, b2; Level 2: merge
         assert len(levels) == 3
@@ -287,19 +301,25 @@ class TestTopologicalSort:
 
     def test_diamond_dag(self):
         """Diamond shape: root → [a, b] → merge"""
-        wf = WorkflowDefinition(name="Diamond", steps=[
-            ProcessingStep("Root", "1.0", id="root"),
-            ProcessingStep("Left", "1.0", id="left", depends_on=["root"]),
-            ProcessingStep("Right", "1.0", id="right", depends_on=["root"]),
-            ProcessingStep("Merge", "1.0", id="merge", depends_on=["left", "right"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Diamond",
+            steps=[
+                ProcessingStep("Root", "1.0", id="root"),
+                ProcessingStep("Left", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("Right", "1.0", id="right", depends_on=["root"]),
+                ProcessingStep("Merge", "1.0", id="merge", depends_on=["left", "right"]),
+            ],
+        )
         levels = wf.topological_sort()
         assert len(levels) == 3
 
     def test_single_step(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0"),
+            ],
+        )
         levels = wf.topological_sort()
         assert len(levels) == 1
         assert len(levels[0]) == 1
@@ -330,13 +350,17 @@ class TestTopologicalSort:
 # DAG Validation
 # ---------------------------------------------------------------------------
 
+
 class TestDAGValidation:
 
     def test_valid_dag(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="root"),
-            ProcessingStep("B", "1.0", id="child", depends_on=["root"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="root"),
+                ProcessingStep("B", "1.0", id="child", depends_on=["root"]),
+            ],
+        )
         errors = wf.validate_dag()
         assert errors == []
 
@@ -391,6 +415,7 @@ class TestDAGValidation:
 # Execution Phases
 # ---------------------------------------------------------------------------
 
+
 class TestExecutionPhases:
 
     def test_phase_enum_values(self):
@@ -411,44 +436,55 @@ class TestExecutionPhases:
 # Validation — Phase ordering and conditions
 # ---------------------------------------------------------------------------
 
+
 class TestValidationExtended:
 
     def test_phase_order_violation(self):
         """Step in IO phase depends on step in FINALIZATION phase = warning."""
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="final", phase="finalization"),
-            ProcessingStep("B", "1.0", id="io_step", phase="io",
-                           depends_on=["final"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="final", phase="finalization"),
+                ProcessingStep("B", "1.0", id="io_step", phase="io", depends_on=["final"]),
+            ],
+        )
         errors = validate_workflow(wf)
         phase_errors = [e for e in errors if e.code == "PHASE_ORDER_VIOLATION"]
         assert len(phase_errors) >= 1
 
     def test_valid_phase_ordering(self):
         """IO → FINALIZATION is valid ordering."""
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="io_step", phase="io"),
-            ProcessingStep("B", "1.0", id="final", phase="finalization",
-                           depends_on=["io_step"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="io_step", phase="io"),
+                ProcessingStep(
+                    "B", "1.0", id="final", phase="finalization", depends_on=["io_step"]
+                ),
+            ],
+        )
         errors = validate_workflow(wf)
         phase_errors = [e for e in errors if e.code == "PHASE_ORDER_VIOLATION"]
         assert len(phase_errors) == 0
 
     def test_invalid_condition_syntax(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="s1",
-                           condition="x >>>> 0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="s1", condition="x >>>> 0"),
+            ],
+        )
         errors = validate_workflow(wf)
         cond_errors = [e for e in errors if e.code == "INVALID_CONDITION"]
         assert len(cond_errors) >= 1
 
     def test_valid_condition_passes(self):
-        wf = WorkflowDefinition(name="Test", steps=[
-            ProcessingStep("A", "1.0", id="s1",
-                           condition="x > 0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Test",
+            steps=[
+                ProcessingStep("A", "1.0", id="s1", condition="x > 0"),
+            ],
+        )
         errors = validate_workflow(wf)
         cond_errors = [e for e in errors if e.code == "INVALID_CONDITION"]
         assert len(cond_errors) == 0
@@ -503,11 +539,13 @@ class TestValidationExtended:
 # Serialization — to_dict / from_dict round-trip
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowSerialization:
 
     def test_processing_step_round_trip(self):
         s = ProcessingStep(
-            "FilterA", "1.0",
+            "FilterA",
+            "1.0",
             params={"k": 3},
             id="read",
             depends_on=["prev"],
@@ -538,15 +576,20 @@ class TestWorkflowSerialization:
         assert restored.depends_on == ["prev"]
 
     def test_workflow_dict_round_trip(self):
-        wf = WorkflowDefinition(name="Test DAG", version="1.0.0", steps=[
-            ProcessingStep("A", "1.0", id="root"),
-            ProcessingStep("B", "1.0", id="b1", depends_on=["root"],
-                           condition="x > 1", phase="data_prep"),
-            ProcessingStep("C", "1.0", id="b2", depends_on=["root"]),
-            ProcessingStep("D", "1.0", id="merge", depends_on=["b1", "b2"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Test DAG",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("A", "1.0", id="root"),
+                ProcessingStep(
+                    "B", "1.0", id="b1", depends_on=["root"], condition="x > 1", phase="data_prep"
+                ),
+                ProcessingStep("C", "1.0", id="b2", depends_on=["root"]),
+                ProcessingStep("D", "1.0", id="merge", depends_on=["b1", "b2"]),
+            ],
+        )
         d = wf.to_dict()
-        assert d['schema_version'] == SCHEMA_VERSION
+        assert d["schema_version"] == SCHEMA_VERSION
 
         restored = WorkflowDefinition.from_dict(d)
         assert restored.name == "Test DAG"
@@ -559,13 +602,13 @@ class TestWorkflowSerialization:
     def test_old_v1_format_loads(self):
         """v1 YAML (no schema_version) still loads correctly."""
         data = {
-            'name': 'Old Pipeline',
-            'version': '1.0.0',
-            'state': 'draft',
-            'tags': {},
-            'steps': [
-                {'processor': 'FilterA', 'version': '1.0', 'params': {'k': 3}},
-                {'processor': 'FilterB', 'version': '1.0'},
+            "name": "Old Pipeline",
+            "version": "1.0.0",
+            "state": "draft",
+            "tags": {},
+            "steps": [
+                {"processor": "FilterA", "version": "1.0", "params": {"k": 3}},
+                {"processor": "FilterB", "version": "1.0"},
             ],
         }
         wf = WorkflowDefinition.from_dict(data)
@@ -580,22 +623,34 @@ class TestWorkflowSerialization:
 # YAML Round-trip with DAG fields
 # ---------------------------------------------------------------------------
 
+
 class TestYAMLRoundTrip:
 
     def test_dag_yaml_round_trip(self):
         compiler = DslCompiler()
-        wf = WorkflowDefinition(name="DAG Test", version="2.0.0", steps=[
-            ProcessingStep("Read", "1.0", id="read", phase="io"),
-            ProcessingStep("Band1", "1.0", id="band1",
-                           depends_on=["read"], phase="data_prep"),
-            ProcessingStep("Band2", "1.0", id="band2",
-                           depends_on=["read"],
-                           condition="metadata.band_count > 1",
-                           phase="data_prep"),
-            ProcessingStep("Merge", "1.0", id="merge",
-                           depends_on=["band1", "band2"],
-                           phase="global_processing"),
-        ])
+        wf = WorkflowDefinition(
+            name="DAG Test",
+            version="2.0.0",
+            steps=[
+                ProcessingStep("Read", "1.0", id="read", phase="io"),
+                ProcessingStep("Band1", "1.0", id="band1", depends_on=["read"], phase="data_prep"),
+                ProcessingStep(
+                    "Band2",
+                    "1.0",
+                    id="band2",
+                    depends_on=["read"],
+                    condition="metadata.band_count > 1",
+                    phase="data_prep",
+                ),
+                ProcessingStep(
+                    "Merge",
+                    "1.0",
+                    id="merge",
+                    depends_on=["band1", "band2"],
+                    phase="global_processing",
+                ),
+            ],
+        )
         yaml_str = compiler.to_yaml(wf)
         assert "schema_version" in yaml_str
         assert "depends_on" in yaml_str
@@ -636,13 +691,15 @@ steps:
 
     def test_dag_yaml_with_tap_out(self):
         compiler = DslCompiler()
-        wf = WorkflowDefinition(name="Tap DAG", version="1.0.0", steps=[
-            ProcessingStep("A", "1.0", id="root"),
-            TapOutStepDef("intermediate.tif", id="tap",
-                          depends_on=["root"]),
-            ProcessingStep("B", "1.0", id="final",
-                           depends_on=["tap"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Tap DAG",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("A", "1.0", id="root"),
+                TapOutStepDef("intermediate.tif", id="tap", depends_on=["root"]),
+                ProcessingStep("B", "1.0", id="final", depends_on=["tap"]),
+            ],
+        )
         yaml_str = compiler.to_yaml(wf)
         restored = compiler.compile_yaml_string(yaml_str)
         assert len(restored.steps) == 3
@@ -654,14 +711,14 @@ steps:
 # Python DSL with DAG fields
 # ---------------------------------------------------------------------------
 
+
 class TestDSLWithDAG:
 
     def test_step_with_dag_fields(self):
         @workflow(name="DAG DSL", version="2.0.0")
         def dag_pipeline():
             step("Read", version="1.0", id="read", phase="io")
-            step("Process", version="1.0", id="proc",
-                 depends_on=["read"], condition="x > 0")
+            step("Process", version="1.0", id="proc", depends_on=["read"], condition="x > 0")
 
         wf = dag_pipeline._workflow_definition
         assert len(wf.steps) == 2
@@ -672,13 +729,21 @@ class TestDSLWithDAG:
 
     def test_to_python_includes_dag_fields(self):
         compiler = DslCompiler()
-        wf = WorkflowDefinition(name="Python Gen", version="1.0.0", steps=[
-            ProcessingStep("A", "1.0", id="root", phase="io"),
-            ProcessingStep("B", "1.0", id="child",
-                           depends_on=["root"],
-                           condition="x > 1",
-                           phase="data_prep"),
-        ])
+        wf = WorkflowDefinition(
+            name="Python Gen",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("A", "1.0", id="root", phase="io"),
+                ProcessingStep(
+                    "B",
+                    "1.0",
+                    id="child",
+                    depends_on=["root"],
+                    condition="x > 1",
+                    phase="data_prep",
+                ),
+            ],
+        )
         source = compiler.to_python(wf)
         assert 'id="root"' in source
         assert 'depends_on=["root"]' in source
@@ -689,6 +754,7 @@ class TestDSLWithDAG:
 # ---------------------------------------------------------------------------
 # Schema Version
 # ---------------------------------------------------------------------------
+
 
 class TestSchemaVersion:
 
@@ -702,4 +768,4 @@ class TestSchemaVersion:
     def test_serialized_includes_schema_version(self):
         wf = WorkflowDefinition(name="Test")
         d = wf.to_dict()
-        assert d['schema_version'] == "2.0"
+        assert d["schema_version"] == "2.0"

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 DAG Utilities — Safe condition evaluator and topological sort.
 
@@ -28,8 +27,7 @@ Created
 # Standard library
 import ast
 import operator
-from typing import Any, Dict
-
+from typing import Any
 
 # Allowed comparison operators
 _CMP_OPS = {
@@ -64,7 +62,7 @@ _UNARY_OPS = {
 }
 
 
-def evaluate_condition(expression: str, context: Dict[str, Any]) -> bool:
+def evaluate_condition(expression: str, context: dict[str, Any]) -> bool:
     """Safely evaluate a condition expression against a context.
 
     Uses Python's ``ast`` module to parse the expression and walks
@@ -93,7 +91,7 @@ def evaluate_condition(expression: str, context: Dict[str, Any]) -> bool:
         calls, imports, assignments, etc.).
     """
     try:
-        tree = ast.parse(expression, mode='eval')
+        tree = ast.parse(expression, mode="eval")
     except SyntaxError as e:
         raise ValueError(f"Invalid condition expression: {e}") from e
 
@@ -101,7 +99,7 @@ def evaluate_condition(expression: str, context: Dict[str, Any]) -> bool:
     return bool(result)
 
 
-def _eval_node(node: ast.AST, context: Dict[str, Any]) -> Any:
+def _eval_node(node: ast.AST, context: dict[str, Any]) -> Any:
     """Recursively evaluate an AST node against the context."""
 
     # Constants: numbers, strings, booleans, None
@@ -113,24 +111,21 @@ def _eval_node(node: ast.AST, context: Dict[str, Any]) -> Any:
         if node.id in context:
             return context[node.id]
         # Support Python builtins True/False/None as names (Python 3.7 compat)
-        if node.id == 'True':
+        if node.id == "True":
             return True
-        if node.id == 'False':
+        if node.id == "False":
             return False
-        if node.id == 'None':
+        if node.id == "None":
             return None
-        raise ValueError(
-            f"Unknown variable '{node.id}' in condition expression"
-        )
+        raise ValueError(f"Unknown variable '{node.id}' in condition expression")
 
     # Dotted attribute access: metadata.band_count
     if isinstance(node, ast.Attribute):
         value = _eval_node(node.value, context)
         attr = node.attr
         # Try dict key first, then getattr
-        if isinstance(value, dict):
-            if attr in value:
-                return value[attr]
+        if isinstance(value, dict) and attr in value:
+            return value[attr]
         return getattr(value, attr)
 
     # Subscript: metadata["key"]
@@ -142,13 +137,11 @@ def _eval_node(node: ast.AST, context: Dict[str, Any]) -> Any:
     # Comparisons: a > b, a == b, a in b, etc.
     if isinstance(node, ast.Compare):
         left = _eval_node(node.left, context)
-        for op, comparator in zip(node.ops, node.comparators):
+        for op, comparator in zip(node.ops, node.comparators, strict=False):
             right = _eval_node(comparator, context)
             op_func = _CMP_OPS.get(type(op))
             if op_func is None:
-                raise ValueError(
-                    f"Unsupported comparison operator: {type(op).__name__}"
-                )
+                raise ValueError(f"Unsupported comparison operator: {type(op).__name__}")
             if not op_func(left, right):
                 return False
             left = right
@@ -160,26 +153,20 @@ def _eval_node(node: ast.AST, context: Dict[str, Any]) -> Any:
             return all(_eval_node(v, context) for v in node.values)
         if isinstance(node.op, ast.Or):
             return any(_eval_node(v, context) for v in node.values)
-        raise ValueError(
-            f"Unsupported boolean operator: {type(node.op).__name__}"
-        )
+        raise ValueError(f"Unsupported boolean operator: {type(node.op).__name__}")
 
     # Unary operators: not, -, +
     if isinstance(node, ast.UnaryOp):
         op_func = _UNARY_OPS.get(type(node.op))
         if op_func is None:
-            raise ValueError(
-                f"Unsupported unary operator: {type(node.op).__name__}"
-            )
+            raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
         return op_func(_eval_node(node.operand, context))
 
     # Binary operators: +, -, *, /, //, %, **
     if isinstance(node, ast.BinOp):
         op_func = _BIN_OPS.get(type(node.op))
         if op_func is None:
-            raise ValueError(
-                f"Unsupported binary operator: {type(node.op).__name__}"
-            )
+            raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
         left = _eval_node(node.left, context)
         right = _eval_node(node.right, context)
         return op_func(left, right)
@@ -198,7 +185,4 @@ def _eval_node(node: ast.AST, context: Dict[str, Any]) -> Any:
         return [_eval_node(elt, context) for elt in node.elts]
 
     # Reject everything else (Call, Lambda, Import, etc.)
-    raise ValueError(
-        f"Disallowed construct in condition expression: "
-        f"{type(node).__name__}"
-    )
+    raise ValueError(f"Disallowed construct in condition expression: " f"{type(node).__name__}")

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Chip Models - Data models for image chips and labeled chip collections.
 
@@ -31,7 +30,7 @@ Modified
 
 # Standard library
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Third-party
 import numpy as np
@@ -60,13 +59,13 @@ class PolygonRegion:
     def __init__(
         self,
         vertices: np.ndarray,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         self.vertices = np.asarray(vertices, dtype=np.float64)
         self.name = name
 
     @property
-    def bounding_box(self) -> Dict[str, int]:
+    def bounding_box(self) -> dict[str, int]:
         """Axis-aligned bounding box enclosing the polygon.
 
         Returns
@@ -80,10 +79,10 @@ class PolygonRegion:
         col_min = int(np.floor(self.vertices[:, 1].min()))
         col_max = int(np.ceil(self.vertices[:, 1].max()))
         return {
-            'row_start': row_min,
-            'row_end': row_max,
-            'col_start': col_min,
-            'col_end': col_max,
+            "row_start": row_min,
+            "row_end": row_max,
+            "col_start": col_min,
+            "col_end": col_max,
         }
 
     def to_dict(self) -> dict:
@@ -94,12 +93,12 @@ class PolygonRegion:
         dict
         """
         return {
-            'vertices': self.vertices.tolist(),
-            'name': self.name,
+            "vertices": self.vertices.tolist(),
+            "name": self.name,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'PolygonRegion':
+    def from_dict(cls, data: dict) -> "PolygonRegion":
         """Deserialize from dictionary.
 
         Parameters
@@ -111,8 +110,8 @@ class PolygonRegion:
         PolygonRegion
         """
         return cls(
-            vertices=np.array(data['vertices']),
-            name=data.get('name'),
+            vertices=np.array(data["vertices"]),
+            name=data.get("name"),
         )
 
 
@@ -144,8 +143,8 @@ class Chip:
         source_image_name: str,
         polygon_region: PolygonRegion,
         label: ChipLabel = ChipLabel.UNKNOWN,
-        timestamp: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        timestamp: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self.image_data = image_data
         self.source_image_index = source_image_index
@@ -169,8 +168,8 @@ class ChipSet:
 
     def __init__(
         self,
-        chips: Optional[List[Chip]] = None,
-        polygon_regions: Optional[List[PolygonRegion]] = None,
+        chips: list[Chip] | None = None,
+        polygon_regions: list[PolygonRegion] | None = None,
     ) -> None:
         self.chips = chips or []
         self.polygon_regions = polygon_regions or []
@@ -193,7 +192,7 @@ class ChipSet:
         """
         self.chips.append(chip)
 
-    def chips_for_region(self, region: PolygonRegion) -> List[Chip]:
+    def chips_for_region(self, region: PolygonRegion) -> list[Chip]:
         """Get all chips extracted from a specific polygon region.
 
         Parameters
@@ -207,7 +206,7 @@ class ChipSet:
         return [c for c in self.chips if c.polygon_region is region]
 
     @property
-    def label_counts(self) -> Dict[str, int]:
+    def label_counts(self) -> dict[str, int]:
         """Count of chips by label.
 
         Returns
@@ -215,7 +214,7 @@ class ChipSet:
         Dict[str, int]
             Keys are ChipLabel values, values are counts.
         """
-        counts: Dict[str, int] = {label.value: 0 for label in ChipLabel}
+        counts: dict[str, int] = {label.value: 0 for label in ChipLabel}
         for chip in self.chips:
             counts[chip.label.value] += 1
         return counts

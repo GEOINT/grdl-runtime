@@ -31,10 +31,10 @@ from grdl_rt.execution.lineage import (
 )
 from grdl_rt.execution.workflow import ProcessingStep
 
-
 # ---------------------------------------------------------------------------
 # compute_array_hash
 # ---------------------------------------------------------------------------
+
 
 class TestComputeArrayHash:
     def test_deterministic(self, grayscale_8x8):
@@ -60,6 +60,7 @@ class TestComputeArrayHash:
 # ---------------------------------------------------------------------------
 # LineageTransform
 # ---------------------------------------------------------------------------
+
 
 class TestLineageTransform:
     def test_to_dict(self):
@@ -100,6 +101,7 @@ class TestLineageTransform:
 # ---------------------------------------------------------------------------
 # DataLineage round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestDataLineage:
     def test_roundtrip(self):
@@ -149,6 +151,7 @@ class TestDataLineage:
 # build_lineage
 # ---------------------------------------------------------------------------
 
+
 class TestBuildLineage:
     def test_basic(self):
         """Build lineage from source, result, mock steps and metrics."""
@@ -193,6 +196,7 @@ class TestBuildLineage:
 # ---------------------------------------------------------------------------
 # embed_lineage_geotiff
 # ---------------------------------------------------------------------------
+
 
 class TestEmbedLineageGeotiff:
     def _make_lineage(self):

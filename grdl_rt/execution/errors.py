@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Custom exceptions for resilient workflow execution.
 
@@ -21,8 +20,6 @@ Created
 2026-02-11
 """
 
-from typing import List
-
 
 class StepRetryExhaustedError(Exception):
     """All retry attempts for a workflow step have been exhausted.
@@ -35,15 +32,12 @@ class StepRetryExhaustedError(Exception):
         Exception from each attempt, ordered chronologically.
     """
 
-    def __init__(self, step_name: str, attempts: List[Exception]) -> None:
+    def __init__(self, step_name: str, attempts: list[Exception]) -> None:
         self.step_name = step_name
         self.attempts = list(attempts)
         n = len(self.attempts)
         last = self.attempts[-1] if self.attempts else "unknown"
-        super().__init__(
-            f"Step '{step_name}' failed after {n} attempt(s). "
-            f"Last error: {last}"
-        )
+        super().__init__(f"Step '{step_name}' failed after {n} attempt(s). " f"Last error: {last}")
 
 
 class StepTimeoutError(Exception):
@@ -60,9 +54,7 @@ class StepTimeoutError(Exception):
     def __init__(self, step_name: str, timeout_seconds: float) -> None:
         self.step_name = step_name
         self.timeout_seconds = timeout_seconds
-        super().__init__(
-            f"Step '{step_name}' timed out after {timeout_seconds}s"
-        )
+        super().__init__(f"Step '{step_name}' timed out after {timeout_seconds}s")
 
 
 class CheckpointError(Exception):
@@ -116,9 +108,7 @@ class ConditionError(ValueError):
 
     def __init__(self, expression: str, reason: str) -> None:
         self.expression = expression
-        super().__init__(
-            f"Condition '{expression}' failed: {reason}"
-        )
+        super().__init__(f"Condition '{expression}' failed: {reason}")
 
 
 class ResolutionError(Exception):
@@ -136,8 +126,7 @@ class ResolutionError(Exception):
         self.step_id = step_id
         self.processor_name = processor_name
         super().__init__(
-            f"Cannot resolve step '{step_id}' processor "
-            f"'{processor_name}': {reason}"
+            f"Cannot resolve step '{step_id}' processor " f"'{processor_name}': {reason}"
         )
 
 
@@ -155,7 +144,10 @@ class FallbackExhaustedError(Exception):
     """
 
     def __init__(
-        self, step_id: str, original: str, tried: List[str],
+        self,
+        step_id: str,
+        original: str,
+        tried: list[str],
     ) -> None:
         self.step_id = step_id
         self.original_processor = original
@@ -183,9 +175,7 @@ class QuotaExceededError(Exception):
         self.quota_type = quota_type
         self.limit = limit
         self.actual = actual
-        super().__init__(
-            f"Quota exceeded: {quota_type} limit={limit}, actual={actual}"
-        )
+        super().__init__(f"Quota exceeded: {quota_type} limit={limit}, actual={actual}")
 
 
 class MemoryThresholdError(Exception):
@@ -210,7 +200,7 @@ class MemoryThresholdError(Exception):
         self.estimated_bytes = estimated_bytes
         self.available_bytes = available_bytes
         self.threshold = threshold
-        ratio = estimated_bytes / available_bytes if available_bytes > 0 else float('inf')
+        ratio = estimated_bytes / available_bytes if available_bytes > 0 else float("inf")
         super().__init__(
             f"Estimated memory {estimated_bytes / 1e9:.2f} GB is "
             f"{ratio:.0%} of available {available_bytes / 1e9:.2f} GB "

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Parameter Schema Extraction — JSON Schema generation from processor metadata.
 
@@ -27,10 +26,10 @@ Created
 """
 
 # Standard library
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 # Type map: Python type → JSON Schema type string
-_TYPE_MAP: Dict[type, str] = {
+_TYPE_MAP: dict[type, str] = {
     int: "integer",
     float: "number",
     str: "string",
@@ -38,7 +37,7 @@ _TYPE_MAP: Dict[type, str] = {
 }
 
 
-def extract_param_schema(processor_class: type) -> Dict[str, Any]:
+def extract_param_schema(processor_class: type) -> dict[str, Any]:
     """Produce a JSON Schema from a processor's ``__param_specs__``.
 
     Introspects the ``__param_specs__`` tuple (built by
@@ -67,9 +66,9 @@ def extract_param_schema(processor_class: type) -> Dict[str, Any]:
         A valid JSON Schema document.  Returns an empty ``object``
         schema when the class has no ``__param_specs__``.
     """
-    param_specs: Optional[Tuple] = getattr(processor_class, '__param_specs__', None)
+    param_specs: tuple | None = getattr(processor_class, "__param_specs__", None)
 
-    schema: Dict[str, Any] = {
+    schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {},
@@ -94,9 +93,9 @@ def extract_param_schema(processor_class: type) -> Dict[str, Any]:
     return schema
 
 
-def _spec_to_property(spec: Any) -> Dict[str, Any]:
+def _spec_to_property(spec: Any) -> dict[str, Any]:
     """Convert a single ``ParamSpec`` to a JSON Schema property dict."""
-    prop: Dict[str, Any] = {}
+    prop: dict[str, Any] = {}
 
     # Base type mapping
     json_type = _TYPE_MAP.get(spec.param_type)

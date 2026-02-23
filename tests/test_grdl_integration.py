@@ -43,10 +43,10 @@ from grdl_rt.execution.discovery import (
 )
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ---------------------------------------------------------------------------
 # __gpu_compatible__ flag in GpuBackend
 # ---------------------------------------------------------------------------
+
 
 class TestGpuCompatibleFlag:
     def test_gpu_incompatible_skips_gpu_dispatch(self):
@@ -92,11 +92,12 @@ class TestGpuCompatibleFlag:
 # progress_callback in WorkflowExecutor
 # ---------------------------------------------------------------------------
 
+
 class _ScaleTransform:
     def apply(self, source, **kwargs):
         # Consume and ignore progress_callback like GRDL processors do
-        kwargs.pop('progress_callback', None)
-        return source * kwargs.get('scale', 1.0)
+        kwargs.pop("progress_callback", None)
+        return source * kwargs.get("scale", 1.0)
 
 
 class TestProgressCallback:
@@ -106,18 +107,19 @@ class TestProgressCallback:
             wf.add_step(s)
         return wf
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_progress_callback_called_per_step(self, mock_resolve):
         mock_resolve.return_value = _ScaleTransform
 
         steps = [
-            ProcessingStep('ScaleTransform', '1.0', params={'scale': 2.0}),
-            ProcessingStep('ScaleTransform', '1.0', params={'scale': 3.0}),
+            ProcessingStep("ScaleTransform", "1.0", params={"scale": 2.0}),
+            ProcessingStep("ScaleTransform", "1.0", params={"scale": 3.0}),
         ]
         wf = self._make_workflow(steps)
         executor = WorkflowExecutor(wf)
 
         progress_values = []
+
         def cb(fraction):
             progress_values.append(round(fraction, 4))
 
@@ -129,11 +131,11 @@ class TestProgressCallback:
         assert 1.0 in progress_values
         np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * 6.0)
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_progress_callback_none_is_safe(self, mock_resolve):
         mock_resolve.return_value = _ScaleTransform
 
-        step = ProcessingStep('ScaleTransform', '1.0', params={'scale': 5.0})
+        step = ProcessingStep("ScaleTransform", "1.0", params={"scale": 5.0})
         wf = self._make_workflow([step])
         executor = WorkflowExecutor(wf)
 
@@ -142,7 +144,7 @@ class TestProgressCallback:
         wr = executor.execute(source, progress_callback=None)
         np.testing.assert_array_almost_equal(wr.result, np.ones((2, 2)) * 5.0)
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_progress_callback_forwarded_to_processor(self, mock_resolve):
         """progress_callback should be passed as kwarg to processor.apply()."""
         received_kwargs = {}
@@ -150,25 +152,26 @@ class TestProgressCallback:
         class CapturingTransform:
             def apply(self, source, **kwargs):
                 received_kwargs.update(kwargs)
-                kwargs.pop('progress_callback', None)
+                kwargs.pop("progress_callback", None)
                 return source
 
         mock_resolve.return_value = CapturingTransform
 
-        step = ProcessingStep('CapturingTransform', '1.0')
+        step = ProcessingStep("CapturingTransform", "1.0")
         wf = self._make_workflow([step])
         executor = WorkflowExecutor(wf)
 
         source = np.ones((2, 2))
         executor.execute(source, progress_callback=lambda f: None)
 
-        assert 'progress_callback' in received_kwargs
-        assert callable(received_kwargs['progress_callback'])
+        assert "progress_callback" in received_kwargs
+        assert callable(received_kwargs["progress_callback"])
 
 
 # ---------------------------------------------------------------------------
 # GrdlError exception handling
 # ---------------------------------------------------------------------------
+
 
 class TestGrdlErrorHandling:
     def _make_workflow(self, steps):
@@ -177,7 +180,7 @@ class TestGrdlErrorHandling:
             wf.add_step(s)
         return wf
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_runtime_error_wraps_processor_failure(self, mock_resolve):
         class FailingTransform:
             def apply(self, source, **kwargs):
@@ -185,14 +188,14 @@ class TestGrdlErrorHandling:
 
         mock_resolve.return_value = FailingTransform
 
-        step = ProcessingStep('FailingTransform', '1.0')
+        step = ProcessingStep("FailingTransform", "1.0")
         wf = self._make_workflow([step])
         executor = WorkflowExecutor(wf)
 
         with pytest.raises(RuntimeError, match="Pipeline step 'FailingTransform' failed"):
             executor.execute(np.ones((2, 2)))
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_grdl_error_logged_distinctly(self, mock_resolve):
         """When GrdlError is available, it should be caught and logged."""
         try:
@@ -204,7 +207,7 @@ class TestGrdlErrorHandling:
 
             mock_resolve.return_value = GrdlFailingTransform
 
-            step = ProcessingStep('GrdlFailingTransform', '1.0')
+            step = ProcessingStep("GrdlFailingTransform", "1.0")
             wf = self._make_workflow([step])
             executor = WorkflowExecutor(wf)
 
@@ -218,18 +221,19 @@ class TestGrdlErrorHandling:
 # Processor tag discovery
 # ---------------------------------------------------------------------------
 
+
 class TestProcessorTags:
     def test_get_processor_tags_with_tags(self):
         """Class with __processor_tags__ should return the dict."""
         cls = MagicMock()
         cls.__processor_tags__ = {
-            'modalities': ('SAR', 'PAN'),
-            'category': 'spatial_filter',
-            'description': None,
+            "modalities": ("SAR", "PAN"),
+            "category": "spatial_filter",
+            "description": None,
         }
         tags = get_processor_tags(cls)
-        assert tags['modalities'] == ('SAR', 'PAN')
-        assert tags['category'] == 'spatial_filter'
+        assert tags["modalities"] == ("SAR", "PAN")
+        assert tags["category"] == "spatial_filter"
 
     def test_get_processor_tags_without_tags(self):
         """Class without __processor_tags__ should return empty dict."""
@@ -253,24 +257,25 @@ class TestProcessorTags:
         """Filtering by a valid modality should return a subset."""
         all_procs = discover_processors()
         # Filter by a modality that may or may not exist
-        filtered = filter_processors(modality='SAR')
+        filtered = filter_processors(modality="SAR")
         # Filtered result should be a subset
         assert set(filtered.keys()).issubset(set(all_procs.keys()))
 
     def test_filter_processors_by_nonexistent_modality(self):
         """Filtering by a nonexistent modality should return empty."""
-        result = filter_processors(modality='NONEXISTENT_MODALITY_XYZ')
+        result = filter_processors(modality="NONEXISTENT_MODALITY_XYZ")
         assert len(result) == 0
 
     def test_filter_processors_by_category(self):
         all_procs = discover_processors()
-        filtered = filter_processors(category='contrast_enhancement')
+        filtered = filter_processors(category="contrast_enhancement")
         assert set(filtered.keys()).issubset(set(all_procs.keys()))
 
 
 # ---------------------------------------------------------------------------
 # BandwiseTransformMixin transparency
 # ---------------------------------------------------------------------------
+
 
 class TestBandwiseTransformMixin:
     def test_3d_array_passes_through_executor(self):

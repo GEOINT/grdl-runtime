@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Reusable Widgets — Tkinter building blocks for the grdl-rt runner GUI.
 
@@ -29,7 +28,6 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, ttk
-from typing import List, Optional
 
 # ── File-type filter groups ──────────────────────────────────────────
 
@@ -56,8 +54,15 @@ GEOJSON_FILETYPES = [
 ]
 
 IMAGE_EXTENSIONS = {
-    ".nitf", ".ntf", ".tif", ".tiff", ".npy",
-    ".png", ".jpg", ".jpeg", ".bmp",
+    ".nitf",
+    ".ntf",
+    ".tif",
+    ".tiff",
+    ".npy",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
 }
 
 
@@ -86,7 +91,7 @@ class FilePickerRow(ttk.Frame):
         parent: tk.Widget,
         label: str,
         mode: str = "file",
-        filetypes: Optional[list] = None,
+        filetypes: list | None = None,
     ) -> None:
         super().__init__(parent)
         self._mode = mode
@@ -115,7 +120,7 @@ class FilePickerRow(ttk.Frame):
         """Set the entry value programmatically."""
         self.var.set(value)
 
-    def get_paths(self) -> List[str]:
+    def get_paths(self) -> list[str]:
         """Return list of paths (splits on ``';'`` for multi-file mode)."""
         raw = self.get()
         if not raw:
@@ -131,13 +136,15 @@ class FilePickerRow(ttk.Frame):
                 self.var.set(path)
         elif self._mode == "files":
             paths = filedialog.askopenfilenames(
-                title="Select File(s)", filetypes=self._filetypes,
+                title="Select File(s)",
+                filetypes=self._filetypes,
             )
             if paths:
                 self.var.set("; ".join(paths))
         else:
             path = filedialog.askopenfilename(
-                title="Select File", filetypes=self._filetypes,
+                title="Select File",
+                filetypes=self._filetypes,
             )
             if path:
                 self.var.set(path)
@@ -206,7 +213,7 @@ class LabeledCombobox(ttk.Frame):
         self,
         parent: tk.Widget,
         label: str,
-        values: List[str],
+        values: list[str],
         default: str = "",
     ) -> None:
         super().__init__(parent)
@@ -216,8 +223,11 @@ class LabeledCombobox(ttk.Frame):
         lbl.pack(side="left", padx=(0, 4))
 
         self._combo = ttk.Combobox(
-            self, textvariable=self.var, values=values,
-            state="readonly", width=18,
+            self,
+            textvariable=self.var,
+            values=values,
+            state="readonly",
+            width=18,
         )
         self._combo.pack(side="left", fill="x", expand=True)
 
@@ -249,10 +259,15 @@ class LogConsole(ttk.Frame):
         super().__init__(parent)
 
         self._text = tk.Text(
-            self, wrap="word", state="disabled",
-            bg="#1e1e1e", fg="#d4d4d4",
-            font=("Consolas", 9), relief="flat",
-            borderwidth=0, highlightthickness=0,
+            self,
+            wrap="word",
+            state="disabled",
+            bg="#1e1e1e",
+            fg="#d4d4d4",
+            font=("Consolas", 9),
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
         )
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self._text.yview)
         self._text.configure(yscrollcommand=scrollbar.set)
@@ -336,7 +351,9 @@ class ScrollableFrame(ttk.Frame):
 
         self.interior = ttk.Frame(self._canvas)
         self._window_id = self._canvas.create_window(
-            (0, 0), window=self.interior, anchor="nw",
+            (0, 0),
+            window=self.interior,
+            anchor="nw",
         )
 
         self.interior.bind("<Configure>", self._on_interior_configure)

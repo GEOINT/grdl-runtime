@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Execution History Journal — SQLite-backed audit trail for workflow runs.
 
@@ -26,12 +25,11 @@ Created
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from grdl_rt.execution.context import get_logger
 
@@ -100,19 +98,19 @@ class ExecutionRecord:
         Path to the checkpoint directory, if one exists.
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     workflow_id: str = ""
     run_id: str = ""
     workflow_hash: str = ""
     start_time: str = ""
-    end_time: Optional[str] = None
+    end_time: str | None = None
     status: str = "running"
     step_count: int = 0
-    error_message: Optional[str] = None
-    parameters_json: Optional[str] = None
-    output_hash: Optional[str] = None
-    metrics_json: Optional[str] = None
-    checkpoint_path: Optional[str] = None
+    error_message: str | None = None
+    parameters_json: str | None = None
+    output_hash: str | None = None
+    metrics_json: str | None = None
+    checkpoint_path: str | None = None
 
 
 class ExecutionHistoryDB:
@@ -125,7 +123,7 @@ class ExecutionHistoryDB:
         ``~/.grdl_rt/history.db``.
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         if db_path is None:
             db_path = _DEFAULT_HISTORY_DB
         self._db_path = Path(db_path)
@@ -142,9 +140,7 @@ class ExecutionHistoryDB:
         self._conn.executescript(_HISTORY_SCHEMA)
         self._conn.commit()
 
-        row = self._conn.execute(
-            "SELECT version FROM history_schema_version"
-        ).fetchone()
+        row = self._conn.execute("SELECT version FROM history_schema_version").fetchone()
         if row is None:
             self._conn.execute(
                 "INSERT INTO history_schema_version (version) VALUES (?)",
@@ -171,7 +167,7 @@ class ExecutionHistoryDB:
         workflow_id: str,
         run_id: str,
         workflow_hash: str,
-        parameters_json: Optional[str] = None,
+        parameters_json: str | None = None,
     ) -> int:
         """Record the start of a workflow execution.
 
@@ -191,7 +187,7 @@ class ExecutionHistoryDB:
         int
             Database row ID.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cursor = self._conn.execute(
             """INSERT INTO executions
             (workflow_id, run_id, workflow_hash, start_time, status,
@@ -212,10 +208,10 @@ class ExecutionHistoryDB:
         run_id: str,
         status: str,
         step_count: int,
-        error_message: Optional[str] = None,
-        metrics_json: Optional[str] = None,
-        output_hash: Optional[str] = None,
-        checkpoint_path: Optional[str] = None,
+        error_message: str | None = None,
+        metrics_json: str | None = None,
+        output_hash: str | None = None,
+        checkpoint_path: str | None = None,
     ) -> None:
         """Update a running execution with its final status.
 
@@ -230,7 +226,7 @@ class ExecutionHistoryDB:
         output_hash : str, optional
         checkpoint_path : str, optional
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self._conn.execute(
             """UPDATE executions SET
                 end_time = ?,
@@ -242,8 +238,14 @@ class ExecutionHistoryDB:
                 checkpoint_path = ?
             WHERE run_id = ?""",
             (
-                now, status, step_count, error_message,
-                metrics_json, output_hash, checkpoint_path, run_id,
+                now,
+                status,
+                step_count,
+                error_message,
+                metrics_json,
+                output_hash,
+                checkpoint_path,
+                run_id,
             ),
         )
         self._conn.commit()
@@ -259,9 +261,9 @@ class ExecutionHistoryDB:
 
     def list_executions(
         self,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 20,
-    ) -> List[ExecutionRecord]:
+    ) -> list[ExecutionRecord]:
         """List recent executions, optionally filtered by status.
 
         Parameters
@@ -277,8 +279,7 @@ class ExecutionHistoryDB:
         """
         if status:
             rows = self._conn.execute(
-                "SELECT * FROM executions WHERE status = ? "
-                "ORDER BY start_time DESC LIMIT ?",
+                "SELECT * FROM executions WHERE status = ? " "ORDER BY start_time DESC LIMIT ?",
                 (status, limit),
             ).fetchall()
         else:
@@ -288,7 +289,7 @@ class ExecutionHistoryDB:
             ).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def get_execution(self, run_id: str) -> Optional[ExecutionRecord]:
+    def get_execution(self, run_id: str) -> ExecutionRecord | None:
         """Get a single execution record by run_id.
 
         Parameters
@@ -307,7 +308,7 @@ class ExecutionHistoryDB:
             return None
         return self._row_to_record(row)
 
-    def count_by_status(self) -> Dict[str, int]:
+    def count_by_status(self) -> dict[str, int]:
         """Return counts of executions grouped by status.
 
         Returns
@@ -330,8 +331,8 @@ class ExecutionHistoryDB:
     def purge_old_records(
         self,
         *,
-        max_age_days: Optional[int] = None,
-        max_records: Optional[int] = None,
+        max_age_days: int | None = None,
+        max_records: int | None = None,
     ) -> int:
         """Remove old execution records based on age or count limits.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Models - Data models for image processing workflow definitions.
 
@@ -34,7 +33,7 @@ Modified
 # Standard library
 from collections import deque
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -42,8 +41,7 @@ if TYPE_CHECKING:
 
 # grdl-runtime internal
 from grdl_rt.execution.resilience import RetryPolicy
-from grdl_rt.execution.tags import WorkflowTags
-
+from grdl_rt.execution.tags import ExecutionPhase, WorkflowTags
 
 SCHEMA_VERSION = "2.0"
 
@@ -54,24 +52,6 @@ class WorkflowState(Enum):
     DRAFT = "draft"
     TESTING = "testing"
     PUBLISHED = "published"
-
-
-class ExecutionPhase(Enum):
-    """Canonical execution phases that constrain step ordering.
-
-    Processors declare their phase via a ``__phase__`` attribute.
-    Phase annotations are validated during workflow validation —
-    out-of-phase steps produce a warning but do not block execution.
-    """
-
-    IO = "io"
-    GLOBAL_PROCESSING = "global_processing"
-    DATA_PREP = "data_prep"
-    TILING = "tiling"
-    TILE_PROCESSING = "tile_processing"
-    EXTRACTION = "extraction"
-    VECTOR_PROCESSING = "vector_processing"
-    FINALIZATION = "finalization"
 
 
 # Canonical ordering for phase validation (lower index = earlier phase)
@@ -117,16 +97,16 @@ class ProcessingStep:
         self,
         processor_name: str,
         processor_version: str = "",
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         *,
-        retry: Optional[RetryPolicy] = None,
-        timeout_seconds: Optional[float] = None,
-        id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
-        condition: Optional[str] = None,
-        phase: Optional[str] = None,
-        band_expansion: Optional[str] = None,
-        band_reduction: Optional[str] = None,
+        retry: RetryPolicy | None = None,
+        timeout_seconds: float | None = None,
+        id: str | None = None,
+        depends_on: list[str] | None = None,
+        condition: str | None = None,
+        phase: str | None = None,
+        band_expansion: str | None = None,
+        band_reduction: str | None = None,
     ) -> None:
         self.processor_name = processor_name
         self.processor_version = processor_version
@@ -134,7 +114,7 @@ class ProcessingStep:
         self.retry = retry
         self.timeout_seconds = timeout_seconds
         self.id = id
-        self.depends_on: List[str] = list(depends_on) if depends_on else []
+        self.depends_on: list[str] = list(depends_on) if depends_on else []
         self.condition = condition
         self.phase = phase
         self.band_expansion = band_expansion
@@ -148,31 +128,31 @@ class ProcessingStep:
         dict
         """
         d: dict = {
-            'processor': self.processor_name,
-            'version': self.processor_version,
+            "processor": self.processor_name,
+            "version": self.processor_version,
         }
         if self.id is not None:
-            d['id'] = self.id
+            d["id"] = self.id
         if self.params:
-            d['params'] = self.params
+            d["params"] = self.params
         if self.depends_on:
-            d['depends_on'] = list(self.depends_on)
+            d["depends_on"] = list(self.depends_on)
         if self.condition is not None:
-            d['condition'] = self.condition
+            d["condition"] = self.condition
         if self.phase is not None:
-            d['phase'] = self.phase
+            d["phase"] = self.phase
         if self.retry is not None and self.retry.max_retries > 0:
-            d['retry'] = self.retry.to_dict()
+            d["retry"] = self.retry.to_dict()
         if self.timeout_seconds is not None:
-            d['timeout_seconds'] = self.timeout_seconds
+            d["timeout_seconds"] = self.timeout_seconds
         if self.band_expansion is not None:
-            d['band_expansion'] = self.band_expansion
+            d["band_expansion"] = self.band_expansion
         if self.band_reduction is not None:
-            d['band_reduction'] = self.band_reduction
+            d["band_reduction"] = self.band_reduction
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ProcessingStep':
+    def from_dict(cls, data: dict) -> "ProcessingStep":
         """Deserialize from dictionary.
 
         Parameters
@@ -184,20 +164,20 @@ class ProcessingStep:
         ProcessingStep
         """
         retry = None
-        if 'retry' in data:
-            retry = RetryPolicy.from_dict(data['retry'])
+        if "retry" in data:
+            retry = RetryPolicy.from_dict(data["retry"])
         return cls(
-            processor_name=data['processor'],
-            processor_version=data.get('version', ''),
-            params=data.get('params', {}),
+            processor_name=data["processor"],
+            processor_version=data.get("version", ""),
+            params=data.get("params", {}),
             retry=retry,
-            timeout_seconds=data.get('timeout_seconds'),
-            id=data.get('id'),
-            depends_on=data.get('depends_on'),
-            condition=data.get('condition'),
-            phase=data.get('phase'),
-            band_expansion=data.get('band_expansion'),
-            band_reduction=data.get('band_reduction'),
+            timeout_seconds=data.get("timeout_seconds"),
+            id=data.get("id"),
+            depends_on=data.get("depends_on"),
+            condition=data.get("condition"),
+            phase=data.get("phase"),
+            band_expansion=data.get("band_expansion"),
+            band_reduction=data.get("band_reduction"),
         )
 
 
@@ -223,15 +203,15 @@ class TapOutStepDef:
     def __init__(
         self,
         path: str,
-        format: Optional[str] = None,
+        format: str | None = None,
         *,
-        id: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        id: str | None = None,
+        depends_on: list[str] | None = None,
     ) -> None:
         self.path = path
         self.format = format
         self.id = id
-        self.depends_on: List[str] = list(depends_on) if depends_on else []
+        self.depends_on: list[str] = list(depends_on) if depends_on else []
 
     def to_dict(self) -> dict:
         """Serialize to dictionary.
@@ -240,17 +220,17 @@ class TapOutStepDef:
         -------
         dict
         """
-        d: dict = {'tap_out': self.path}
+        d: dict = {"tap_out": self.path}
         if self.id is not None:
-            d['id'] = self.id
+            d["id"] = self.id
         if self.format:
-            d['format'] = self.format
+            d["format"] = self.format
         if self.depends_on:
-            d['depends_on'] = list(self.depends_on)
+            d["depends_on"] = list(self.depends_on)
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'TapOutStepDef':
+    def from_dict(cls, data: dict) -> "TapOutStepDef":
         """Deserialize from dictionary.
 
         Parameters
@@ -262,10 +242,10 @@ class TapOutStepDef:
         TapOutStepDef
         """
         return cls(
-            path=data['tap_out'],
-            format=data.get('format'),
-            id=data.get('id'),
-            depends_on=data.get('depends_on'),
+            path=data["tap_out"],
+            format=data.get("format"),
+            id=data.get("id"),
+            depends_on=data.get("depends_on"),
         )
 
 
@@ -300,8 +280,8 @@ class WorkflowDefinition:
         name: str,
         version: str = "0.1.0",
         description: str = "",
-        steps: Optional[List[Union[ProcessingStep, TapOutStepDef]]] = None,
-        tags: Optional[WorkflowTags] = None,
+        steps: list[ProcessingStep | TapOutStepDef] | None = None,
+        tags: WorkflowTags | None = None,
         state: WorkflowState = WorkflowState.DRAFT,
         schema_version: str = SCHEMA_VERSION,
     ) -> None:
@@ -338,7 +318,7 @@ class WorkflowDefinition:
         for i in range(1, len(self.steps)):
             self.steps[i].depends_on = [self.steps[i - 1].id]  # type: ignore[union-attr]
 
-    def add_step(self, step: Union[ProcessingStep, TapOutStepDef]) -> None:
+    def add_step(self, step: ProcessingStep | TapOutStepDef) -> None:
         """Append a processing or tap-out step to the workflow.
 
         Parameters
@@ -348,7 +328,7 @@ class WorkflowDefinition:
         self.steps.append(step)
         self._ensure_dag_consistency()
 
-    def remove_step(self, index: int) -> Union[ProcessingStep, TapOutStepDef]:
+    def remove_step(self, index: int) -> ProcessingStep | TapOutStepDef:
         """Remove and return a step by index.
 
         Parameters
@@ -377,7 +357,7 @@ class WorkflowDefinition:
         step = self.steps.pop(from_index)
         self.steps.insert(to_index, step)
 
-    def get_step(self, step_id: str) -> Union[ProcessingStep, TapOutStepDef]:
+    def get_step(self, step_id: str) -> ProcessingStep | TapOutStepDef:
         """Look up a step by its ID.
 
         Parameters
@@ -398,7 +378,7 @@ class WorkflowDefinition:
                 return step
         raise KeyError(f"No step with id '{step_id}'")
 
-    def terminal_step_ids(self) -> List[str]:
+    def terminal_step_ids(self) -> list[str]:
         """Return IDs of steps that have no dependents (DAG sinks).
 
         Returns
@@ -406,13 +386,13 @@ class WorkflowDefinition:
         List[str]
         """
         all_ids = {s.id for s in self.steps}
-        depended_on: Set[str] = set()
+        depended_on: set[str] = set()
         for step in self.steps:
             for dep in step.depends_on:
                 depended_on.add(dep)
         return [sid for sid in all_ids if sid not in depended_on]
 
-    def topological_sort(self) -> List[List[str]]:
+    def topological_sort(self) -> list[list[str]]:
         """Topological sort returning parallelizable levels.
 
         Each level is a list of step IDs whose dependencies are all
@@ -431,8 +411,8 @@ class WorkflowDefinition:
         """
         # Build adjacency and in-degree maps
         step_ids = [s.id for s in self.steps]
-        in_degree: Dict[str, int] = {sid: 0 for sid in step_ids}
-        dependents: Dict[str, List[str]] = {sid: [] for sid in step_ids}
+        in_degree: dict[str, int] = {sid: 0 for sid in step_ids}
+        dependents: dict[str, list[str]] = {sid: [] for sid in step_ids}
 
         for step in self.steps:
             for dep in step.depends_on:
@@ -446,7 +426,7 @@ class WorkflowDefinition:
             if in_degree[sid] == 0:
                 queue.append(sid)
 
-        levels: List[List[str]] = []
+        levels: list[list[str]] = []
         visited = 0
 
         while queue:
@@ -462,13 +442,11 @@ class WorkflowDefinition:
                         queue.append(dep_id)
 
         if visited != len(step_ids):
-            raise ValueError(
-                "Workflow DAG contains a cycle — cannot determine execution order"
-            )
+            raise ValueError("Workflow DAG contains a cycle — cannot determine execution order")
 
         return levels
 
-    def validate_dag(self) -> List[str]:
+    def validate_dag(self) -> list[str]:
         """Validate DAG structure.
 
         Checks:
@@ -481,15 +459,14 @@ class WorkflowDefinition:
         List[str]
             List of error messages.  Empty if valid.
         """
-        errors: List[str] = []
+        errors: list[str] = []
 
         # Check duplicate IDs
-        seen_ids: Dict[str, int] = {}
+        seen_ids: dict[str, int] = {}
         for i, step in enumerate(self.steps):
             if step.id in seen_ids:
                 errors.append(
-                    f"Duplicate step id '{step.id}' at indices "
-                    f"{seen_ids[step.id]} and {i}"
+                    f"Duplicate step id '{step.id}' at indices " f"{seen_ids[step.id]} and {i}"
                 )
             else:
                 seen_ids[step.id] = i
@@ -499,10 +476,7 @@ class WorkflowDefinition:
         for step in self.steps:
             for dep in step.depends_on:
                 if dep not in all_ids:
-                    errors.append(
-                        f"Step '{step.id}' depends on '{dep}' which "
-                        f"does not exist"
-                    )
+                    errors.append(f"Step '{step.id}' depends on '{dep}' which " f"does not exist")
 
         # Check acyclic
         if not errors:
@@ -515,8 +489,8 @@ class WorkflowDefinition:
 
     def validate(
         self,
-        catalog: Optional['ArtifactCatalogBase'] = None,
-    ) -> List['ValidationError']:
+        catalog: Optional["ArtifactCatalogBase"] = None,
+    ) -> list["ValidationError"]:
         """Validate this workflow definition before execution.
 
         Checks that all processors can be resolved, required parameters
@@ -535,6 +509,7 @@ class WorkflowDefinition:
             Empty list if valid; otherwise, list of problems found.
         """
         from grdl_rt.execution.validation import validate_workflow
+
         return validate_workflow(self, catalog=catalog)
 
     def to_dict(self) -> dict:
@@ -545,17 +520,17 @@ class WorkflowDefinition:
         dict
         """
         return {
-            'schema_version': self.schema_version,
-            'name': self.name,
-            'version': self.version,
-            'description': self.description,
-            'state': self.state.value,
-            'tags': self.tags.to_dict(),
-            'steps': [s.to_dict() for s in self.steps],
+            "schema_version": self.schema_version,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "state": self.state.value,
+            "tags": self.tags.to_dict(),
+            "steps": [s.to_dict() for s in self.steps],
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'WorkflowDefinition':
+    def from_dict(cls, data: dict) -> "WorkflowDefinition":
         """Deserialize from dictionary.
 
         Handles both v1 (no schema_version) and v2 formats.
@@ -568,21 +543,21 @@ class WorkflowDefinition:
         -------
         WorkflowDefinition
         """
-        schema_version = data.get('schema_version', '1.0')
-        tags = WorkflowTags.from_dict(data.get('tags', {}))
-        raw_steps = data.get('steps', [])
-        steps: List[Union[ProcessingStep, TapOutStepDef]] = []
+        schema_version = data.get("schema_version", "1.0")
+        tags = WorkflowTags.from_dict(data.get("tags", {}))
+        raw_steps = data.get("steps", [])
+        steps: list[ProcessingStep | TapOutStepDef] = []
         for s in raw_steps:
-            if 'tap_out' in s:
+            if "tap_out" in s:
                 steps.append(TapOutStepDef.from_dict(s))
             else:
                 steps.append(ProcessingStep.from_dict(s))
         return cls(
-            name=data['name'],
-            version=data.get('version', '0.1.0'),
-            description=data.get('description', ''),
+            name=data["name"],
+            version=data.get("version", "0.1.0"),
+            description=data.get("description", ""),
             steps=steps,
             tags=tags,
-            state=WorkflowState(data.get('state', 'draft')),
+            state=WorkflowState(data.get("state", "draft")),
             schema_version=schema_version,
         )

@@ -22,7 +22,6 @@ import pytest
 
 from grdl_rt.execution.context import configure_logging
 
-
 # ── Logging fixture ──────────────────────────────────────────────────
 
 
@@ -55,9 +54,7 @@ def rgb_4x4():
 def complex_8x8():
     """8x8 complex64 array (SAR-like)."""
     rng = np.random.default_rng(42)
-    return (rng.standard_normal((8, 8)) + 1j * rng.standard_normal((8, 8))).astype(
-        np.complex64
-    )
+    return (rng.standard_normal((8, 8)) + 1j * rng.standard_normal((8, 8))).astype(np.complex64)
 
 
 # ── Temporary directory / database fixtures ───────────────────────────
@@ -76,6 +73,7 @@ def tmp_db(tmp_path):
 def sample_processor():
     """Sample GRDL processor artifact for catalog tests."""
     from grdl_rt.catalog.models import Artifact
+
     return Artifact(
         name="lee-filter",
         version="1.0.0",
@@ -95,6 +93,7 @@ def sample_processor():
 def sample_workflow():
     """Sample GRDK workflow artifact for catalog tests."""
     from grdl_rt.catalog.models import Artifact
+
     return Artifact(
         name="sar-vehicle-detection",
         version="2.0.0",
@@ -103,8 +102,8 @@ def sample_workflow():
         yaml_definition="name: SAR Vehicle Detection\nsteps: []",
         python_dsl="@workflow(name='SAR')\ndef f(): pass",
         tags={
-            'modality': ['SAR'],
-            'detection_type': ['classification'],
+            "modality": ["SAR"],
+            "detection_type": ["classification"],
         },
     )
 

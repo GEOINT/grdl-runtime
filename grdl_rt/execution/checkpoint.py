@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Checkpoint / Resume — Versioned checkpoint files with workflow hash
 validation and atomic writes.
@@ -30,14 +29,14 @@ Created
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -49,7 +48,7 @@ logger = get_logger(__name__)
 CHECKPOINT_SCHEMA_VERSION = "2.0"
 
 
-def compute_workflow_hash(workflow_dict: Dict[str, Any]) -> str:
+def compute_workflow_hash(workflow_dict: dict[str, Any]) -> str:
     """Compute a stable SHA-256 hash of a workflow definition.
 
     The hash covers the workflow name, version, and the full step
@@ -105,13 +104,13 @@ class CheckpointState:
     schema_version: str = CHECKPOINT_SCHEMA_VERSION
     workflow_definition_hash: str = ""
     step_index: int = -1
-    intermediate_files: List[str] = field(default_factory=list)
-    metrics_so_far: List[Dict[str, Any]] = field(default_factory=list)
-    execution_context: Dict[str, Any] = field(default_factory=dict)
+    intermediate_files: list[str] = field(default_factory=list)
+    metrics_so_far: list[dict[str, Any]] = field(default_factory=list)
+    execution_context: dict[str, Any] = field(default_factory=dict)
     timestamp: str = ""
-    workflow_dict: Dict[str, Any] = field(default_factory=dict)
+    workflow_dict: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-safe dictionary."""
         return {
             "schema_version": self.schema_version,
@@ -125,7 +124,7 @@ class CheckpointState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> CheckpointState:
+    def from_dict(cls, data: dict[str, Any]) -> CheckpointState:
         """Deserialise from a dictionary."""
         return cls(
             schema_version=data.get("schema_version", "1.0"),
@@ -182,19 +181,15 @@ class CheckpointManager:
         filename = f"intermediate_step_{step_index:04d}.npy"
         dest = rd / filename
         # Atomic: write to temp then rename
-        fd, tmp = tempfile.mkstemp(
-            suffix=".npy", dir=str(rd), prefix=".tmp_"
-        )
+        fd, tmp = tempfile.mkstemp(suffix=".npy", dir=str(rd), prefix=".tmp_")
         try:
             os.close(fd)
             np.save(tmp, array)
             os.replace(tmp, str(dest))
         except Exception:
             # Clean up temp file on failure
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         return str(dest)
 
@@ -220,18 +215,14 @@ class CheckpointManager:
         dest = rd / "checkpoint.json"
         payload = json.dumps(state.to_dict(), indent=2, default=str)
 
-        fd, tmp = tempfile.mkstemp(
-            suffix=".json", dir=str(rd), prefix=".tmp_"
-        )
+        fd, tmp = tempfile.mkstemp(suffix=".json", dir=str(rd), prefix=".tmp_")
         try:
             os.close(fd)
             Path(tmp).write_text(payload, encoding="utf-8")
             os.replace(tmp, str(dest))
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
 
         logger.info(
@@ -267,22 +258,18 @@ class CheckpointManager:
         if p.is_dir():
             p = p / "checkpoint.json"
         if not p.exists():
-            raise CheckpointError(
-                f"Checkpoint file not found: {p}", path=str(p)
-            )
+            raise CheckpointError(f"Checkpoint file not found: {p}", path=str(p))
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            raise CheckpointError(
-                f"Failed to read checkpoint: {exc}", path=str(p)
-            ) from exc
+            raise CheckpointError(f"Failed to read checkpoint: {exc}", path=str(p)) from exc
 
         return CheckpointState.from_dict(data)
 
     @staticmethod
     def validate_for_resume(
         state: CheckpointState,
-        workflow_dict: Dict[str, Any],
+        workflow_dict: dict[str, Any],
     ) -> None:
         """Validate that a checkpoint is compatible with the given workflow.
 
@@ -294,10 +281,7 @@ class CheckpointManager:
         # 1. Schema version compatibility
         major = state.schema_version.split(".")[0]
         if major not in ("1", "2"):
-            raise ResumeError(
-                f"Unsupported checkpoint schema version: "
-                f"{state.schema_version}"
-            )
+            raise ResumeError(f"Unsupported checkpoint schema version: " f"{state.schema_version}")
 
         # 2. Workflow hash match
         current_hash = compute_workflow_hash(workflow_dict)
@@ -309,15 +293,11 @@ class CheckpointManager:
             )
 
         # 3. All intermediate files still exist
-        missing = [
-            f for f in state.intermediate_files
-            if not Path(f).exists()
-        ]
+        missing = [f for f in state.intermediate_files if not Path(f).exists()]
         if missing:
             raise ResumeError(
                 f"{len(missing)} intermediate file(s) missing: "
-                f"{', '.join(missing[:3])}"
-                + ("..." if len(missing) > 3 else "")
+                f"{', '.join(missing[:3])}" + ("..." if len(missing) > 3 else "")
             )
 
     @staticmethod
@@ -334,12 +314,8 @@ class CheckpointManager:
             If no intermediates exist or the file cannot be loaded.
         """
         if not state.intermediate_files:
-            raise CheckpointError(
-                "Checkpoint has no intermediate files to resume from"
-            )
+            raise CheckpointError("Checkpoint has no intermediate files to resume from")
         last = state.intermediate_files[-1]
         if not Path(last).exists():
-            raise CheckpointError(
-                f"Intermediate file not found: {last}", path=last
-            )
+            raise CheckpointError(f"Intermediate file not found: {last}", path=last)
         return np.load(last)

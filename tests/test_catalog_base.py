@@ -30,17 +30,22 @@ class TestArtifactCatalogBaseABC:
     def test_abstract_methods_defined(self):
         """Verify all expected abstract methods exist."""
         expected = {
-            'add_artifact', 'remove_artifact', 'get_artifact',
-            'list_artifacts', 'search', 'search_by_tags',
-            'update_remote_version', 'close',
+            "add_artifact",
+            "remove_artifact",
+            "get_artifact",
+            "list_artifacts",
+            "search",
+            "search_by_tags",
+            "update_remote_version",
+            "close",
         }
         assert expected <= ArtifactCatalogBase.__abstractmethods__
 
     def test_context_manager_not_abstract(self):
         """__enter__ and __exit__ have default implementations."""
-        assert '__enter__' not in ArtifactCatalogBase.__abstractmethods__
-        assert '__exit__' not in ArtifactCatalogBase.__abstractmethods__
+        assert "__enter__" not in ArtifactCatalogBase.__abstractmethods__
+        assert "__exit__" not in ArtifactCatalogBase.__abstractmethods__
 
     def test_schema_version_not_on_abc(self):
         """schema_version is SQLite-specific, not on the ABC."""
-        assert not hasattr(ArtifactCatalogBase, 'schema_version')
+        assert not hasattr(ArtifactCatalogBase, "schema_version")

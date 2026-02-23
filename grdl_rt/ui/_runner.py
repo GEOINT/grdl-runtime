@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Runner — Background execution engine for the grdl-rt GUI.
 
@@ -27,14 +26,16 @@ Created
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -43,7 +44,6 @@ from grdl_rt.ui._importer import (
     classify_py_file,
     discover_processors_in_module,
     discover_workflow_in_module,
-    extract_tunable_params,
 )
 
 # Lazy imports for grdl-runtime APIs (imported inside methods to keep
@@ -56,15 +56,15 @@ from grdl_rt.ui._importer import (
 class RunRequest:
     """Specification for a single GUI run."""
 
-    input_paths: List[Path]
+    input_paths: list[Path]
     workflow_source: Path
     is_component: bool = False
-    component_class: Optional[str] = None
-    params: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    component_class: str | None = None
+    params: dict[str, dict[str, Any]] = field(default_factory=dict)
     prefer_gpu: bool = False
     max_workers: int = 1
-    output_dir: Optional[Path] = None
-    ground_truth_path: Optional[Path] = None
+    output_dir: Path | None = None
+    ground_truth_path: Path | None = None
     enable_checkpointing: bool = False
 
 
@@ -73,9 +73,9 @@ class RunResult:
     """Aggregated outcome of a run."""
 
     workflow_results: list = field(default_factory=list)
-    input_paths: List[Path] = field(default_factory=list)
-    accuracy: Optional[AccuracyReport] = None
-    error: Optional[str] = None
+    input_paths: list[Path] = field(default_factory=list)
+    accuracy: AccuracyReport | None = None
+    error: str | None = None
     elapsed_seconds: float = 0.0
 
 
@@ -99,13 +99,13 @@ def _read_input(input_path: Path) -> np.ndarray:
 
     try:
         from grdl.IO import open_image
+
         with open_image(input_path) as reader:
             return reader.read_full()
     except ImportError:
         raise ImportError(
-            f"grdl.IO is required to read '{ext}' files.  "
-            "Install grdl or convert to .npy first."
-        )
+            f"grdl.IO is required to read '{ext}' files.  " "Install grdl or convert to .npy first."
+        ) from None
 
 
 def _save_output(
@@ -115,6 +115,7 @@ def _save_output(
     """Write a result array to disk."""
     try:
         from grdl.IO import write as io_write
+
         io_write(result, output_path)
     except (ImportError, Exception):
         # Fallback to numpy
@@ -148,7 +149,7 @@ class WorkflowRunner:
         self._on_complete = on_complete
         self._queue: queue.Queue = queue.Queue()
         self._cancel_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._polling = False
 
     @property
@@ -171,7 +172,9 @@ class WorkflowRunner:
             return
         self._cancel_event.clear()
         self._thread = threading.Thread(
-            target=self._run, args=(request,), daemon=True,
+            target=self._run,
+            args=(request,),
+            daemon=True,
         )
         self._thread.start()
         self._start_polling(root)
@@ -226,10 +229,12 @@ class WorkflowRunner:
         except Exception as exc:
             tb = traceback.format_exc()
             self._emit_log(f"Fatal error: {exc}\n{tb}", "error")
-            self._emit_complete(RunResult(
-                error=str(exc),
-                elapsed_seconds=time.perf_counter() - t0,
-            ))
+            self._emit_complete(
+                RunResult(
+                    error=str(exc),
+                    elapsed_seconds=time.perf_counter() - t0,
+                )
+            )
 
     def _execute(self, req: RunRequest) -> RunResult:
         from grdl_rt.api import load_workflow
@@ -250,7 +255,8 @@ class WorkflowRunner:
             if errors:
                 for err in errors:
                     self._emit_log(
-                        f"Validation: [{err.code}] {err.message}", "warn",
+                        f"Validation: [{err.code}] {err.message}",
+                        "warn",
                     )
 
             # Apply param overrides
@@ -263,7 +269,8 @@ class WorkflowRunner:
             executor = WorkflowExecutor(wf_def, gpu=gpu)
 
             workflow_results = self._run_images(
-                req, executor=executor,
+                req,
+                executor=executor,
             )
 
         elif suffix == ".py":
@@ -275,23 +282,23 @@ class WorkflowRunner:
 
                 if isinstance(wf, Workflow):
                     workflow_results = self._run_images(
-                        req, builder=wf,
+                        req,
+                        builder=wf,
                     )
                 else:
                     # WorkflowDefinition from @workflow decorator
                     gpu = GpuBackend(prefer_gpu=req.prefer_gpu)
                     executor = WorkflowExecutor(wf, gpu=gpu)
                     workflow_results = self._run_images(
-                        req, executor=executor,
+                        req,
+                        executor=executor,
                     )
             else:
                 # Bare component
                 self._emit_log(f"Loading component: {req.workflow_source.name}")
                 processors = discover_processors_in_module(req.workflow_source)
                 if not processors:
-                    raise ValueError(
-                        f"No processor classes found in {req.workflow_source.name}"
-                    )
+                    raise ValueError(f"No processor classes found in {req.workflow_source.name}")
 
                 # Find the selected component class
                 cls = None
@@ -310,7 +317,8 @@ class WorkflowRunner:
                 # Build single-step workflow
                 wf = Workflow(f"UI-{cls_name}").step(cls, **params)
                 workflow_results = self._run_images(
-                    req, builder=wf,
+                    req,
+                    builder=wf,
                 )
         else:
             raise ValueError(f"Unsupported file type: {suffix}")
@@ -413,15 +421,12 @@ class WorkflowRunner:
             # Parallel execution
             with ThreadPoolExecutor(max_workers=req.max_workers) as pool:
                 futures = {
-                    pool.submit(_process_one, i, p): i
-                    for i, p in enumerate(req.input_paths)
+                    pool.submit(_process_one, i, p): i for i, p in enumerate(req.input_paths)
                 }
                 for future in as_completed(futures):
                     idx = futures[future]
-                    try:
+                    with contextlib.suppress(Exception):
                         results[idx] = future.result()
-                    except Exception:
-                        pass
                     completed += 1
                     self._emit_progress(
                         completed / n,

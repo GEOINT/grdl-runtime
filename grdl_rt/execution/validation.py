@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Validation — Pre-execution validation of workflow definitions.
 
@@ -37,7 +36,7 @@ Modified
 # Standard library
 import inspect
 from dataclasses import dataclass
-from typing import Any, Dict, TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from grdl_rt.catalog.base import ArtifactCatalogBase
@@ -70,16 +69,16 @@ class ValidationError:
         Human-readable description of the problem.
     """
 
-    step_index: Optional[int]
-    processor_name: Optional[str]
+    step_index: int | None
+    processor_name: str | None
     code: str
     message: str
 
 
 def validate_workflow(
-    workflow: 'WorkflowDefinition',
-    catalog: Optional['ArtifactCatalogBase'] = None,
-) -> List[ValidationError]:
+    workflow: "WorkflowDefinition",
+    catalog: Optional["ArtifactCatalogBase"] = None,
+) -> list[ValidationError]:
     """Validate a WorkflowDefinition against the catalog and processor signatures.
 
     Checks performed:
@@ -113,19 +112,22 @@ def validate_workflow(
 
     if catalog is not None:
         from grdl_rt.execution.discovery import init_discovery
+
         init_discovery(catalog)
 
-    errors: List[ValidationError] = []
+    errors: list[ValidationError] = []
 
     # Check: workflow has at least one processing step
     proc_steps = [s for s in workflow.steps if isinstance(s, ProcessingStep)]
     if not proc_steps:
-        errors.append(ValidationError(
-            step_index=None,
-            processor_name=None,
-            code="EMPTY_WORKFLOW",
-            message="Workflow has no processing steps.",
-        ))
+        errors.append(
+            ValidationError(
+                step_index=None,
+                processor_name=None,
+                code="EMPTY_WORKFLOW",
+                message="Workflow has no processing steps.",
+            )
+        )
 
     # DAG structure validation
     dag_errors = workflow.validate_dag()
@@ -133,12 +135,14 @@ def validate_workflow(
         code = "DAG_CYCLE" if "cycle" in msg.lower() else "UNRESOLVED_DEPENDENCY"
         if "Duplicate" in msg:
             code = "DUPLICATE_STEP_ID"
-        errors.append(ValidationError(
-            step_index=None,
-            processor_name=None,
-            code=code,
-            message=msg,
-        ))
+        errors.append(
+            ValidationError(
+                step_index=None,
+                processor_name=None,
+                code=code,
+                message=msg,
+            )
+        )
 
     # Phase ordering validation
     _validate_phase_ordering(workflow, errors)
@@ -157,12 +161,14 @@ def validate_workflow(
         try:
             cls = resolve_processor_class(step.processor_name)
         except (ImportError, Exception) as e:
-            errors.append(ValidationError(
-                step_index=i,
-                processor_name=step.processor_name,
-                code="PROCESSOR_NOT_FOUND",
-                message=f"Cannot resolve processor '{step.processor_name}': {e}",
-            ))
+            errors.append(
+                ValidationError(
+                    step_index=i,
+                    processor_name=step.processor_name,
+                    code="PROCESSOR_NOT_FOUND",
+                    message=f"Cannot resolve processor '{step.processor_name}': {e}",
+                )
+            )
             continue
 
         # Check 2: parameter validation — prefer JSON Schema, then
@@ -171,7 +177,7 @@ def validate_workflow(
         if schema and schema.get("properties"):
             _validate_via_json_schema(i, step, schema, errors)
         else:
-            param_specs = getattr(cls, '__param_specs__', None)
+            param_specs = getattr(cls, "__param_specs__", None)
             if param_specs is not None:
                 _validate_via_param_specs(i, step, param_specs, errors)
             else:
@@ -183,8 +189,8 @@ def validate_workflow(
 def _get_param_schema(
     processor_name: str,
     cls: type,
-    catalog: Optional['ArtifactCatalogBase'],
-) -> Optional[Dict[str, Any]]:
+    catalog: Optional["ArtifactCatalogBase"],
+) -> dict[str, Any] | None:
     """Try to obtain a JSON Schema for the processor's parameters.
 
     Resolution order:
@@ -202,9 +208,10 @@ def _get_param_schema(
             pass
 
     # 2. Live extraction
-    param_specs = getattr(cls, '__param_specs__', None)
+    param_specs = getattr(cls, "__param_specs__", None)
     if param_specs:
         from grdl_rt.catalog.schema import extract_param_schema
+
         return extract_param_schema(cls)
 
     return None
@@ -213,8 +220,8 @@ def _get_param_schema(
 def _validate_via_json_schema(
     step_index: int,
     step: ProcessingStep,
-    schema: Dict[str, Any],
-    errors: List[ValidationError],
+    schema: dict[str, Any],
+    errors: list[ValidationError],
 ) -> None:
     """Validate step params against a JSON Schema using ``jsonschema``.
 
@@ -232,12 +239,14 @@ def _validate_via_json_schema(
 
     for error in validator.iter_errors(step.params):
         code, message = _classify_schema_error(error, step.processor_name)
-        errors.append(ValidationError(
-            step_index=step_index,
-            processor_name=step.processor_name,
-            code=code,
-            message=message,
-        ))
+        errors.append(
+            ValidationError(
+                step_index=step_index,
+                processor_name=step.processor_name,
+                code=code,
+                message=message,
+            )
+        )
 
 
 def _classify_schema_error(
@@ -264,24 +273,19 @@ def _classify_schema_error(
         )
 
     # Determine which parameter is involved
-    if error.path:
-        param_name = str(error.path[0])
-    else:
-        param_name = "?"
+    param_name = str(error.path[0]) if error.path else "?"
 
     # Type mismatch
     if error.validator == "type":
         return (
             "INVALID_PARAM_TYPE",
-            f"Parameter '{param_name}' of processor '{processor_name}': "
-            f"{error.message}",
+            f"Parameter '{param_name}' of processor '{processor_name}': " f"{error.message}",
         )
 
     # Value constraint violations (minimum, maximum, enum, etc.)
     return (
         "INVALID_PARAM_VALUE",
-        f"Parameter '{param_name}' of processor '{processor_name}': "
-        f"{error.message}",
+        f"Parameter '{param_name}' of processor '{processor_name}': " f"{error.message}",
     )
 
 
@@ -289,52 +293,58 @@ def _validate_via_param_specs(
     step_index: int,
     step: ProcessingStep,
     param_specs: list,
-    errors: List[ValidationError],
+    errors: list[ValidationError],
 ) -> None:
     """Validate step params against the processor's ``__param_specs__``."""
     for spec in param_specs:
-        name = getattr(spec, 'name', None)
+        name = getattr(spec, "name", None)
         if name is None:
             continue
 
-        required = getattr(spec, 'required', False)
+        required = getattr(spec, "required", False)
         if required and name not in step.params:
-            errors.append(ValidationError(
-                step_index=step_index,
-                processor_name=step.processor_name,
-                code="MISSING_REQUIRED_PARAM",
-                message=(
-                    f"Processor '{step.processor_name}' requires parameter "
-                    f"'{name}' but it is not provided."
-                ),
-            ))
+            errors.append(
+                ValidationError(
+                    step_index=step_index,
+                    processor_name=step.processor_name,
+                    code="MISSING_REQUIRED_PARAM",
+                    message=(
+                        f"Processor '{step.processor_name}' requires parameter "
+                        f"'{name}' but it is not provided."
+                    ),
+                )
+            )
         elif name in step.params:
             value = step.params[name]
-            validate_fn = getattr(spec, 'validate', None)
+            validate_fn = getattr(spec, "validate", None)
             if validate_fn is not None:
                 try:
                     validate_fn(value)
                 except TypeError as e:
-                    errors.append(ValidationError(
-                        step_index=step_index,
-                        processor_name=step.processor_name,
-                        code="INVALID_PARAM_TYPE",
-                        message=str(e),
-                    ))
+                    errors.append(
+                        ValidationError(
+                            step_index=step_index,
+                            processor_name=step.processor_name,
+                            code="INVALID_PARAM_TYPE",
+                            message=str(e),
+                        )
+                    )
                 except ValueError as e:
-                    errors.append(ValidationError(
-                        step_index=step_index,
-                        processor_name=step.processor_name,
-                        code="INVALID_PARAM_VALUE",
-                        message=str(e),
-                    ))
+                    errors.append(
+                        ValidationError(
+                            step_index=step_index,
+                            processor_name=step.processor_name,
+                            code="INVALID_PARAM_VALUE",
+                            message=str(e),
+                        )
+                    )
 
 
 def _validate_via_signature(
     step_index: int,
     step: ProcessingStep,
     cls: type,
-    errors: List[ValidationError],
+    errors: list[ValidationError],
 ) -> None:
     """Fallback: validate step params against ``__init__`` signature."""
     try:
@@ -343,44 +353,42 @@ def _validate_via_signature(
         return
 
     for param_name, param in sig.parameters.items():
-        if param_name in ('self', 'metadata'):
+        if param_name in ("self", "metadata"):
             continue
         if param.kind in (
             inspect.Parameter.VAR_POSITIONAL,
             inspect.Parameter.VAR_KEYWORD,
         ):
             continue
-        if (
-            param.default is inspect.Parameter.empty
-            and param_name not in step.params
-        ):
-            errors.append(ValidationError(
-                step_index=step_index,
-                processor_name=step.processor_name,
-                code="MISSING_REQUIRED_PARAM",
-                message=(
-                    f"Processor '{step.processor_name}' requires parameter "
-                    f"'{param_name}' but it is not provided."
-                ),
-            ))
+        if param.default is inspect.Parameter.empty and param_name not in step.params:
+            errors.append(
+                ValidationError(
+                    step_index=step_index,
+                    processor_name=step.processor_name,
+                    code="MISSING_REQUIRED_PARAM",
+                    message=(
+                        f"Processor '{step.processor_name}' requires parameter "
+                        f"'{param_name}' but it is not provided."
+                    ),
+                )
+            )
 
 
 def _validate_phase_ordering(
-    workflow: 'WorkflowDefinition',
-    errors: List[ValidationError],
+    workflow: "WorkflowDefinition",
+    errors: list[ValidationError],
 ) -> None:
     """Check that step phases respect canonical ordering.
 
     A step should not be in an earlier phase than its dependencies.
     Violations produce warnings (PHASE_ORDER_VIOLATION), not blocking errors.
     """
-    import ast as _ast  # noqa: F811
-    from grdl_rt.execution.workflow import ExecutionPhase, PHASE_ORDER
+    from grdl_rt.execution.workflow import PHASE_ORDER, ExecutionPhase
 
     # Build step_id -> phase mapping
     step_phases = {}
     for step in workflow.steps:
-        if hasattr(step, 'phase') and step.phase is not None:
+        if hasattr(step, "phase") and step.phase is not None:
             try:
                 phase_enum = ExecutionPhase(step.phase)
                 step_phases[step.id] = phase_enum
@@ -401,21 +409,23 @@ def _validate_phase_ordering(
             dep_order = PHASE_ORDER[dep_phase]
 
             if step_order < dep_order:
-                errors.append(ValidationError(
-                    step_index=None,
-                    processor_name=getattr(step, 'processor_name', None),
-                    code="PHASE_ORDER_VIOLATION",
-                    message=(
-                        f"Step '{step.id}' (phase {step_phase.value}) "
-                        f"depends on '{dep_id}' (phase {dep_phase.value}) "
-                        f"which is a later phase"
-                    ),
-                ))
+                errors.append(
+                    ValidationError(
+                        step_index=None,
+                        processor_name=getattr(step, "processor_name", None),
+                        code="PHASE_ORDER_VIOLATION",
+                        message=(
+                            f"Step '{step.id}' (phase {step_phase.value}) "
+                            f"depends on '{dep_id}' (phase {dep_phase.value}) "
+                            f"which is a later phase"
+                        ),
+                    )
+                )
 
 
 def _validate_conditions(
-    workflow: 'WorkflowDefinition',
-    errors: List[ValidationError],
+    workflow: "WorkflowDefinition",
+    errors: list[ValidationError],
 ) -> None:
     """Check that condition expressions parse without errors."""
     import ast
@@ -426,11 +436,13 @@ def _validate_conditions(
         if step.condition is None:
             continue
         try:
-            ast.parse(step.condition, mode='eval')
+            ast.parse(step.condition, mode="eval")
         except SyntaxError as e:
-            errors.append(ValidationError(
-                step_index=i,
-                processor_name=step.processor_name,
-                code="INVALID_CONDITION",
-                message=f"Invalid condition expression: {e}",
-            ))
+            errors.append(
+                ValidationError(
+                    step_index=i,
+                    processor_name=step.processor_name,
+                    code="INVALID_CONDITION",
+                    message=f"Invalid condition expression: {e}",
+                )
+            )

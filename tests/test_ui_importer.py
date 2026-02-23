@@ -19,7 +19,6 @@ from grdl_rt.ui._importer import (
     _params_from_schema,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -133,6 +132,7 @@ class TestDiscoverWorkflow:
         wf = discover_workflow_in_module(tmp_workflow_file)
         assert wf is not None
         from grdl_rt.execution.builder import Workflow
+
         assert isinstance(wf, Workflow)
 
     def test_no_workflow_in_component(self, tmp_component_file: Path):
@@ -185,6 +185,7 @@ class TestExtractTunableParams:
 
     def test_class_with_metadata_param_excluded(self):
         """Parameters named 'metadata' should be excluded."""
+
         class _FakeWithMeta:
             def __init__(self, metadata, alpha: float = 0.5):
                 pass

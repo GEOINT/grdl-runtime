@@ -46,7 +46,6 @@ from grdl_rt.execution.resilience import (
     run_memory_preflight,
 )
 
-
 # ======================================================================
 # RetryPolicy
 # ======================================================================
@@ -223,7 +222,9 @@ class TestExecuteWithRetry:
 class TestExecuteWithTimeout:
     def test_completes_within_timeout(self):
         result = execute_with_timeout(
-            lambda: 42, timeout_seconds=5.0, step_name="fast_step",
+            lambda: 42,
+            timeout_seconds=5.0,
+            step_name="fast_step",
         )
         assert result == 42
 
@@ -234,7 +235,9 @@ class TestExecuteWithTimeout:
 
         with pytest.raises(StepTimeoutError) as exc_info:
             execute_with_timeout(
-                slow_fn, timeout_seconds=0.2, step_name="slow_step",
+                slow_fn,
+                timeout_seconds=0.2,
+                step_name="slow_step",
             )
 
         assert exc_info.value.step_name == "slow_step"
@@ -359,15 +362,16 @@ class TestMemoryEstimation:
         # 400 * 5.0 * 3 = 6000 >> 1000 → abort
         with pytest.raises(MemoryThresholdError):
             run_memory_preflight(
-                arr, n_steps=3, multiplier=5.0,
-                warn_threshold=0.8, abort_threshold=0.95,
+                arr,
+                n_steps=3,
+                multiplier=5.0,
+                warn_threshold=0.8,
+                abort_threshold=0.95,
             )
 
     @patch("grdl_rt.execution.resilience._psutil")
     def test_run_memory_preflight_safe(self, mock_psutil):
-        mock_psutil.virtual_memory.return_value = MagicMock(
-            available=1_000_000_000
-        )
+        mock_psutil.virtual_memory.return_value = MagicMock(available=1_000_000_000)
         arr = np.zeros((10, 10), dtype=np.float32)
         est = run_memory_preflight(arr, n_steps=2, multiplier=1.5)
         assert est == int(arr.nbytes * 1.5 * 2)
@@ -463,7 +467,9 @@ class TestRetryAndTimeout:
 
         def step_fn():
             return execute_with_timeout(
-                sometimes_slow, timeout_seconds=0.2, step_name="test",
+                sometimes_slow,
+                timeout_seconds=0.2,
+                step_name="test",
             )
 
         result = execute_with_retry(step_fn, policy, step_name="test")
@@ -481,12 +487,13 @@ class TestExecutorResilience:
 
     def _make_workflow(self, steps):
         from grdl_rt.execution.workflow import WorkflowDefinition
+
         wf = WorkflowDefinition(name="Test")
         for s in steps:
             wf.add_step(s)
         return wf
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_step_retry_succeeds_after_failures(self, mock_resolve):
         """A step configured with max_retries=3 retries on failure and
         eventually succeeds.
@@ -507,7 +514,8 @@ class TestExecutorResilience:
         from grdl_rt.execution.executor import WorkflowExecutor
 
         step = ProcessingStep(
-            'FlakyTransform', '1.0',
+            "FlakyTransform",
+            "1.0",
             retry=RetryPolicy(max_retries=3, backoff_base=0.01),
         )
         wf = self._make_workflow([step])
@@ -515,15 +523,17 @@ class TestExecutorResilience:
 
         source = np.ones((4, 4), dtype=np.float64)
         wr = executor.execute(
-            source, enable_memory_check=False,
+            source,
+            enable_memory_check=False,
             enable_shutdown_handler=False,
         )
         np.testing.assert_array_almost_equal(wr.result, np.ones((4, 4)) * 2.0)
         assert call_count[0] == 3
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_step_retry_exhausted(self, mock_resolve):
         """After max_retries failures, StepRetryExhaustedError is raised."""
+
         class _AlwaysFails:
             def apply(self, source, **kwargs):
                 raise RuntimeError("permanent")
@@ -535,7 +545,8 @@ class TestExecutorResilience:
         from grdl_rt.execution.executor import WorkflowExecutor
 
         step = ProcessingStep(
-            'AlwaysFails', '1.0',
+            "AlwaysFails",
+            "1.0",
             retry=RetryPolicy(max_retries=2, backoff_base=0.01),
         )
         wf = self._make_workflow([step])
@@ -549,9 +560,10 @@ class TestExecutorResilience:
             )
         assert len(exc_info.value.attempts) == 3  # 1 initial + 2 retries
 
-    @patch('grdl_rt.execution.executor.resolve_processor_class')
+    @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_step_timeout(self, mock_resolve):
         """A step with timeout_seconds that hangs is killed."""
+
         class _HangingTransform:
             def apply(self, source, **kwargs):
                 time.sleep(30)
@@ -563,7 +575,8 @@ class TestExecutorResilience:
         from grdl_rt.execution.executor import WorkflowExecutor
 
         step = ProcessingStep(
-            'HangingTransform', '1.0',
+            "HangingTransform",
+            "1.0",
             timeout_seconds=0.3,
         )
         wf = self._make_workflow([step])
@@ -582,13 +595,13 @@ class TestExecutorResilience:
         from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
         from grdl_rt.execution.executor import WorkflowExecutor
 
-        step = ProcessingStep('SomeProcessor', '1.0')
+        step = ProcessingStep("SomeProcessor", "1.0")
         wf = WorkflowDefinition(name="Test")
         wf.add_step(step)
         executor = WorkflowExecutor(wf)
 
         # Create a scenario where memory check fails
-        with patch('grdl_rt.execution.resilience._psutil') as mock_psutil:
+        with patch("grdl_rt.execution.resilience._psutil") as mock_psutil:
             mock_psutil.virtual_memory.return_value = MagicMock(available=100)
             # 8x8 float64 = 512 bytes, * 1.5 * 1 = 768 >> 100 available
             source = np.zeros((8, 8), dtype=np.float64)
@@ -613,16 +626,17 @@ class TestExecutorResilience:
         # Pre-set the shutdown flag so it triggers between steps
         shutdown._shutdown_requested = True
 
-        step1 = ProcessingStep('Step1', '1.0')
-        step2 = ProcessingStep('Step2', '1.0')
+        step1 = ProcessingStep("Step1", "1.0")
+        step2 = ProcessingStep("Step2", "1.0")
         wf = WorkflowDefinition(name="Test")
         wf.add_step(step1)
         wf.add_step(step2)
 
-        with patch('grdl_rt.execution.executor.resolve_processor_class') as mock:
+        with patch("grdl_rt.execution.executor.resolve_processor_class") as mock:
             mock.return_value = _SlowTransform
             executor = WorkflowExecutor(
-                wf, shutdown=shutdown,
+                wf,
+                shutdown=shutdown,
             )
 
             # The executor should detect the shutdown flag before step 0
@@ -639,7 +653,5 @@ class TestExecutorResilience:
             # Verify checkpoint was written
             ckpt_dirs = list(tmp_path.glob("grdl_checkpoint_*"))
             assert len(ckpt_dirs) == 1
-            ckpt = json.loads(
-                (ckpt_dirs[0] / "checkpoint.json").read_text()
-            )
+            ckpt = json.loads((ckpt_dirs[0] / "checkpoint.json").read_text())
             assert ckpt["completed_step_index"] == -1  # no steps completed

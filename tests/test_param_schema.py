@@ -29,10 +29,10 @@ from grdl_rt.catalog.schema import extract_param_schema
 from grdl_rt.execution.validation import ValidationError, validate_workflow
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ====================================================================
 # Test processors — realistic parameter declarations
 # ====================================================================
+
 
 class _MinimalProcessor:
     """No param_specs at all (plain __init__)."""
@@ -47,11 +47,12 @@ class _MinimalProcessor:
 class _AnnotatedProcessor:
     """Processor with Annotated params — collected into __param_specs__."""
 
-    sigma: Annotated[float, Range(min=0.001, max=100.0), Desc('Gaussian sigma in pixels')] = 2.0
-    accuracy: Annotated[float, Range(min=0.0001, max=1.0), Desc('Accuracy parameter')] = 0.002
-    interpolation: Annotated[str, Options('nearest', 'bilinear', 'bicubic'),
-                             Desc('Resampling method')] = 'bilinear'
-    normalize: Annotated[bool, Desc('Normalize output')] = True
+    sigma: Annotated[float, Range(min=0.001, max=100.0), Desc("Gaussian sigma in pixels")] = 2.0
+    accuracy: Annotated[float, Range(min=0.0001, max=1.0), Desc("Accuracy parameter")] = 0.002
+    interpolation: Annotated[
+        str, Options("nearest", "bilinear", "bicubic"), Desc("Resampling method")
+    ] = "bilinear"
+    normalize: Annotated[bool, Desc("Normalize output")] = True
 
     def apply(self, source, **kwargs):
         return source
@@ -64,10 +65,10 @@ _AnnotatedProcessor.__param_specs__ = collect_param_specs(_AnnotatedProcessor)
 class _RequiredParamProcessor:
     """Processor with a required (no-default) annotated parameter."""
 
-    num_looks: Annotated[int, Range(min=2), Desc('Number of sublooks')]
-    overlap: Annotated[float, Range(min=0.0, max=0.99), Desc('Fractional overlap')] = 0.0
-    dimension: Annotated[str, Options('azimuth', 'range'), Desc('Split dimension')] = 'azimuth'
-    deweight: Annotated[bool, Desc('Apply deweighting')] = True
+    num_looks: Annotated[int, Range(min=2), Desc("Number of sublooks")]
+    overlap: Annotated[float, Range(min=0.0, max=0.99), Desc("Fractional overlap")] = 0.0
+    dimension: Annotated[str, Options("azimuth", "range"), Desc("Split dimension")] = "azimuth"
+    deweight: Annotated[bool, Desc("Apply deweighting")] = True
 
     def apply(self, source, **kwargs):
         return source
@@ -79,6 +80,7 @@ _RequiredParamProcessor.__param_specs__ = collect_param_specs(_RequiredParamProc
 # ====================================================================
 # 8.1 — Schema Extractor Tests
 # ====================================================================
+
 
 class TestExtractParamSchema:
     """Test extract_param_schema for all constraint types."""
@@ -206,6 +208,7 @@ class TestExtractParamSchema:
 # 8.2 — Catalog Schema Storage Tests
 # ====================================================================
 
+
 class TestCatalogSchemaStorageSqlite:
     """Test param_schema round-trip through SqliteArtifactCatalog."""
 
@@ -326,7 +329,9 @@ class TestCatalogSchemaStorageYaml:
             assert result is not None
             assert "sigma" in result["properties"]
             assert result["properties"]["interpolation"]["enum"] == [
-                "nearest", "bilinear", "bicubic",
+                "nearest",
+                "bilinear",
+                "bicubic",
             ]
 
 
@@ -361,83 +366,99 @@ class TestCatalogSchemaStorageFederated:
 # 8.3 — Enhanced Validation Tests
 # ====================================================================
 
+
 class TestJsonSchemaValidation:
     """Test workflow validation using JSON Schema for parameter checking."""
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_valid_params_pass_schema_validation(self, mock_resolve):
         mock_resolve.return_value = _AnnotatedProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "AnnotatedProcessor", "1.0",
-            params={"sigma": 5.0, "accuracy": 0.01},
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "AnnotatedProcessor",
+                "1.0",
+                params={"sigma": 5.0, "accuracy": 0.01},
+            )
+        )
         errors = validate_workflow(wf)
         assert len(errors) == 0
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_wrong_type_caught_by_schema(self, mock_resolve):
         """String 'abc' when schema expects integer → INVALID_PARAM_TYPE."""
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={"num_looks": "abc", "overlap": 0.5},
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={"num_looks": "abc", "overlap": 0.5},
+            )
+        )
         errors = validate_workflow(wf)
 
         type_errors = [e for e in errors if e.code == "INVALID_PARAM_TYPE"]
         assert len(type_errors) >= 1
         assert "num_looks" in type_errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_out_of_range_caught_by_schema(self, mock_resolve):
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={"num_looks": 1},  # minimum is 2
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={"num_looks": 1},  # minimum is 2
+            )
+        )
         errors = validate_workflow(wf)
 
         value_errors = [e for e in errors if e.code == "INVALID_PARAM_VALUE"]
         assert len(value_errors) >= 1
         assert "num_looks" in value_errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_missing_required_caught_by_schema(self, mock_resolve):
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={"overlap": 0.5},  # num_looks is required
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={"overlap": 0.5},  # num_looks is required
+            )
+        )
         errors = validate_workflow(wf)
 
         req_errors = [e for e in errors if e.code == "MISSING_REQUIRED_PARAM"]
         assert len(req_errors) >= 1
         assert "num_looks" in req_errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_invalid_enum_caught_by_schema(self, mock_resolve):
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={"num_looks": 3, "dimension": "diagonal"},
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={"num_looks": 3, "dimension": "diagonal"},
+            )
+        )
         errors = validate_workflow(wf)
 
         value_errors = [e for e in errors if e.code == "INVALID_PARAM_VALUE"]
         assert len(value_errors) >= 1
         assert "dimension" in value_errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_schema_from_catalog_used_when_available(self, mock_resolve, tmp_path):
         """When catalog has a stored schema, it is used for validation."""
         from grdl_rt.catalog.database import SqliteArtifactCatalog
@@ -458,47 +479,55 @@ class TestJsonSchemaValidation:
             cat.add_artifact(artifact)
 
             wf = WorkflowDefinition(name="Test")
-            wf.add_step(ProcessingStep(
-                "RequiredProc", "1.0",
-                params={"num_looks": "bad"},
-            ))
+            wf.add_step(
+                ProcessingStep(
+                    "RequiredProc",
+                    "1.0",
+                    params={"num_looks": "bad"},
+                )
+            )
             errors = validate_workflow(wf, catalog=cat)
 
             type_errors = [e for e in errors if e.code == "INVALID_PARAM_TYPE"]
             assert len(type_errors) >= 1
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_multiple_errors_reported(self, mock_resolve):
         """Multiple parameter violations produce multiple errors."""
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={
-                "num_looks": "not_int",  # type error
-                "overlap": 5.0,          # exceeds maximum 0.99
-                "dimension": "diagonal",  # not in enum
-            },
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={
+                    "num_looks": "not_int",  # type error
+                    "overlap": 5.0,  # exceeds maximum 0.99
+                    "dimension": "diagonal",  # not in enum
+                },
+            )
+        )
         errors = validate_workflow(wf)
         # Should have at least 3 parameter errors
         param_errors = [
-            e for e in errors
-            if e.code in ("INVALID_PARAM_TYPE", "INVALID_PARAM_VALUE")
+            e for e in errors if e.code in ("INVALID_PARAM_TYPE", "INVALID_PARAM_VALUE")
         ]
         assert len(param_errors) >= 3
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_fallback_to_param_specs_when_no_jsonschema(self, mock_resolve):
         """When jsonschema is mocked away, falls back to __param_specs__."""
         mock_resolve.return_value = _RequiredParamProcessor
 
         wf = WorkflowDefinition(name="Test")
-        wf.add_step(ProcessingStep(
-            "RequiredProc", "1.0",
-            params={},  # missing required num_looks
-        ))
+        wf.add_step(
+            ProcessingStep(
+                "RequiredProc",
+                "1.0",
+                params={},  # missing required num_looks
+            )
+        )
 
         # Even with jsonschema path, missing required should be caught
         errors = validate_workflow(wf)
@@ -510,10 +539,11 @@ class TestJsonSchemaValidation:
 # Integration: end-to-end extract → store → validate
 # ====================================================================
 
+
 class TestEndToEnd:
     """Full round-trip: extract schema, store in catalog, validate workflow."""
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_extract_store_validate_accepts_good_params(self, mock_resolve, tmp_path):
         from grdl_rt.catalog.database import SqliteArtifactCatalog
 
@@ -538,14 +568,17 @@ class TestEndToEnd:
 
             # Validate a correct workflow
             wf = WorkflowDefinition(name="Good")
-            wf.add_step(ProcessingStep(
-                "GaussianBlur", "1.0",
-                params={"sigma": 3.0, "interpolation": "bicubic"},
-            ))
+            wf.add_step(
+                ProcessingStep(
+                    "GaussianBlur",
+                    "1.0",
+                    params={"sigma": 3.0, "interpolation": "bicubic"},
+                )
+            )
             errors = validate_workflow(wf, catalog=cat)
             assert len(errors) == 0
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_extract_store_validate_rejects_bad_params(self, mock_resolve, tmp_path):
         from grdl_rt.catalog.database import SqliteArtifactCatalog
 
@@ -565,19 +598,24 @@ class TestEndToEnd:
             cat.add_artifact(artifact)
 
             wf = WorkflowDefinition(name="Bad")
-            wf.add_step(ProcessingStep(
-                "GaussianBlur", "1.0",
-                params={"sigma": "not_a_number"},
-            ))
+            wf.add_step(
+                ProcessingStep(
+                    "GaussianBlur",
+                    "1.0",
+                    params={"sigma": "not_a_number"},
+                )
+            )
             errors = validate_workflow(wf, catalog=cat)
 
             type_errors = [e for e in errors if e.code == "INVALID_PARAM_TYPE"]
             assert len(type_errors) >= 1
             assert "sigma" in type_errors[0].message
 
-    @patch('grdl_rt.execution.discovery.resolve_processor_class')
+    @patch("grdl_rt.execution.discovery.resolve_processor_class")
     def test_grdk_can_consume_schema_without_importing_processor(
-        self, mock_resolve, tmp_path,
+        self,
+        mock_resolve,
+        tmp_path,
     ):
         """Simulates grdk reading schema from catalog to build UI controls."""
         from grdl_rt.catalog.database import SqliteArtifactCatalog

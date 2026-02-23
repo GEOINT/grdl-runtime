@@ -35,13 +35,14 @@ pytest.importorskip("opentelemetry", reason="opentelemetry not installed")
 from opentelemetry.sdk.resources import Resource  # noqa: E402
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)  # noqa: E402
 from opentelemetry.trace import StatusCode  # noqa: E402
 
 from grdl_rt.execution.context import ExecutionContext  # noqa: E402
 from grdl_rt.execution.instrumentation.tracing import OtelHook, _create_provider  # noqa: E402
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -279,9 +280,7 @@ class TestStepSpan:
         hook.on_step_end(ctx, 0, sm)
         hook.on_workflow_end(ctx, _make_workflow_metrics())
 
-        step_span = next(
-            s for s in exporter.get_finished_spans() if s.name.startswith("step:")
-        )
+        step_span = next(s for s in exporter.get_finished_spans() if s.name.startswith("step:"))
 
         assert step_span.attributes["step.index"] == 0
         assert step_span.attributes["step.processor"] == "LeeFilter"
@@ -301,9 +300,7 @@ class TestStepSpan:
         hook.on_step_end(ctx, 0, sm)
         hook.on_workflow_end(ctx, _make_workflow_metrics())
 
-        step_span = next(
-            s for s in exporter.get_finished_spans() if s.name.startswith("step:")
-        )
+        step_span = next(s for s in exporter.get_finished_spans() if s.name.startswith("step:"))
         assert "step.global_pass_duration_s" not in step_span.attributes
 
 
@@ -349,8 +346,7 @@ class TestGlobalPassSpan:
         hook.on_workflow_end(ctx, _make_workflow_metrics())
 
         gp_span = next(
-            s for s in exporter.get_finished_spans()
-            if s.name.startswith("global_pass:")
+            s for s in exporter.get_finished_spans() if s.name.startswith("global_pass:")
         )
         assert gp_span.attributes["global_pass.step_index"] == 0
         assert gp_span.attributes["global_pass.processor"] == "MedianFilter"
@@ -403,9 +399,7 @@ class TestErrorHandling:
         hook.on_step_end(ctx, 0, _make_step_metrics(status="failed"))
         hook.on_workflow_end(ctx, _make_workflow_metrics(status="failed"))
 
-        step_span = next(
-            s for s in exporter.get_finished_spans() if s.name.startswith("step:")
-        )
+        step_span = next(s for s in exporter.get_finished_spans() if s.name.startswith("step:"))
         assert step_span.status.status_code == StatusCode.ERROR
         assert "bad pixel value" in step_span.status.description
 
@@ -445,9 +439,7 @@ class TestErrorHandling:
 class TestImportGuard:
     def test_import_guard_raises_when_otel_missing(self):
         """OtelHook raises ImportError when opentelemetry is not installed."""
-        with patch(
-            "grdl_rt.execution.instrumentation.tracing._otel_trace", None
-        ):
+        with patch("grdl_rt.execution.instrumentation.tracing._otel_trace", None):
             with pytest.raises(ImportError, match="opentelemetry"):
                 OtelHook()
 

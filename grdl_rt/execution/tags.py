@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tag Taxonomy - Enumerated tags for GRDK projects and workflows.
 
@@ -35,13 +34,14 @@ Modified
 """
 
 # Standard library
-from typing import List, Optional, Tuple
 
 # Canonical vocabulary — single source of truth lives in grdl
 from grdl.vocabulary import (  # noqa: F401 — re-exported
     DetectionType,
+    ExecutionPhase,
     GpuCapability,
     ImageModality,
+    OutputFormat,
     SegmentationType,
 )
 
@@ -56,7 +56,7 @@ class ProjectTags:
         (e.g., "vehicle", "building", "ship", "runway").
     """
 
-    def __init__(self, intended_target: Optional[str] = None) -> None:
+    def __init__(self, intended_target: str | None = None) -> None:
         self.intended_target = intended_target
 
     def to_dict(self) -> dict:
@@ -67,10 +67,10 @@ class ProjectTags:
         dict
             Dictionary representation.
         """
-        return {'intended_target': self.intended_target}
+        return {"intended_target": self.intended_target}
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ProjectTags':
+    def from_dict(cls, data: dict) -> "ProjectTags":
         """Deserialize from dictionary.
 
         Parameters
@@ -82,7 +82,7 @@ class ProjectTags:
         -------
         ProjectTags
         """
-        return cls(intended_target=data.get('intended_target'))
+        return cls(intended_target=data.get("intended_target"))
 
 
 class WorkflowTags:
@@ -111,12 +111,12 @@ class WorkflowTags:
 
     def __init__(
         self,
-        modalities: Optional[List[ImageModality]] = None,
-        niirs_range: Optional[Tuple[float, float]] = None,
+        modalities: list[ImageModality] | None = None,
+        niirs_range: tuple[float, float] | None = None,
         day_capable: bool = True,
         night_capable: bool = False,
-        detection_types: Optional[List[DetectionType]] = None,
-        segmentation_types: Optional[List[SegmentationType]] = None,
+        detection_types: list[DetectionType] | None = None,
+        segmentation_types: list[SegmentationType] | None = None,
     ) -> None:
         self.modalities = modalities or []
         self.niirs_range = niirs_range or (0.0, 9.0)
@@ -134,16 +134,16 @@ class WorkflowTags:
             Dictionary representation with enum values as strings.
         """
         return {
-            'modalities': [m.value for m in self.modalities],
-            'niirs_range': list(self.niirs_range),
-            'day_capable': self.day_capable,
-            'night_capable': self.night_capable,
-            'detection_types': [d.value for d in self.detection_types],
-            'segmentation_types': [s.value for s in self.segmentation_types],
+            "modalities": [m.value for m in self.modalities],
+            "niirs_range": list(self.niirs_range),
+            "day_capable": self.day_capable,
+            "night_capable": self.night_capable,
+            "detection_types": [d.value for d in self.detection_types],
+            "segmentation_types": [s.value for s in self.segmentation_types],
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'WorkflowTags':
+    def from_dict(cls, data: dict) -> "WorkflowTags":
         """Deserialize from dictionary.
 
         Parameters
@@ -156,14 +156,10 @@ class WorkflowTags:
         WorkflowTags
         """
         return cls(
-            modalities=[ImageModality(m) for m in data.get('modalities', [])],
-            niirs_range=tuple(data.get('niirs_range', [0.0, 9.0])),
-            day_capable=data.get('day_capable', True),
-            night_capable=data.get('night_capable', False),
-            detection_types=[
-                DetectionType(d) for d in data.get('detection_types', [])
-            ],
-            segmentation_types=[
-                SegmentationType(s) for s in data.get('segmentation_types', [])
-            ],
+            modalities=[ImageModality(m) for m in data.get("modalities", [])],
+            niirs_range=tuple(data.get("niirs_range", [0.0, 9.0])),
+            day_capable=data.get("day_capable", True),
+            night_capable=data.get("night_capable", False),
+            detection_types=[DetectionType(d) for d in data.get("detection_types", [])],
+            segmentation_types=[SegmentationType(s) for s in data.get("segmentation_types", [])],
         )

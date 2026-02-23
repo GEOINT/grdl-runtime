@@ -19,10 +19,10 @@ import pytest
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.result import WorkflowResult
 
-
 # ---------------------------------------------------------------------------
 # StepMetrics
 # ---------------------------------------------------------------------------
+
 
 class TestStepMetrics:
     def test_construction(self):
@@ -77,6 +77,7 @@ class TestStepMetrics:
 # ---------------------------------------------------------------------------
 # WorkflowMetrics
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowMetrics:
     def _make_metrics(self, n_steps=2, status="success"):
@@ -159,6 +160,7 @@ class TestWorkflowMetrics:
 # WorkflowResult
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowResult:
     def test_construction(self):
         arr = np.ones((4, 4), dtype=np.float32)
@@ -178,9 +180,13 @@ class TestWorkflowResult:
     def test_result_is_ndarray(self):
         arr = np.zeros((2, 2))
         wm = WorkflowMetrics(
-            workflow_id="x", run_id="r", workflow_name="X",
-            workflow_version="0.1", total_wall_time_s=0,
-            total_cpu_time_s=0, peak_rss_bytes=0,
+            workflow_id="x",
+            run_id="r",
+            workflow_name="X",
+            workflow_version="0.1",
+            total_wall_time_s=0,
+            total_cpu_time_s=0,
+            peak_rss_bytes=0,
         )
         wr = WorkflowResult(result=arr, metrics=wm)
         assert isinstance(wr.result, np.ndarray)

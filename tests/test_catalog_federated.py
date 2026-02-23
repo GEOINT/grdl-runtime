@@ -21,7 +21,6 @@ from grdl_rt.catalog.federated import FederatedArtifactCatalog
 from grdl_rt.catalog.models import Artifact
 from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -181,12 +180,8 @@ class TestFederatedSearch:
 
 class TestFederatedSearchByTags:
     def test_search_by_tags_across_backends(self, primary, secondary, federated):
-        primary.add_artifact(
-            _make_workflow("wf1", tags={"modality": ["SAR"]})
-        )
-        secondary.add_artifact(
-            _make_workflow("wf2", tags={"modality": ["SAR"]})
-        )
+        primary.add_artifact(_make_workflow("wf1", tags={"modality": ["SAR"]}))
+        secondary.add_artifact(_make_workflow("wf2", tags={"modality": ["SAR"]}))
         results = federated.search_by_tags({"modality": "SAR"})
         assert len(results) == 2
 
@@ -203,6 +198,7 @@ class TestFederatedSearchByTags:
 class TestFederatedLifecycle:
     def test_close_closes_all(self):
         from unittest.mock import MagicMock
+
         m1 = MagicMock(spec=ArtifactCatalogBase)
         m2 = MagicMock(spec=ArtifactCatalogBase)
         fed = FederatedArtifactCatalog([m1, m2])
@@ -212,6 +208,7 @@ class TestFederatedLifecycle:
 
     def test_context_manager(self):
         from unittest.mock import MagicMock
+
         m1 = MagicMock(spec=ArtifactCatalogBase)
         m2 = MagicMock(spec=ArtifactCatalogBase)
         with FederatedArtifactCatalog([m1, m2]) as fed:

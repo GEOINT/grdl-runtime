@@ -37,10 +37,10 @@ from grdl_rt.execution.plan import (
 from grdl_rt.execution.resolver import Resolver
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
-
 # ---------------------------------------------------------------------------
 # Mock HardwareContext
 # ---------------------------------------------------------------------------
+
 
 class _MockHW(HardwareContext):
     def __init__(self, *, gpu: bool = True):
@@ -75,8 +75,7 @@ class _MockHW(HardwareContext):
             "available_memory_bytes": self.available_memory_bytes,
             "gpu_available": self.gpu_available,
             "gpu_devices": [
-                {"name": d.name, "memory_bytes": d.memory_bytes}
-                for d in self.gpu_devices
+                {"name": d.name, "memory_bytes": d.memory_bytes} for d in self.gpu_devices
             ],
         }
 
@@ -85,17 +84,22 @@ class _MockHW(HardwareContext):
 # Mock processor classes
 # ---------------------------------------------------------------------------
 
+
 class _CpuOnlyProcessor:
     __processor_tags__ = {"gpu_capability": MagicMock(value="cpu_only")}
+
 
 class _PreferredProcessor:
     __processor_tags__ = {"gpu_capability": MagicMock(value="preferred")}
 
+
 class _RequiredProcessor:
     __processor_tags__ = {"gpu_capability": MagicMock(value="required")}
 
+
 class _CpuFallbackProcessor:
     __processor_tags__ = {"gpu_capability": MagicMock(value="cpu_only")}
+
 
 class _GlobalPassProcessor:
     __processor_tags__ = {"gpu_capability": MagicMock(value="preferred")}
@@ -121,6 +125,7 @@ def _mock_resolve(name):
 # Mock catalog
 # ---------------------------------------------------------------------------
 
+
 def _make_catalog(alternatives_map=None):
     """Create a mock catalog with optional alternatives."""
     alternatives_map = alternatives_map or {}
@@ -143,15 +148,20 @@ def _make_catalog(alternatives_map=None):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestResolverBasic:
 
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_linear_workflow_gpu_available(self, mock_resolve):
         """All steps keep original processors when GPU is available."""
-        wf = WorkflowDefinition(name="Linear", version="1.0.0", steps=[
-            ProcessingStep("CpuOnly", "1.0", id="s1"),
-            ProcessingStep("Preferred", "1.0", id="s2", depends_on=["s1"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Linear",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("CpuOnly", "1.0", id="s1"),
+                ProcessingStep("Preferred", "1.0", id="s2", depends_on=["s1"]),
+            ],
+        )
         cat = _make_catalog()
         resolver = Resolver(cat)
         hw = _MockHW(gpu=True)
@@ -168,11 +178,15 @@ class TestResolverBasic:
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_three_step_parallel_groups(self, mock_resolve):
         """Parallel groups match topological sort levels."""
-        wf = WorkflowDefinition(name="Parallel", version="1.0.0", steps=[
-            ProcessingStep("CpuOnly", "1.0", id="root"),
-            ProcessingStep("Preferred", "1.0", id="left", depends_on=["root"]),
-            ProcessingStep("CpuOnly", "1.0", id="right", depends_on=["root"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Parallel",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("CpuOnly", "1.0", id="root"),
+                ProcessingStep("Preferred", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("CpuOnly", "1.0", id="right", depends_on=["root"]),
+            ],
+        )
         cat = _make_catalog()
         resolver = Resolver(cat)
         plan = resolver.resolve(wf, _MockHW(gpu=True))
@@ -187,12 +201,18 @@ class TestResolverGpuSubstitution:
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_gpu_required_no_gpu_substitutes_alternative(self, mock_resolve):
         """GPU-required step substituted when no GPU available."""
-        wf = WorkflowDefinition(name="SubTest", version="1.0.0", steps=[
-            ProcessingStep("Required", "1.0", id="s1"),
-        ])
-        cat = _make_catalog({
-            "Required": [{"processor_name": "CpuFallback", "priority": 1}],
-        })
+        wf = WorkflowDefinition(
+            name="SubTest",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Required", "1.0", id="s1"),
+            ],
+        )
+        cat = _make_catalog(
+            {
+                "Required": [{"processor_name": "CpuFallback", "priority": 1}],
+            }
+        )
         resolver = Resolver(cat)
         plan = resolver.resolve(wf, _MockHW(gpu=False))
 
@@ -206,9 +226,13 @@ class TestResolverGpuSubstitution:
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_gpu_required_no_gpu_no_alternative_raises(self, mock_resolve):
         """GPU-required step with no alternative raises ResolutionError."""
-        wf = WorkflowDefinition(name="NoAlt", version="1.0.0", steps=[
-            ProcessingStep("Required", "1.0", id="s1"),
-        ])
+        wf = WorkflowDefinition(
+            name="NoAlt",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Required", "1.0", id="s1"),
+            ],
+        )
         cat = _make_catalog()
         resolver = Resolver(cat)
 
@@ -218,9 +242,13 @@ class TestResolverGpuSubstitution:
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_gpu_preferred_no_gpu_warns(self, mock_resolve):
         """GPU-preferred step without GPU keeps original but warns."""
-        wf = WorkflowDefinition(name="Warn", version="1.0.0", steps=[
-            ProcessingStep("Preferred", "1.0", id="s1"),
-        ])
+        wf = WorkflowDefinition(
+            name="Warn",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Preferred", "1.0", id="s1"),
+            ],
+        )
         cat = _make_catalog()
         resolver = Resolver(cat)
         plan = resolver.resolve(wf, _MockHW(gpu=False))
@@ -235,10 +263,14 @@ class TestResolverGlobalPass:
 
     @patch("grdl_rt.execution.resolver.resolve_processor_class", side_effect=_mock_resolve)
     def test_global_pass_steps_flagged(self, mock_resolve):
-        wf = WorkflowDefinition(name="GP", version="1.0.0", steps=[
-            ProcessingStep("CpuOnly", "1.0", id="s1"),
-            ProcessingStep("GlobalPass", "1.0", id="s2", depends_on=["s1"]),
-        ])
+        wf = WorkflowDefinition(
+            name="GP",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("CpuOnly", "1.0", id="s1"),
+                ProcessingStep("GlobalPass", "1.0", id="s2", depends_on=["s1"]),
+            ],
+        )
         cat = _make_catalog()
         resolver = Resolver(cat)
         plan = resolver.resolve(wf, _MockHW(gpu=True))
@@ -321,8 +353,7 @@ class TestPlanRoundTrip:
                 ),
             },
             parallel_groups=[
-                ParallelGroup(level=0, step_ids=["s1"],
-                              estimated_peak_memory_bytes=512),
+                ParallelGroup(level=0, step_ids=["s1"], estimated_peak_memory_bytes=512),
             ],
             global_pass_steps=[],
             substitutions=[

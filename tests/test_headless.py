@@ -17,7 +17,6 @@ Created
 
 from pathlib import Path
 
-
 # Forbidden GUI framework tokens
 FORBIDDEN_GUI_TOKENS = [
     "PyQt6",
@@ -49,10 +48,9 @@ class TestHeadlessConstraint:
                 if token in content:
                     rel = py_file.relative_to(PACKAGE_ROOT.parent)
                     violations.append(f"{rel}: contains '{token}'")
-        assert violations == [], (
-            "GUI framework references found in headless package:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "GUI framework references found in headless package:\n" + "\n".join(violations)
 
     def test_package_root_exists(self):
         """Sanity check: the package root exists and has Python files."""

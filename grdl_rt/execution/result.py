@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Result — Return type for all execution paths.
 
@@ -32,11 +31,9 @@ Modified
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 # Third-party
-import numpy as np
-
 # grdl-runtime internal
 from grdl_rt.execution.metrics import WorkflowMetrics
 
@@ -76,6 +73,6 @@ class WorkflowResult:
 
     result: Any
     metrics: WorkflowMetrics
-    step_results: Optional[Dict[str, Any]] = None
-    lineage: Optional[DataLineage] = None
-    metadata_trace: List[Dict[str, Any]] = field(default_factory=list)
+    step_results: dict[str, Any] | None = None
+    lineage: DataLineage | None = None
+    metadata_trace: list[dict[str, Any]] = field(default_factory=list)

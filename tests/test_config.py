@@ -37,7 +37,6 @@ from grdl_rt.execution.config import (
     reset_runtime_config,
 )
 
-
 # ======================================================================
 # RuntimeConfig defaults
 # ======================================================================
@@ -146,6 +145,7 @@ class TestEnvVarOverlay:
 class TestFileLoading:
     def test_load_yaml_config(self, tmp_path):
         import yaml
+
         config_data = {
             "log": {"level": "DEBUG", "format": "console"},
             "memory": {"warn_threshold": 0.70},
@@ -195,6 +195,7 @@ abort_threshold = 0.90
 class TestEnvPrecedence:
     def test_env_overrides_yaml(self, tmp_path, monkeypatch):
         import yaml
+
         config_data = {"log": {"level": "DEBUG"}}
         yaml_path = tmp_path / "runtime.yaml"
         yaml_path.write_text(yaml.dump(config_data), encoding="utf-8")

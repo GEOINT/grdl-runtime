@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Data Lineage — input-to-output provenance tracking for workflow executions.
 
@@ -31,7 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -74,12 +73,12 @@ class LineageTransform:
 
     step_index: int
     processor_name: str
-    processor_version: Optional[str] = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    processor_version: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "step_index": self.step_index,
             "processor_name": self.processor_name,
             "params": self.params,
@@ -112,14 +111,14 @@ class DataLineage:
     """
 
     input_hash: str
-    input_shape: List[int]
+    input_shape: list[int]
     input_dtype: str
-    transforms: List[LineageTransform]
+    transforms: list[LineageTransform]
     output_hash: str
-    output_shape: List[int]
+    output_shape: list[int]
     output_dtype: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
         return {
             "input_hash": self.input_hash,
@@ -132,7 +131,7 @@ class DataLineage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> DataLineage:
+    def from_dict(cls, data: dict[str, Any]) -> DataLineage:
         """Deserialize from dictionary."""
         return cls(
             input_hash=data["input_hash"],
@@ -178,7 +177,7 @@ def build_lineage(
     """
     from grdl_rt.execution.workflow import ProcessingStep
 
-    transforms: List[LineageTransform] = []
+    transforms: list[LineageTransform] = []
     for sm in step_metrics:
         # Find the matching workflow step for params
         matching_step = None
@@ -191,17 +190,20 @@ def build_lineage(
         proc_version = None
         try:
             from grdl_rt.execution.discovery import resolve_processor_class
+
             proc_cls = resolve_processor_class(sm.processor_name)
-            proc_version = getattr(proc_cls, '__processor_version__', None)
+            proc_version = getattr(proc_cls, "__processor_version__", None)
         except Exception:
             pass
 
-        transforms.append(LineageTransform(
-            step_index=sm.step_index,
-            processor_name=sm.processor_name,
-            processor_version=proc_version,
-            params=dict(matching_step.params) if matching_step else {},
-        ))
+        transforms.append(
+            LineageTransform(
+                step_index=sm.step_index,
+                processor_name=sm.processor_name,
+                processor_version=proc_version,
+                params=dict(matching_step.params) if matching_step else {},
+            )
+        )
 
     return DataLineage(
         input_hash=compute_array_hash(source),
@@ -241,5 +243,6 @@ def embed_lineage_geotiff(output_path: str, lineage: DataLineage) -> None:
     except Exception as e:
         logger.warning(
             "geotiff_lineage_embed_failed",
-            path=output_path, error=str(e),
+            path=output_path,
+            error=str(e),
         )

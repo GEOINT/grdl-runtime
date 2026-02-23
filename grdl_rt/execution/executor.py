@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Workflow Executor - Headless and interactive workflow execution.
 
@@ -36,18 +35,22 @@ Modified
 """
 
 # Standard library
+import contextlib
 import json
 import re
 import sys
 import time
 import tracemalloc
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 # Third-party
 import numpy as np
+
+from grdl_rt.execution.band_adaptation import BandExpansion, BandReduction, adapt_bands
 
 # grdl-runtime internal
 from grdl_rt.execution.checkpoint import (
@@ -60,16 +63,13 @@ from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.discovery import resolve_processor_class
 from grdl_rt.execution.errors import (
-    CheckpointError,
-    MemoryThresholdError,
-    QuotaExceededError,
-    ResumeError,
     StepRetryExhaustedError,
     StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.history import ExecutionHistoryDB
 from grdl_rt.execution.instrumentation import ExecutionHook
+from grdl_rt.execution.lineage import build_lineage, compute_array_hash
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 from grdl_rt.execution.resilience import (
@@ -80,9 +80,7 @@ from grdl_rt.execution.resilience import (
     execute_with_timeout,
     run_memory_preflight,
 )
-from grdl_rt.execution.lineage import build_lineage, compute_array_hash
 from grdl_rt.execution.result import WorkflowResult
-from grdl_rt.execution.band_adaptation import adapt_bands, BandExpansion, BandReduction
 from grdl_rt.execution.workflow import ProcessingStep, TapOutStepDef, WorkflowDefinition
 
 logger = get_logger(__name__)
@@ -96,7 +94,7 @@ except ImportError:
 
 def _iso_now() -> str:
     """Return current UTC time as ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class WorkflowExecutor:
@@ -134,14 +132,14 @@ class WorkflowExecutor:
     def __init__(
         self,
         workflow: WorkflowDefinition,
-        gpu: Optional[GpuBackend] = None,
+        gpu: GpuBackend | None = None,
         *,
-        shutdown: Optional[ShutdownCoordinator] = None,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        checkpoint_manager: Optional[CheckpointManager] = None,
-        history_db: Optional[ExecutionHistoryDB] = None,
-        resource_quota: Optional[ResourceQuota] = None,
-        hooks: Optional[List[ExecutionHook]] = None,
+        shutdown: ShutdownCoordinator | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        checkpoint_manager: CheckpointManager | None = None,
+        history_db: ExecutionHistoryDB | None = None,
+        resource_quota: ResourceQuota | None = None,
+        hooks: list[ExecutionHook] | None = None,
     ) -> None:
         self._workflow = workflow
         self._gpu = gpu or GpuBackend(prefer_gpu=False)
@@ -150,17 +148,17 @@ class WorkflowExecutor:
         self._checkpoint_mgr = checkpoint_manager
         self._history_db = history_db
         self._resource_quota = resource_quota
-        self._hooks: List[ExecutionHook] = list(hooks or [])
+        self._hooks: list[ExecutionHook] = list(hooks or [])
 
     def execute(
         self,
         source: np.ndarray,
-        progress_callback: Optional[Callable[[float], None]] = None,
+        progress_callback: Callable[[float], None] | None = None,
         *,
         auto_tap_out: bool = False,
-        tap_out_format: str = 'npy',
-        tap_out_dir: Optional[Union[str, Path]] = None,
-        run_folder: Optional[Union[str, Path]] = None,
+        tap_out_format: str = "npy",
+        tap_out_dir: str | Path | None = None,
+        run_folder: str | Path | None = None,
         enable_memory_check: bool = True,
         enable_shutdown_handler: bool = True,
         enable_checkpointing: bool = False,
@@ -213,8 +211,8 @@ class WorkflowExecutor:
             workflow_name=self._workflow.name,
             run_id=run_id,
         )
-        log = logger.bind(**ctx.as_log_dict())
-        cfg = get_runtime_config()
+        logger.bind(**ctx.as_log_dict())
+        get_runtime_config()
 
         # Register shutdown handler
         if enable_shutdown_handler:
@@ -248,22 +246,20 @@ class WorkflowExecutor:
     def _call_hooks(self, method: str, *args: Any, **kwargs: Any) -> None:
         """Call a hook method on all registered hooks, swallowing errors."""
         for hook in self._hooks:
-            try:
+            with contextlib.suppress(Exception):
                 getattr(hook, method)(*args, **kwargs)
-            except Exception:
-                pass
 
     def _execute_main(
         self,
         source: np.ndarray,
         *,
-        progress_callback: Optional[Callable[[float], None]],
+        progress_callback: Callable[[float], None] | None,
         ctx: ExecutionContext,
-        run_folder: Optional[Path] = None,
+        run_folder: Path | None = None,
         enable_memory_check: bool,
         enable_checkpointing: bool = False,
-        resume_state: Optional[CheckpointState] = None,
-        prior_metrics: Optional[List[StepMetrics]] = None,
+        resume_state: CheckpointState | None = None,
+        prior_metrics: list[StepMetrics] | None = None,
         **kwargs: Any,
     ) -> WorkflowResult:
         """Core execution loop with resilience, checkpointing, and history.
@@ -287,10 +283,7 @@ class WorkflowExecutor:
         skip_up_to = resume_state.step_index if resume_state else -1
 
         # Count processing steps for memory estimation
-        processing_steps = [
-            s for s in self._workflow.steps
-            if isinstance(s, ProcessingStep)
-        ]
+        processing_steps = [s for s in self._workflow.steps if isinstance(s, ProcessingStep)]
         n_steps = len(self._workflow.steps)
 
         # Memory pre-flight
@@ -305,11 +298,12 @@ class WorkflowExecutor:
             )
 
         # Resource quota pre-flight and monitoring
-        quota_enforcer: Optional[QuotaEnforcer] = None
+        quota_enforcer: QuotaEnforcer | None = None
         if self._resource_quota is not None:
             quota_enforcer = QuotaEnforcer(self._resource_quota)
             quota_enforcer.check_before_execution(
-                source, len(processing_steps),
+                source,
+                len(processing_steps),
                 multiplier=cfg.memory.estimation_multiplier,
             )
             quota_enforcer.mark_start()
@@ -317,20 +311,24 @@ class WorkflowExecutor:
 
         # Notify hooks of workflow start
         self._call_hooks(
-            "on_workflow_start", ctx,
-            self._workflow.name, self._workflow.version,
+            "on_workflow_start",
+            ctx,
+            self._workflow.name,
+            self._workflow.version,
         )
 
         # Run global pass before main execution (only on fresh runs)
-        global_pass_processors: Dict[int, Any] = {}
+        global_pass_processors: dict[int, Any] = {}
         if not resume_state:
             global_pass_processors = self._run_global_pass(
-                source, ctx=ctx, log=log,
+                source,
+                ctx=ctx,
+                log=log,
             )
 
         current = source
-        step_metrics_list: List[StepMetrics] = list(prior_metrics or [])
-        intermediate_files: List[str] = []
+        step_metrics_list: list[StepMetrics] = list(prior_metrics or [])
+        intermediate_files: list[str] = []
         if resume_state:
             intermediate_files = list(resume_state.intermediate_files)
 
@@ -392,7 +390,10 @@ class WorkflowExecutor:
                 if self._shutdown.shutdown_requested:
                     log.info("shutdown_during_execution", step_index=i)
                     self._do_shutdown(
-                        ctx, last_completed_index, current, step_metrics_list,
+                        ctx,
+                        last_completed_index,
+                        current,
+                        step_metrics_list,
                         intermediate_files=intermediate_files,
                         wf_dict=wf_dict,
                         wf_hash=wf_hash,
@@ -407,11 +408,14 @@ class WorkflowExecutor:
                     log.debug("tap_out", step_index=i, path=step.path)
                     try:
                         from grdl.IO import write as io_write
+
                         io_write(current, step.path, format=step.format)
                     except Exception as e:
                         log.warning(
-                            "tap_out_failed", step_index=i,
-                            path=step.path, error=str(e),
+                            "tap_out_failed",
+                            step_index=i,
+                            path=step.path,
+                            error=str(e),
                         )
                 else:
                     step_t0_wall = time.perf_counter()
@@ -423,25 +427,28 @@ class WorkflowExecutor:
                     if progress_callback is not None and n_steps > 0:
                         base = i / n_steps
                         scale = 1.0 / n_steps
-                        step_kwargs['progress_callback'] = (
+                        step_kwargs["progress_callback"] = (
                             lambda f, _b=base, _s=scale: progress_callback(_b + f * _s)
                         )
 
                     log.debug(
-                        "step_start", step_index=i,
+                        "step_start",
+                        step_index=i,
                         processor_name=step.processor_name,
                     )
 
                     # Notify hooks
                     self._call_hooks(
-                        "on_step_start", ctx, i, step.processor_name,
+                        "on_step_start",
+                        ctx,
+                        i,
+                        step.processor_name,
                     )
 
                     # Check circuit breaker
                     if self._circuit_breaker.is_open(step.processor_name):
                         raise RuntimeError(
-                            f"Circuit breaker open for processor "
-                            f"'{step.processor_name}'"
+                            f"Circuit breaker open for processor " f"'{step.processor_name}'"
                         )
 
                     # Use pre-instantiated processor if global pass ran
@@ -449,7 +456,9 @@ class WorkflowExecutor:
                     pre_inst = gp_info[0] if gp_info else None
 
                     current = self._execute_step_resilient(
-                        step, current, log=log,
+                        step,
+                        current,
+                        log=log,
                         _pre_instantiated=pre_inst,
                         **step_kwargs,
                     )
@@ -468,17 +477,14 @@ class WorkflowExecutor:
                         peak_rss_bytes=step_peak,
                         gpu_used=self._gpu.last_gpu_used,
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
-                        global_pass_duration=(
-                            gp_info[1] if gp_info else None
-                        ),
-                        global_pass_memory=(
-                            gp_info[2] if gp_info else None
-                        ),
+                        global_pass_duration=(gp_info[1] if gp_info else None),
+                        global_pass_memory=(gp_info[2] if gp_info else None),
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
                     log.debug(
-                        "step_complete", step_index=i,
+                        "step_complete",
+                        step_index=i,
                         processor_name=step.processor_name,
                         wall_time_s=round(step_wall, 4),
                     )
@@ -490,7 +496,9 @@ class WorkflowExecutor:
                     if enable_checkpointing and self._checkpoint_mgr is not None:
                         try:
                             ipath = self._checkpoint_mgr.write_step_intermediate(
-                                ctx.run_id, i, current,
+                                ctx.run_id,
+                                i,
+                                current,
                             )
                             intermediate_files.append(ipath)
                             ckpt_state = CheckpointState(
@@ -504,12 +512,14 @@ class WorkflowExecutor:
                                 workflow_dict=wf_dict,
                             )
                             self._checkpoint_mgr.write_checkpoint(
-                                ckpt_state, ctx.run_id,
+                                ckpt_state,
+                                ctx.run_id,
                             )
                         except Exception as e:
                             log.warning(
                                 "checkpoint_write_failed",
-                                step_index=i, error=str(e),
+                                step_index=i,
+                                error=str(e),
                             )
 
                 if progress_callback is not None and n_steps > 0:
@@ -518,7 +528,10 @@ class WorkflowExecutor:
             # Check shutdown after last step
             if self._shutdown.shutdown_requested:
                 self._do_shutdown(
-                    ctx, last_completed_index, current, step_metrics_list,
+                    ctx,
+                    last_completed_index,
+                    current,
+                    step_metrics_list,
                     intermediate_files=intermediate_files,
                     wf_dict=wf_dict,
                     wf_hash=wf_hash,
@@ -548,7 +561,8 @@ class WorkflowExecutor:
             lineage = None
             try:
                 lineage = build_lineage(
-                    source, current,
+                    source,
+                    current,
                     self._workflow.steps,
                     step_metrics_list,
                 )
@@ -556,7 +570,8 @@ class WorkflowExecutor:
                 log.warning("lineage_build_failed", error=str(e))
 
             log.info(
-                "workflow_complete", status="success",
+                "workflow_complete",
+                status="success",
                 total_wall_time_s=round(total_wall, 4),
                 step_count=len(step_metrics_list),
             )
@@ -566,19 +581,15 @@ class WorkflowExecutor:
             if lineage is not None:
                 output_hash_val = lineage.output_hash
             else:
-                try:
+                with contextlib.suppress(Exception):
                     output_hash_val = compute_array_hash(current)
-                except Exception:
-                    pass
 
             # Record completion in history
             if self._history_db is not None:
                 try:
                     ckpt_path = None
                     if self._checkpoint_mgr is not None and intermediate_files:
-                        ckpt_path = str(
-                            self._checkpoint_mgr.run_dir(ctx.run_id)
-                        )
+                        ckpt_path = str(self._checkpoint_mgr.run_dir(ctx.run_id))
                     self._history_db.record_completion(
                         run_id=ctx.run_id,
                         status="success",
@@ -594,8 +605,11 @@ class WorkflowExecutor:
             if run_folder is not None:
                 try:
                     self._write_as_executed_linear(
-                        run_folder, ctx, "success",
-                        step_metrics_list, wf_metrics,
+                        run_folder,
+                        ctx,
+                        "success",
+                        step_metrics_list,
+                        wf_metrics,
                         lineage_dict=lineage.to_dict() if lineage else None,
                         log=log,
                     )
@@ -603,7 +617,9 @@ class WorkflowExecutor:
                     log.warning("as_executed_write_failed", error=str(e))
 
             return WorkflowResult(
-                result=current, metrics=wf_metrics, lineage=lineage,
+                result=current,
+                metrics=wf_metrics,
+                lineage=lineage,
             )
 
         except (StepRetryExhaustedError, StepTimeoutError) as exc:
@@ -632,14 +648,16 @@ class WorkflowExecutor:
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
             if run_folder is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._write_as_executed_linear(
-                        run_folder, ctx, "failed",
-                        step_metrics_list, wf_metrics,
-                        error_message=str(exc), log=log,
+                        run_folder,
+                        ctx,
+                        "failed",
+                        step_metrics_list,
+                        wf_metrics,
+                        error_message=str(exc),
+                        log=log,
                     )
-                except Exception:
-                    pass
             raise
 
         except Exception as exc:
@@ -666,14 +684,16 @@ class WorkflowExecutor:
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
             self._record_failure(ctx, step_metrics_list, wf_metrics, log)
             if run_folder is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._write_as_executed_linear(
-                        run_folder, ctx, "failed",
-                        step_metrics_list, wf_metrics,
-                        error_message=str(exc), log=log,
+                        run_folder,
+                        ctx,
+                        "failed",
+                        step_metrics_list,
+                        wf_metrics,
+                        error_message=str(exc),
+                        log=log,
                     )
-                except Exception:
-                    pass
             raise
         finally:
             if quota_enforcer is not None:
@@ -683,7 +703,7 @@ class WorkflowExecutor:
     def _record_failure(
         self,
         ctx: ExecutionContext,
-        step_metrics_list: List[StepMetrics],
+        step_metrics_list: list[StepMetrics],
         wf_metrics: WorkflowMetrics,
         log: Any,
     ) -> None:
@@ -705,11 +725,11 @@ class WorkflowExecutor:
         run_folder: Path,
         ctx: ExecutionContext,
         status: str,
-        step_metrics_list: List[StepMetrics],
+        step_metrics_list: list[StepMetrics],
         wf_metrics: WorkflowMetrics,
         *,
-        lineage_dict: Optional[Dict[str, Any]] = None,
-        error_message: Optional[str] = None,
+        lineage_dict: dict[str, Any] | None = None,
+        error_message: str | None = None,
         log: Any = None,
     ) -> None:
         """Write as_executed.json for linear workflow execution."""
@@ -742,9 +762,9 @@ class WorkflowExecutor:
         self,
         source: np.ndarray,
         *,
-        progress_callback: Optional[Callable[[float], None]],
+        progress_callback: Callable[[float], None] | None,
         tap_out_format: str,
-        tap_out_dir: Optional[Path],
+        tap_out_dir: Path | None,
         ctx: ExecutionContext,
         enable_memory_check: bool,
         **kwargs: Any,
@@ -755,10 +775,7 @@ class WorkflowExecutor:
         started_at = _iso_now()
 
         # Count processing steps for memory estimation
-        processing_steps = [
-            s for s in self._workflow.steps
-            if isinstance(s, ProcessingStep)
-        ]
+        processing_steps = [s for s in self._workflow.steps if isinstance(s, ProcessingStep)]
         n_steps = len(self._workflow.steps)
 
         # Memory pre-flight
@@ -776,7 +793,7 @@ class WorkflowExecutor:
         if tap_out_dir is not None:
             run_dir = tap_out_dir
         else:
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             run_dir = Path.cwd() / f"grdl_run_{timestamp}"
 
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -784,10 +801,10 @@ class WorkflowExecutor:
         # Run global pass before main execution
         global_pass_processors = self._run_global_pass(source, ctx=ctx, log=log)
 
-        ext = tap_out_format.lstrip('.')
+        ext = tap_out_format.lstrip(".")
         current = source
-        manifest_entries: List[Dict[str, Any]] = []
-        step_metrics_list: List[StepMetrics] = []
+        manifest_entries: list[dict[str, Any]] = []
+        step_metrics_list: list[StepMetrics] = []
         step_counter = 0
         last_completed_index = -1
 
@@ -801,7 +818,10 @@ class WorkflowExecutor:
                 if self._shutdown.shutdown_requested:
                     log.info("shutdown_during_execution", step_index=i)
                     self._do_shutdown(
-                        ctx, last_completed_index, current, step_metrics_list,
+                        ctx,
+                        last_completed_index,
+                        current,
+                        step_metrics_list,
                     )
 
                 if isinstance(step_def, TapOutStepDef):
@@ -809,22 +829,27 @@ class WorkflowExecutor:
                     log.debug("tap_out", step_index=i, path=step_def.path)
                     try:
                         from grdl.IO import write as io_write
+
                         io_write(current, step_def.path, format=step_def.format)
                     except Exception as e:
                         log.warning(
-                            "tap_out_failed", step_index=i,
-                            path=step_def.path, error=str(e),
+                            "tap_out_failed",
+                            step_index=i,
+                            path=step_def.path,
+                            error=str(e),
                         )
                     elapsed = time.perf_counter() - t0
-                    manifest_entries.append({
-                        'index': i,
-                        'type': 'tap_out',
-                        'name': f"tap_out({step_def.path})",
-                        'path': step_def.path,
-                        'elapsed_s': round(elapsed, 4),
-                        'shape': list(current.shape),
-                        'dtype': str(current.dtype),
-                    })
+                    manifest_entries.append(
+                        {
+                            "index": i,
+                            "type": "tap_out",
+                            "name": f"tap_out({step_def.path})",
+                            "path": step_def.path,
+                            "elapsed_s": round(elapsed, 4),
+                            "shape": list(current.shape),
+                            "dtype": str(current.dtype),
+                        }
+                    )
                 else:
                     step_t0_wall = time.perf_counter()
                     step_t0_cpu = time.process_time()
@@ -834,15 +859,14 @@ class WorkflowExecutor:
                     if progress_callback is not None and n_steps > 0:
                         base = i / n_steps
                         scale = 1.0 / n_steps
-                        step_kwargs['progress_callback'] = (
+                        step_kwargs["progress_callback"] = (
                             lambda f, _b=base, _s=scale: progress_callback(_b + f * _s)
                         )
 
                     # Check circuit breaker
                     if self._circuit_breaker.is_open(step_def.processor_name):
                         raise RuntimeError(
-                            f"Circuit breaker open for processor "
-                            f"'{step_def.processor_name}'"
+                            f"Circuit breaker open for processor " f"'{step_def.processor_name}'"
                         )
 
                     # Use pre-instantiated processor if global pass ran
@@ -850,7 +874,9 @@ class WorkflowExecutor:
                     pre_inst = gp_info[0] if gp_info else None
 
                     current = self._execute_step_resilient(
-                        step_def, current, log=log,
+                        step_def,
+                        current,
+                        log=log,
                         _pre_instantiated=pre_inst,
                         **step_kwargs,
                     )
@@ -870,39 +896,39 @@ class WorkflowExecutor:
                         peak_rss_bytes=step_peak,
                         gpu_used=self._gpu.last_gpu_used,
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
-                        global_pass_duration=(
-                            gp_info[1] if gp_info else None
-                        ),
-                        global_pass_memory=(
-                            gp_info[2] if gp_info else None
-                        ),
+                        global_pass_duration=(gp_info[1] if gp_info else None),
+                        global_pass_memory=(gp_info[2] if gp_info else None),
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
 
                     # Write intermediate
-                    safe_name = re.sub(r'[^\w\-]', '_', step_def.processor_name)
-                    safe_name = re.sub(r'_+', '_', safe_name).strip('_') or 'step'
+                    safe_name = re.sub(r"[^\w\-]", "_", step_def.processor_name)
+                    safe_name = re.sub(r"_+", "_", safe_name).strip("_") or "step"
                     filename = f"step_{step_counter:03d}_{safe_name}.{ext}"
                     out_path = run_dir / filename
                     try:
                         from grdl.IO import write as io_write
+
                         io_write(current, out_path)
                     except Exception as e:
                         log.warning(
                             "auto_tap_out_write_failed",
-                            path=str(out_path), error=str(e),
+                            path=str(out_path),
+                            error=str(e),
                         )
 
-                    manifest_entries.append({
-                        'index': i,
-                        'type': 'processing',
-                        'name': step_def.processor_name,
-                        'file': filename,
-                        'elapsed_s': round(step_wall, 4),
-                        'shape': list(current.shape),
-                        'dtype': str(current.dtype),
-                    })
+                    manifest_entries.append(
+                        {
+                            "index": i,
+                            "type": "processing",
+                            "name": step_def.processor_name,
+                            "file": filename,
+                            "elapsed_s": round(step_wall, 4),
+                            "shape": list(current.shape),
+                            "dtype": str(current.dtype),
+                        }
+                    )
 
                 if progress_callback is not None and n_steps > 0:
                     progress_callback((i + 1) / n_steps)
@@ -911,6 +937,7 @@ class WorkflowExecutor:
             final_filename = f"final_output.{ext}"
             try:
                 from grdl.IO import write as io_write
+
                 io_write(current, run_dir / final_filename)
             except Exception as e:
                 log.warning("auto_tap_out_final_write_failed", error=str(e))
@@ -918,11 +945,12 @@ class WorkflowExecutor:
             # Write workflow_params.yaml
             try:
                 import yaml
+
                 params = self._workflow.to_dict()
                 yaml_path = run_dir / "workflow_params.yaml"
                 yaml_path.write_text(
                     yaml.dump(params, default_flow_style=False, sort_keys=False),
-                    encoding='utf-8',
+                    encoding="utf-8",
                 )
             except Exception as e:
                 log.warning("auto_tap_out_yaml_write_failed", error=str(e))
@@ -930,15 +958,15 @@ class WorkflowExecutor:
             # Write manifest.json
             try:
                 manifest = {
-                    'workflow_name': self._workflow.name,
-                    'tap_out_format': tap_out_format,
-                    'final_output': final_filename,
-                    'steps': manifest_entries,
+                    "workflow_name": self._workflow.name,
+                    "tap_out_format": tap_out_format,
+                    "final_output": final_filename,
+                    "steps": manifest_entries,
                 }
                 manifest_path = run_dir / "manifest.json"
                 manifest_path.write_text(
                     json.dumps(manifest, indent=2),
-                    encoding='utf-8',
+                    encoding="utf-8",
                 )
             except Exception as e:
                 log.warning("auto_tap_out_manifest_write_failed", error=str(e))
@@ -991,9 +1019,9 @@ class WorkflowExecutor:
 
     def execute_batch(
         self,
-        sources: List[np.ndarray],
+        sources: list[np.ndarray],
         **kwargs: Any,
-    ) -> List[WorkflowResult]:
+    ) -> list[WorkflowResult]:
         """Run the pipeline on multiple images.
 
         Parameters
@@ -1057,7 +1085,7 @@ class WorkflowExecutor:
             step_cpu = time.process_time() - t0_cpu
             _, step_peak = tracemalloc.get_traced_memory()
 
-            processor_name = getattr(step, 'processor_name', 'unknown')
+            processor_name = getattr(step, "processor_name", "unknown")
             sm = StepMetrics(
                 step_index=step_index,
                 processor_name=processor_name,
@@ -1093,9 +1121,9 @@ class WorkflowExecutor:
         self,
         source: np.ndarray,
         *,
-        ctx: Optional[ExecutionContext] = None,
+        ctx: ExecutionContext | None = None,
         log: Any = None,
-    ) -> Dict[int, Any]:
+    ) -> dict[int, Any]:
         """Run the global pass for processors that require it.
 
         Scans workflow steps for processors with ``__has_global_pass__``.
@@ -1120,10 +1148,10 @@ class WorkflowExecutor:
             global_pass_memory) for steps that required a global pass.
         """
         log = log or logger
-        pre_instantiated: Dict[int, Any] = {}
+        pre_instantiated: dict[int, Any] = {}
 
         # Identify steps requiring a global pass
-        global_steps: List[tuple] = []
+        global_steps: list[tuple] = []
         for i, step in enumerate(self._workflow.steps):
             if not isinstance(step, ProcessingStep):
                 continue
@@ -1131,7 +1159,7 @@ class WorkflowExecutor:
                 processor_cls = resolve_processor_class(step.processor_name)
             except (ImportError, Exception):
                 continue
-            if getattr(processor_cls, '__has_global_pass__', False):
+            if getattr(processor_cls, "__has_global_pass__", False):
                 global_steps.append((i, step, processor_cls))
 
         if not global_steps:
@@ -1154,7 +1182,10 @@ class WorkflowExecutor:
             # Notify hooks
             if ctx is not None:
                 self._call_hooks(
-                    "on_global_pass_start", ctx, i, step.processor_name,
+                    "on_global_pass_start",
+                    ctx,
+                    i,
+                    step.processor_name,
                 )
 
             gp_t0 = time.perf_counter()
@@ -1172,7 +1203,7 @@ class WorkflowExecutor:
                 continue
 
             # Run each global callback on the read-only buffer
-            callbacks = getattr(processor_cls, '__global_callbacks__', ())
+            callbacks = getattr(processor_cls, "__global_callbacks__", ())
             for cb_name in callbacks:
                 cb = getattr(processor, cb_name, None)
                 if cb is None:
@@ -1204,7 +1235,11 @@ class WorkflowExecutor:
             # Notify hooks
             if ctx is not None:
                 self._call_hooks(
-                    "on_global_pass_end", ctx, i, gp_duration, gp_peak,
+                    "on_global_pass_end",
+                    ctx,
+                    i,
+                    gp_duration,
+                    gp_peak,
                 )
 
             log.debug(
@@ -1251,20 +1286,28 @@ class WorkflowExecutor:
         timeout = step.timeout_seconds
 
         def _do_step() -> np.ndarray:
-            raw_fn = lambda: self._execute_step(
-                step, source,
-                _pre_instantiated=_pre_instantiated,
-                **kwargs,
-            )
+            def raw_fn():
+                return self._execute_step(
+                    step,
+                    source,
+                    _pre_instantiated=_pre_instantiated,
+                    **kwargs,
+                )
+
             if timeout is not None:
                 return execute_with_timeout(
-                    raw_fn, timeout, step.processor_name,
+                    raw_fn,
+                    timeout,
+                    step.processor_name,
                 )
             return raw_fn()
 
         if retry.max_retries > 0:
             return execute_with_retry(
-                _do_step, retry, step.processor_name, log=log,
+                _do_step,
+                retry,
+                step.processor_name,
+                log=log,
             )
 
         # No retry — run directly (timeout still applies)
@@ -1314,11 +1357,11 @@ class WorkflowExecutor:
                 ) from e
 
         # Band adaptation from @processor_tags
-        tags = getattr(type(processor), '__processor_tags__', {})
-        required_bands = tags.get('required_bands')
+        tags = getattr(type(processor), "__processor_tags__", {})
+        required_bands = tags.get("required_bands")
         if required_bands is not None and isinstance(source, np.ndarray):
-            exp_str = getattr(step, 'band_expansion', None)
-            red_str = getattr(step, 'band_reduction', None)
+            exp_str = getattr(step, "band_expansion", None)
+            red_str = getattr(step, "band_reduction", None)
             exp = BandExpansion(exp_str) if exp_str else BandExpansion.REPEAT
             red = BandReduction(red_str) if red_str else BandReduction.FIRST_N
             source = adapt_bands(source, required_bands, expansion=exp, reduction=red)
@@ -1331,20 +1374,21 @@ class WorkflowExecutor:
             # No metadata in YAML executor path — synthetic metadata
             # is created internally as needed.
             result = self._gpu.apply_transform(
-                processor, source, **merged_kwargs,
+                processor,
+                source,
+                **merged_kwargs,
             )
         except Exception as e:
             # Distinguish GRDL library errors from general Python errors
             if GrdlError is not None and isinstance(e, GrdlError):
                 log.error(
                     "step_grdl_error",
-                    error_type=type(e).__name__, error=str(e),
+                    error_type=type(e).__name__,
+                    error=str(e),
                 )
             else:
                 log.error("step_failed", error=str(e))
-            raise RuntimeError(
-                f"Pipeline step '{step.processor_name}' failed: {e}"
-            ) from e
+            raise RuntimeError(f"Pipeline step '{step.processor_name}' failed: {e}") from e
 
         return result
 
@@ -1354,8 +1398,8 @@ class WorkflowExecutor:
 
     def resume(
         self,
-        checkpoint_path: Union[str, Path],
-        progress_callback: Optional[Callable[[float], None]] = None,
+        checkpoint_path: str | Path,
+        progress_callback: Callable[[float], None] | None = None,
         *,
         enable_memory_check: bool = True,
         enable_shutdown_handler: bool = True,
@@ -1403,18 +1447,20 @@ class WorkflowExecutor:
         source = CheckpointManager.load_last_intermediate(state)
 
         # Reconstruct prior metrics from checkpoint
-        prior_metrics: List[StepMetrics] = []
+        prior_metrics: list[StepMetrics] = []
         for m in state.metrics_so_far:
-            prior_metrics.append(StepMetrics(
-                step_index=m.get("step_index", 0),
-                processor_name=m.get("processor_name", "unknown"),
-                wall_time_s=m.get("wall_time_s", 0.0),
-                cpu_time_s=m.get("cpu_time_s", 0.0),
-                peak_rss_bytes=m.get("peak_rss_bytes", 0),
-                gpu_used=m.get("gpu_used", False),
-                status=m.get("status", "success"),
-                error_message=m.get("error_message"),
-            ))
+            prior_metrics.append(
+                StepMetrics(
+                    step_index=m.get("step_index", 0),
+                    processor_name=m.get("processor_name", "unknown"),
+                    wall_time_s=m.get("wall_time_s", 0.0),
+                    cpu_time_s=m.get("cpu_time_s", 0.0),
+                    peak_rss_bytes=m.get("peak_rss_bytes", 0),
+                    gpu_used=m.get("gpu_used", False),
+                    status=m.get("status", "success"),
+                    error_message=m.get("error_message"),
+                )
+            )
 
         run_id = str(uuid.uuid4())
         ctx = ExecutionContext(
@@ -1456,11 +1502,11 @@ class WorkflowExecutor:
         ctx: ExecutionContext,
         last_completed_index: int,
         current_array: np.ndarray,
-        step_metrics_list: List[StepMetrics],
+        step_metrics_list: list[StepMetrics],
         *,
-        intermediate_files: Optional[List[str]] = None,
-        wf_dict: Optional[Dict[str, Any]] = None,
-        wf_hash: Optional[str] = None,
+        intermediate_files: list[str] | None = None,
+        wf_dict: dict[str, Any] | None = None,
+        wf_hash: str | None = None,
     ) -> None:
         """Write checkpoint and exit cleanly."""
         log = logger.bind(**ctx.as_log_dict())
@@ -1479,7 +1525,9 @@ class WorkflowExecutor:
                     intermediate_files = []
                 if last_completed_index >= 0:
                     ipath = self._checkpoint_mgr.write_step_intermediate(
-                        ctx.run_id, last_completed_index, current_array,
+                        ctx.run_id,
+                        last_completed_index,
+                        current_array,
                     )
                     if ipath not in intermediate_files:
                         intermediate_files.append(ipath)
@@ -1516,9 +1564,11 @@ class WorkflowExecutor:
                     run_id=ctx.run_id,
                     status="cancelled",
                     step_count=len(step_metrics_list),
-                    checkpoint_path=str(
-                        self._checkpoint_mgr.run_dir(ctx.run_id)
-                    ) if self._checkpoint_mgr else None,
+                    checkpoint_path=(
+                        str(self._checkpoint_mgr.run_dir(ctx.run_id))
+                        if self._checkpoint_mgr
+                        else None
+                    ),
                 )
             except Exception as e:
                 log.warning("history_record_cancelled_failed", error=str(e))

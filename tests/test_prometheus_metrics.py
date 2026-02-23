@@ -24,7 +24,6 @@ from grdl_rt.execution.context import ExecutionContext
 from grdl_rt.execution.instrumentation.prometheus import PrometheusHook
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -416,12 +415,8 @@ class TestMultipleSteps:
         hook = PrometheusHook()
         ctx = _make_context()
 
-        sm1 = _make_step_metrics(
-            step_index=0, processor_name="FilterA", wall_time_s=1.0
-        )
-        sm2 = _make_step_metrics(
-            step_index=1, processor_name="FilterB", wall_time_s=2.0
-        )
+        sm1 = _make_step_metrics(step_index=0, processor_name="FilterA", wall_time_s=1.0)
+        sm2 = _make_step_metrics(step_index=1, processor_name="FilterB", wall_time_s=2.0)
 
         hook.on_step_end(ctx, 0, sm1)
         hook.on_step_end(ctx, 1, sm2)
@@ -448,8 +443,6 @@ class TestMultipleSteps:
 class TestImportGuard:
     def test_import_guard(self):
         """Mock prometheus_client as None to verify ImportError is raised."""
-        with patch(
-            "grdl_rt.execution.instrumentation.prometheus._prom", None
-        ):
+        with patch("grdl_rt.execution.instrumentation.prometheus._prom", None):
             with pytest.raises(ImportError, match="prometheus_client is required"):
                 PrometheusHook()

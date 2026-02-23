@@ -41,37 +41,42 @@ from grdl_rt.execution.workflow import (
     WorkflowDefinition,
 )
 
-
 # ---------------------------------------------------------------------------
 # Mock processors for tests
 # ---------------------------------------------------------------------------
 
+
 class _Scale2:
     """Multiplies by 2."""
+
     def apply(self, source, **kwargs):
         return source * 2.0
 
 
 class _Scale3:
     """Multiplies by 3."""
+
     def apply(self, source, **kwargs):
         return source * 3.0
 
 
 class _Scale5:
     """Multiplies by 5."""
+
     def apply(self, source, **kwargs):
         return source * 5.0
 
 
 class _AddOne:
     """Adds 1."""
+
     def apply(self, source, **kwargs):
         return source + 1.0
 
 
 class _SlowProcessor:
     """Sleeps for 0.5s then passes through."""
+
     def apply(self, source, **kwargs):
         time.sleep(0.5)
         return source
@@ -79,6 +84,7 @@ class _SlowProcessor:
 
 class _MergeProcessor:
     """Merges multiple inputs by summing them."""
+
     def apply(self, source, **kwargs):
         if isinstance(source, dict):
             return sum(source.values())
@@ -90,12 +96,12 @@ class _MergeProcessor:
 # ---------------------------------------------------------------------------
 
 _MOCK_PROCESSORS = {
-    'Scale2': _Scale2,
-    'Scale3': _Scale3,
-    'Scale5': _Scale5,
-    'AddOne': _AddOne,
-    'SlowProcessor': _SlowProcessor,
-    'MergeProcessor': _MergeProcessor,
+    "Scale2": _Scale2,
+    "Scale3": _Scale3,
+    "Scale5": _Scale5,
+    "AddOne": _AddOne,
+    "SlowProcessor": _SlowProcessor,
+    "MergeProcessor": _MergeProcessor,
 }
 
 
@@ -109,15 +115,20 @@ def _mock_resolve(name):
 # DAGExecutor — Linear backward compatibility
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorLinear:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_linear_pipeline(self, mock_resolve):
         """Old-style linear workflow (no explicit deps) executes correctly."""
-        wf = WorkflowDefinition(name="Linear", version="1.0.0", steps=[
-            ProcessingStep("Scale2", "1.0"),
-            ProcessingStep("Scale3", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Linear",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Scale2", "1.0"),
+                ProcessingStep("Scale3", "1.0"),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.ones((4, 4), dtype=np.float64)
 
@@ -127,11 +138,14 @@ class TestDAGExecutorLinear:
         # 1 * 2 * 3 = 6
         np.testing.assert_array_almost_equal(result.result, np.ones((4, 4)) * 6.0)
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_single_step(self, mock_resolve):
-        wf = WorkflowDefinition(name="Single", steps=[
-            ProcessingStep("Scale5", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Single",
+            steps=[
+                ProcessingStep("Scale5", "1.0"),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([2.0, 3.0])
 
@@ -139,7 +153,7 @@ class TestDAGExecutorLinear:
 
         np.testing.assert_array_almost_equal(result.result, np.array([10.0, 15.0]))
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_empty_workflow_returns_source(self, mock_resolve):
         wf = WorkflowDefinition(name="Empty")
         executor = DAGExecutor(wf)
@@ -154,18 +168,22 @@ class TestDAGExecutorLinear:
 # DAGExecutor — Branching workflow
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorBranching:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_branching_workflow(self, mock_resolve):
         """root → [scale2, scale3] → merge (sum)."""
-        wf = WorkflowDefinition(name="Branch", version="1.0.0", steps=[
-            ProcessingStep("Scale2", "1.0", id="root"),
-            ProcessingStep("Scale2", "1.0", id="b1", depends_on=["root"]),
-            ProcessingStep("Scale3", "1.0", id="b2", depends_on=["root"]),
-            ProcessingStep("MergeProcessor", "1.0", id="merge",
-                           depends_on=["b1", "b2"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Branch",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="root"),
+                ProcessingStep("Scale2", "1.0", id="b1", depends_on=["root"]),
+                ProcessingStep("Scale3", "1.0", id="b2", depends_on=["root"]),
+                ProcessingStep("MergeProcessor", "1.0", id="merge", depends_on=["b1", "b2"]),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([10.0])
 
@@ -176,16 +194,19 @@ class TestDAGExecutorBranching:
         # merge: 40+60=100
         np.testing.assert_array_almost_equal(result.result, np.array([100.0]))
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_fan_out_fan_in(self, mock_resolve):
         """One step produces output, two consume it, one merges."""
-        wf = WorkflowDefinition(name="FanOut", version="1.0.0", steps=[
-            ProcessingStep("AddOne", "1.0", id="root"),
-            ProcessingStep("Scale2", "1.0", id="left", depends_on=["root"]),
-            ProcessingStep("Scale5", "1.0", id="right", depends_on=["root"]),
-            ProcessingStep("MergeProcessor", "1.0", id="merge",
-                           depends_on=["left", "right"]),
-        ])
+        wf = WorkflowDefinition(
+            name="FanOut",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("AddOne", "1.0", id="root"),
+                ProcessingStep("Scale2", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("Scale5", "1.0", id="right", depends_on=["root"]),
+                ProcessingStep("MergeProcessor", "1.0", id="merge", depends_on=["left", "right"]),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([1.0])
 
@@ -201,18 +222,21 @@ class TestDAGExecutorBranching:
 # DAGExecutor — Parallel execution timing
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorParallel:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_parallel_branches_are_concurrent(self, mock_resolve):
         """Two 0.5s sleep steps in parallel should take ~0.5s, not ~1.0s."""
-        wf = WorkflowDefinition(name="Parallel", version="1.0.0", steps=[
-            ProcessingStep("AddOne", "1.0", id="root"),
-            ProcessingStep("SlowProcessor", "1.0", id="left",
-                           depends_on=["root"]),
-            ProcessingStep("SlowProcessor", "1.0", id="right",
-                           depends_on=["root"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Parallel",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("AddOne", "1.0", id="root"),
+                ProcessingStep("SlowProcessor", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("SlowProcessor", "1.0", id="right", depends_on=["root"]),
+            ],
+        )
         # left and right both depend on root → same level → parallel
         executor = DAGExecutor(wf, max_workers=2)
         source = np.array([1.0])
@@ -229,15 +253,18 @@ class TestDAGExecutorParallel:
 # DAGExecutor — Conditional steps
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorConditional:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_condition_true_executes(self, mock_resolve):
         """Step with condition=True runs normally."""
-        wf = WorkflowDefinition(name="CondTrue", steps=[
-            ProcessingStep("Scale2", "1.0", id="s1",
-                           condition="x > 0"),
-        ])
+        wf = WorkflowDefinition(
+            name="CondTrue",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="s1", condition="x > 0"),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([5.0])
 
@@ -249,13 +276,15 @@ class TestDAGExecutorConditional:
 
         np.testing.assert_array_almost_equal(result.result, np.array([10.0]))
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_condition_false_skips(self, mock_resolve):
         """Step with condition=False is skipped, input propagated."""
-        wf = WorkflowDefinition(name="CondFalse", steps=[
-            ProcessingStep("Scale2", "1.0", id="s1",
-                           condition="skip == False"),
-        ])
+        wf = WorkflowDefinition(
+            name="CondFalse",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="s1", condition="skip == False"),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([5.0])
 
@@ -268,13 +297,15 @@ class TestDAGExecutorConditional:
         # Step is skipped → source propagated unchanged
         np.testing.assert_array_equal(result.result, source)
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_skipped_step_metrics_status(self, mock_resolve):
         """Skipped step has status='skipped' in metrics."""
-        wf = WorkflowDefinition(name="CondSkip", steps=[
-            ProcessingStep("Scale2", "1.0", id="s1",
-                           condition="False"),
-        ])
+        wf = WorkflowDefinition(
+            name="CondSkip",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="s1", condition="False"),
+            ],
+        )
         executor = DAGExecutor(wf)
         source = np.array([5.0])
 
@@ -290,73 +321,82 @@ class TestDAGExecutorConditional:
 # DAGExecutor — Multi-input vs single-input
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorInputTypes:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_single_dep_receives_array(self, mock_resolve):
         """Step with one dependency receives plain ndarray, not dict."""
         received_input = {}
 
         class _Inspector:
             def apply(self, source, **kwargs):
-                received_input['type'] = type(source).__name__
-                received_input['is_ndarray'] = isinstance(source, np.ndarray)
+                received_input["type"] = type(source).__name__
+                received_input["is_ndarray"] = isinstance(source, np.ndarray)
                 return source
 
-        _MOCK_PROCESSORS['Inspector'] = _Inspector
+        _MOCK_PROCESSORS["Inspector"] = _Inspector
         try:
-            wf = WorkflowDefinition(name="SingleDep", steps=[
-                ProcessingStep("Scale2", "1.0", id="root"),
-                ProcessingStep("Inspector", "1.0", id="child",
-                               depends_on=["root"]),
-            ])
+            wf = WorkflowDefinition(
+                name="SingleDep",
+                steps=[
+                    ProcessingStep("Scale2", "1.0", id="root"),
+                    ProcessingStep("Inspector", "1.0", id="child", depends_on=["root"]),
+                ],
+            )
             executor = DAGExecutor(wf)
             executor.execute(np.array([1.0]), enable_memory_check=False)
-            assert received_input['is_ndarray'] is True
+            assert received_input["is_ndarray"] is True
         finally:
-            del _MOCK_PROCESSORS['Inspector']
+            del _MOCK_PROCESSORS["Inspector"]
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_multi_dep_receives_dict(self, mock_resolve):
         """Step with multiple dependencies receives dict of arrays."""
         received_input = {}
 
         class _Inspector:
             def apply(self, source, **kwargs):
-                received_input['type'] = type(source).__name__
-                received_input['is_dict'] = isinstance(source, dict)
+                received_input["type"] = type(source).__name__
+                received_input["is_dict"] = isinstance(source, dict)
                 if isinstance(source, dict):
-                    received_input['keys'] = set(source.keys())
+                    received_input["keys"] = set(source.keys())
                 return source if not isinstance(source, dict) else sum(source.values())
 
-        _MOCK_PROCESSORS['Inspector'] = _Inspector
+        _MOCK_PROCESSORS["Inspector"] = _Inspector
         try:
-            wf = WorkflowDefinition(name="MultiDep", steps=[
-                ProcessingStep("Scale2", "1.0", id="a"),
-                ProcessingStep("Scale3", "1.0", id="b"),
-                ProcessingStep("Inspector", "1.0", id="merge",
-                               depends_on=["a", "b"]),
-            ])
+            wf = WorkflowDefinition(
+                name="MultiDep",
+                steps=[
+                    ProcessingStep("Scale2", "1.0", id="a"),
+                    ProcessingStep("Scale3", "1.0", id="b"),
+                    ProcessingStep("Inspector", "1.0", id="merge", depends_on=["a", "b"]),
+                ],
+            )
             executor = DAGExecutor(wf)
             executor.execute(np.array([1.0]), enable_memory_check=False)
-            assert received_input['is_dict'] is True
-            assert received_input['keys'] == {"a", "b"}
+            assert received_input["is_dict"] is True
+            assert received_input["keys"] == {"a", "b"}
         finally:
-            del _MOCK_PROCESSORS['Inspector']
+            del _MOCK_PROCESSORS["Inspector"]
 
 
 # ---------------------------------------------------------------------------
 # DAGExecutor — Metrics
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorMetrics:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_metrics_have_step_id(self, mock_resolve):
-        wf = WorkflowDefinition(name="Metrics", steps=[
-            ProcessingStep("Scale2", "1.0", id="s1"),
-            ProcessingStep("Scale3", "1.0", id="s2", depends_on=["s1"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Metrics",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="s1"),
+                ProcessingStep("Scale3", "1.0", id="s2", depends_on=["s1"]),
+            ],
+        )
         executor = DAGExecutor(wf)
         result = executor.execute(np.array([1.0]), enable_memory_check=False)
 
@@ -364,53 +404,57 @@ class TestDAGExecutorMetrics:
         assert "s1" in step_ids
         assert "s2" in step_ids
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_workflow_metrics_status_success(self, mock_resolve):
-        wf = WorkflowDefinition(name="OK", steps=[
-            ProcessingStep("Scale2", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="OK",
+            steps=[
+                ProcessingStep("Scale2", "1.0"),
+            ],
+        )
         executor = DAGExecutor(wf)
         result = executor.execute(np.array([1.0]), enable_memory_check=False)
 
         assert result.metrics.status == "success"
         assert result.metrics.total_wall_time_s > 0
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_step_results_dict(self, mock_resolve):
         """WorkflowResult.step_results contains all step outputs."""
-        wf = WorkflowDefinition(name="Steps", steps=[
-            ProcessingStep("Scale2", "1.0", id="root"),
-            ProcessingStep("Scale3", "1.0", id="child",
-                           depends_on=["root"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Steps",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="root"),
+                ProcessingStep("Scale3", "1.0", id="child", depends_on=["root"]),
+            ],
+        )
         executor = DAGExecutor(wf)
         result = executor.execute(np.array([1.0]), enable_memory_check=False)
 
         assert result.step_results is not None
         assert "root" in result.step_results
         assert "child" in result.step_results
-        np.testing.assert_array_almost_equal(
-            result.step_results["root"], np.array([2.0])
-        )
-        np.testing.assert_array_almost_equal(
-            result.step_results["child"], np.array([6.0])
-        )
+        np.testing.assert_array_almost_equal(result.step_results["root"], np.array([2.0]))
+        np.testing.assert_array_almost_equal(result.step_results["child"], np.array([6.0]))
 
 
 # ---------------------------------------------------------------------------
 # DAGExecutor — Progress callback
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorProgress:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_progress_callback_called(self, mock_resolve):
         progress = []
-        wf = WorkflowDefinition(name="Progress", steps=[
-            ProcessingStep("Scale2", "1.0", id="root"),
-            ProcessingStep("Scale3", "1.0", id="child",
-                           depends_on=["root"]),
-        ])
+        wf = WorkflowDefinition(
+            name="Progress",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="root"),
+                ProcessingStep("Scale3", "1.0", id="child", depends_on=["root"]),
+            ],
+        )
         executor = DAGExecutor(wf)
         executor.execute(
             np.array([1.0]),
@@ -425,9 +469,10 @@ class TestDAGExecutorProgress:
 # DAGExecutor — Error handling
 # ---------------------------------------------------------------------------
 
+
 class TestDAGExecutorErrors:
 
-    @patch('grdl_rt.execution.dag_executor.resolve_processor_class', side_effect=_mock_resolve)
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_invalid_dag_raises(self, mock_resolve):
         """Cycle in DAG raises ValueError."""
         s1 = ProcessingStep("Scale2", "1.0", id="a", depends_on=["b"])
@@ -445,9 +490,12 @@ class TestDAGExecutorErrors:
             executor.execute(np.array([1.0]), enable_memory_check=False)
 
     def test_unresolvable_processor_raises(self):
-        wf = WorkflowDefinition(name="Bad", steps=[
-            ProcessingStep("NoSuchProcessor999", "1.0"),
-        ])
+        wf = WorkflowDefinition(
+            name="Bad",
+            steps=[
+                ProcessingStep("NoSuchProcessor999", "1.0"),
+            ],
+        )
         executor = DAGExecutor(wf)
         with pytest.raises(ImportError):
             executor.execute(np.array([1.0]), enable_memory_check=False)
@@ -456,6 +504,7 @@ class TestDAGExecutorErrors:
 # ---------------------------------------------------------------------------
 # Builder — branches/merge API with DAGExecutor
 # ---------------------------------------------------------------------------
+
 
 class TestBuilderDAGAPI:
 
@@ -491,17 +540,12 @@ class TestBuilderDAGAPI:
         wf = (
             Workflow("DAG Builder")
             .step(lambda x: x * 2, name="read", id="read")
-            .step(lambda x: x + 1, name="process", id="proc",
-                  depends_on=["read"])
+            .step(lambda x: x + 1, name="process", id="proc", depends_on=["read"])
         )
         assert wf.steps[0].id == "read"
         assert wf.steps[1].id == "proc"
         assert wf.steps[1].depends_on == ["read"]
 
     def test_workflow_step_with_condition(self):
-        wf = (
-            Workflow("Cond")
-            .step(lambda x: x, name="s1", id="s1",
-                  condition="x > 0")
-        )
+        wf = Workflow("Cond").step(lambda x: x, name="s1", id="s1", condition="x > 0")
         assert wf.steps[0].condition == "x > 0"
