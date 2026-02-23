@@ -25,7 +25,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from shapely.geometry import box
+
+shapely = pytest.importorskip("shapely", reason="shapely not installed")
+from shapely.geometry import box  # noqa: E402
 
 from grdl.IO.models.base import ImageMetadata
 from grdl.image_processing.base import ImageTransform

@@ -17,8 +17,9 @@ Created
 
 from unittest.mock import MagicMock, patch
 
-import prometheus_client
 import pytest
+
+prometheus_client = pytest.importorskip("prometheus_client", reason="prometheus_client not installed")
 
 from grdl_rt.execution.context import ExecutionContext
 from grdl_rt.execution.instrumentation.prometheus import PrometheusHook
