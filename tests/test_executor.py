@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.executor — WorkflowExecutor and processor resolution.
 
@@ -15,14 +14,13 @@ Created
 2026-02-06
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+from grdl_rt.execution.discovery import discover_processors, resolve_processor_class
 from grdl_rt.execution.executor import WorkflowExecutor
-from grdl_rt.execution.discovery import resolve_processor_class, discover_processors
-from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 # ---------------------------------------------------------------------------

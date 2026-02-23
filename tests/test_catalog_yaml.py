@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.yaml_catalog — YamlArtifactCatalog.
 
@@ -18,8 +17,8 @@ Created
 import pytest
 
 from grdl_rt.catalog.base import ArtifactCatalogBase
-from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 from grdl_rt.catalog.models import Artifact
+from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 
 
 @pytest.fixture
@@ -71,7 +70,7 @@ class TestYamlCatalogBasic:
     def test_ids_never_reused(self, catalog):
         a1 = Artifact(name="a", version="1.0", artifact_type="grdl_processor")
         a2 = Artifact(name="b", version="1.0", artifact_type="grdl_processor")
-        id1 = catalog.add_artifact(a1)
+        catalog.add_artifact(a1)
         id2 = catalog.add_artifact(a2)
         catalog.remove_artifact("a", "1.0")
 

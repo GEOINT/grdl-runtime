@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.hardware — HardwareContext and LocalHardwareContext.
 
@@ -11,7 +10,7 @@ Created
 2026-02-11
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

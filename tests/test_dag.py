@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for DAG utilities, workflow DAG structure, and condition evaluator.
 
@@ -23,16 +22,14 @@ Created
 """
 
 import pytest
-import numpy as np
 
 from grdl_rt.execution.dag import evaluate_condition
 from grdl_rt.execution.dsl import DslCompiler, step, workflow
-from grdl_rt.execution.errors import DAGCycleError, ConditionError
-from grdl_rt.execution.validation import ValidationError, validate_workflow
+from grdl_rt.execution.validation import validate_workflow
 from grdl_rt.execution.workflow import (
+    PHASE_ORDER,
     SCHEMA_VERSION,
     ExecutionPhase,
-    PHASE_ORDER,
     ProcessingStep,
     TapOutStepDef,
     WorkflowDefinition,

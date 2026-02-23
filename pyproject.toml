@@ -65,6 +65,8 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
     "pytest-mypy>=1.0",
+    "pytest-ruff>=0.5",
+    "pytest-black>=0.6",
     "black>=22.0.0",
     "mypy>=0.950",
     "ruff>=0.4.0",
@@ -81,7 +83,7 @@ include = ["grdl_rt*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "grdl_rt"]
-addopts = "-v --mypy"
+addopts = "-v --mypy --ruff --black"
 
 [tool.black]
 line-length = 100

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.resolver — Resolver and plan data models.
 
@@ -21,11 +20,10 @@ Created
 2026-02-11
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from grdl_rt.catalog.models import Artifact
 from grdl_rt.execution.errors import ResolutionError
 from grdl_rt.execution.hardware import GpuDeviceInfo, HardwareContext
 from grdl_rt.execution.plan import (

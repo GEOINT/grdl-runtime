@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tap-Out Tests - Unit tests for tap-out steps and auto tap-out mode.
 
@@ -25,20 +24,18 @@ Modified
 """
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from grdl_rt.execution.builder import Workflow, TapOutStep, WorkflowStep
+from grdl_rt.execution.builder import TapOutStep, Workflow, WorkflowStep
+from grdl_rt.execution.dsl import DslCompiler
 from grdl_rt.execution.workflow import (
     ProcessingStep,
     TapOutStepDef,
     WorkflowDefinition,
 )
-from grdl_rt.execution.dsl import DslCompiler
-from grdl_rt.execution.result import WorkflowResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -256,7 +253,7 @@ class TestTapOutYaml:
 
     def test_dsl_decorator_captures_tap_out(self):
         """@workflow decorator captures tap_out() calls."""
-        from grdl_rt.execution.dsl import workflow, step, tap_out
+        from grdl_rt.execution.dsl import step, tap_out, workflow
 
         @workflow(name="DSL Tap Test")
         def my_pipeline():
@@ -279,6 +276,7 @@ class TestExecutorTapOut:
     def test_executor_handles_tap_out_step(self, tmp_path):
         """WorkflowExecutor handles TapOutStepDef in workflow."""
         from unittest.mock import patch
+
         from grdl_rt.execution.executor import WorkflowExecutor
 
         class _FakeTransform:

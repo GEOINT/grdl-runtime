@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.pool — ThreadExecutorPool.
 
@@ -15,8 +14,6 @@ Created
 2026-02-06
 """
 
-import pytest
-from pathlib import Path
 from unittest import mock
 
 from grdl_rt.catalog.pool import ThreadExecutorPool

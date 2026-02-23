@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Operator Base Class Tests.
 
@@ -20,17 +19,17 @@ Created
 2026-02-12
 """
 
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pytest
 
 shapely = pytest.importorskip("shapely", reason="shapely not installed")
-from shapely.geometry import box  # noqa: E402
-
-from grdl.IO.models.base import ImageMetadata
 from grdl.image_processing.base import ImageProcessor
 from grdl.image_processing.detection.models import Detection, DetectionSet
+from grdl.IO.models.base import ImageMetadata
+from shapely.geometry import box  # noqa: E402
+
 from grdl_rt.execution.operators import (
     DetectionAggregator,
     WorkflowOperator,
@@ -45,17 +44,14 @@ class SumOperator(WorkflowOperator):
     """Operator that sums dict values."""
 
     def operate(self, metadata, source, **kwargs):
-        if isinstance(source, dict):
-            result = sum(source.values())
-        else:
-            result = source
+        result = sum(source.values()) if isinstance(source, dict) else source
         return result, metadata
 
 
 class UnionAggregator(DetectionAggregator):
     """Aggregator that unions all detections."""
 
-    def aggregate(self, inputs: Dict[str, Any], **kwargs) -> DetectionSet:
+    def aggregate(self, inputs: dict[str, Any], **kwargs) -> DetectionSet:
         all_dets = []
         for ds in inputs.values():
             all_dets.extend(ds.detections)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.resilience — retry, timeout, circuit breaker,
 memory estimation, and graceful shutdown.
@@ -17,11 +16,8 @@ Created
 """
 
 import json
-import os
 import signal
-import threading
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -509,9 +505,9 @@ class TestExecutorResilience:
 
         mock_resolve.return_value = _FlakyTransform
 
+        from grdl_rt.execution.executor import WorkflowExecutor
         from grdl_rt.execution.resilience import RetryPolicy
         from grdl_rt.execution.workflow import ProcessingStep
-        from grdl_rt.execution.executor import WorkflowExecutor
 
         step = ProcessingStep(
             "FlakyTransform",
@@ -540,9 +536,9 @@ class TestExecutorResilience:
 
         mock_resolve.return_value = _AlwaysFails
 
+        from grdl_rt.execution.executor import WorkflowExecutor
         from grdl_rt.execution.resilience import RetryPolicy
         from grdl_rt.execution.workflow import ProcessingStep
-        from grdl_rt.execution.executor import WorkflowExecutor
 
         step = ProcessingStep(
             "AlwaysFails",
@@ -571,8 +567,8 @@ class TestExecutorResilience:
 
         mock_resolve.return_value = _HangingTransform
 
-        from grdl_rt.execution.workflow import ProcessingStep
         from grdl_rt.execution.executor import WorkflowExecutor
+        from grdl_rt.execution.workflow import ProcessingStep
 
         step = ProcessingStep(
             "HangingTransform",
@@ -592,8 +588,8 @@ class TestExecutorResilience:
 
     def test_memory_abort(self):
         """A workflow estimated to use > 95% RAM is aborted before execution."""
-        from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
         from grdl_rt.execution.executor import WorkflowExecutor
+        from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
         step = ProcessingStep("SomeProcessor", "1.0")
         wf = WorkflowDefinition(name="Test")
@@ -614,9 +610,9 @@ class TestExecutorResilience:
 
     def test_shutdown_writes_checkpoint(self, tmp_path):
         """Sending shutdown signal during execution writes a checkpoint."""
-        from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
         from grdl_rt.execution.executor import WorkflowExecutor
         from grdl_rt.execution.resilience import ShutdownCoordinator
+        from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
         class _SlowTransform:
             def apply(self, source, **kwargs):

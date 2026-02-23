@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.lineage — data lineage provenance tracking.
 
@@ -20,7 +19,6 @@ import re
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from grdl_rt.execution.lineage import (
     DataLineage,

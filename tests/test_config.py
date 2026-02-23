@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.config — RuntimeConfig, env var loading, file loading.
 
@@ -19,9 +18,6 @@ Modified
 2026-02-11
 """
 
-import os
-from pathlib import Path
-
 import pytest
 
 from grdl_rt.execution.config import (
@@ -29,11 +25,9 @@ from grdl_rt.execution.config import (
     MemoryConfig,
     RetryDefaults,
     RuntimeConfig,
-    GpuConfig,
-    TapOutConfig,
     _overlay_env_vars,
-    load_runtime_config,
     get_runtime_config,
+    load_runtime_config,
     reset_runtime_config,
 )
 

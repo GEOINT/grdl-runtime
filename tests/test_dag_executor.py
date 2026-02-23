@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.dag_executor — DAGExecutor parallel execution.
 
@@ -27,7 +26,7 @@ Created
 """
 
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -37,7 +36,6 @@ from grdl_rt.execution.dag_executor import DAGExecutor
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import (
     ProcessingStep,
-    TapOutStepDef,
     WorkflowDefinition,
 )
 
@@ -242,7 +240,7 @@ class TestDAGExecutorParallel:
         source = np.array([1.0])
 
         t0 = time.perf_counter()
-        result = executor.execute(source, enable_memory_check=False)
+        executor.execute(source, enable_memory_check=False)
         elapsed = time.perf_counter() - t0
 
         # Should be ~0.5s if parallel, ~1.0s if sequential

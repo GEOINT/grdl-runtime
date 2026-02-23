@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.history — ExecutionHistoryDB and execution
 record lifecycle.
@@ -20,15 +19,13 @@ Created
 2026-02-11
 """
 
-import json
 import uuid
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from grdl_rt.execution.history import ExecutionHistoryDB, ExecutionRecord
+from grdl_rt.execution.history import ExecutionHistoryDB
 
 # ======================================================================
 # ExecutionHistoryDB — basic operations

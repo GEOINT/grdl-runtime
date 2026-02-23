@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.chip — ChipLabel, PolygonRegion, Chip, ChipSet.
 
@@ -16,7 +15,6 @@ Created
 """
 
 import numpy as np
-import pytest
 
 from grdl_rt.execution.chip import Chip, ChipLabel, ChipSet, PolygonRegion
 

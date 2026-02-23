@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for catalog alternative processors — SQLite, YAML, and Federated.
 
@@ -18,8 +17,6 @@ Created
 -------
 2026-02-11
 """
-
-import json
 
 import pytest
 import yaml

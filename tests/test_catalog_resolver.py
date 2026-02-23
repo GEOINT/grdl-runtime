@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.resolver — Catalog path resolution.
 
@@ -20,9 +19,7 @@ import os
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
-from grdl_rt.catalog.resolver import resolve_catalog_path, ensure_config_dir
+from grdl_rt.catalog.resolver import ensure_config_dir, resolve_catalog_path
 
 
 class TestResolveCatalogPath:

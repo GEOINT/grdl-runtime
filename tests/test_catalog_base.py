@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.base — ArtifactCatalogBase ABC contract.
 

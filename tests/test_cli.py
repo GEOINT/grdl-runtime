@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 CLI Tests - Unit tests for the grdl-rt command-line interface.
 
@@ -26,14 +25,13 @@ Modified
 """
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 import yaml
 
-from grdl_rt.cli import main, _build_parser, _read_input
+from grdl_rt.cli import _read_input, main
 
 # ---------------------------------------------------------------------------
 # Helpers

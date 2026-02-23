@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for headless guarantee — no GUI framework imports in grdl_rt/.
 

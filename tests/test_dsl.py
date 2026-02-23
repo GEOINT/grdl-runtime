@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.dsl — DSL compiler and Python DSL decorators.
 
@@ -14,8 +13,6 @@ Created
 -------
 2026-02-06
 """
-
-import pytest
 
 from grdl_rt.execution.dsl import DslCompiler, step, workflow
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition, WorkflowState

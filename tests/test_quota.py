@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.quota — ResourceQuota and QuotaEnforcer.
 
@@ -13,7 +12,6 @@ Created
 
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 from grdl_rt.execution.errors import QuotaExceededError

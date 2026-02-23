@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl-runtime package scaffold.
 
@@ -42,6 +41,7 @@ class TestNoGuiDependencies:
 
     def test_no_qt_in_init(self):
         import inspect
+
         import grdl_rt
 
         source = inspect.getsource(grdl_rt)

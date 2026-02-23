@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.instrumentation.prometheus — PrometheusHook.
 
@@ -15,11 +14,13 @@ Created
 2026-02-11
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-prometheus_client = pytest.importorskip("prometheus_client", reason="prometheus_client not installed")
+prometheus_client = pytest.importorskip(
+    "prometheus_client", reason="prometheus_client not installed"
+)
 
 from grdl_rt.execution.context import ExecutionContext
 from grdl_rt.execution.instrumentation.prometheus import PrometheusHook
@@ -171,7 +172,7 @@ class TestPrometheusHookCreation:
     def test_custom_registry_used(self):
         """Metrics are registered on the provided registry, not the global one."""
         reg = prometheus_client.CollectorRegistry()
-        hook = PrometheusHook(registry=reg)
+        PrometheusHook(registry=reg)
 
         # The custom registry should have metrics; verify by collecting.
         # Note: prometheus_client strips the "_total" suffix from Counter
@@ -444,6 +445,8 @@ class TestMultipleSteps:
 class TestImportGuard:
     def test_import_guard(self):
         """Mock prometheus_client as None to verify ImportError is raised."""
-        with patch("grdl_rt.execution.instrumentation.prometheus._prom", None):
-            with pytest.raises(ImportError, match="prometheus_client is required"):
-                PrometheusHook()
+        with (
+            patch("grdl_rt.execution.instrumentation.prometheus._prom", None),
+            pytest.raises(ImportError, match="prometheus_client is required"),
+        ):
+            PrometheusHook()

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.api — load_workflow() and execute_workflow().
 
@@ -16,15 +15,13 @@ Created
 2026-02-09
 """
 
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from grdl_rt.api import load_workflow, execute_workflow
+from grdl_rt.api import execute_workflow, load_workflow
 from grdl_rt.execution.dsl import DslCompiler
-from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 # ---------------------------------------------------------------------------

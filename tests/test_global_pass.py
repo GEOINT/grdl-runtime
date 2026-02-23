@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Global Pass Executor Tests - Two-pass execution with @globalprocessor.
 
@@ -25,14 +24,12 @@ Created
 2026-02-11
 """
 
-import warnings
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from grdl_rt.execution.executor import WorkflowExecutor
-from grdl_rt.execution.metrics import StepMetrics
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 # ---------------------------------------------------------------------------
@@ -342,7 +339,6 @@ class TestMixedPipeline:
     @patch("grdl_rt.execution.executor.resolve_processor_class")
     def test_mixed_pipeline_correct_order(self, mock_resolve):
         """Global-pass processor followed by plain: both work correctly."""
-        call_count = [0]
 
         def _resolve(name):
             if name == "MedianThresholdProcessor":

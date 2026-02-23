@@ -1,22 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.ui._importer — processor/workflow discovery and param extraction.
 """
 
-import inspect
 import textwrap
 from pathlib import Path
 
 import pytest
 
 from grdl_rt.ui._importer import (
-    ParamInfo,
+    _params_from_schema,
+    _params_from_signature,
     classify_py_file,
     discover_processors_in_module,
     discover_workflow_in_module,
     extract_tunable_params,
-    _params_from_signature,
-    _params_from_schema,
 )
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -120,7 +117,7 @@ class TestDiscoverProcessors:
         assert procs == []
 
     def test_nonexistent_file(self, tmp_path: Path):
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, ModuleNotFoundError)):
             discover_processors_in_module(tmp_path / "nonexistent.py")
 
 

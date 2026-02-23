@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for TG8 — parameter schema extraction, catalog storage, and
 JSON Schema–based workflow validation.
@@ -22,11 +21,11 @@ from unittest.mock import patch
 
 import jsonschema
 import pytest
+from grdl.image_processing.params import Desc, Options, Range, collect_param_specs
 
-from grdl.image_processing.params import Desc, Options, ParamSpec, Range, collect_param_specs
 from grdl_rt.catalog.models import Artifact
 from grdl_rt.catalog.schema import extract_param_schema
-from grdl_rt.execution.validation import ValidationError, validate_workflow
+from grdl_rt.execution.validation import validate_workflow
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 # ====================================================================

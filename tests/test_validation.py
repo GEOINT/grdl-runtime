@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.validation — workflow validation.
 
@@ -13,9 +12,7 @@ Created
 
 from unittest.mock import patch
 
-import pytest
-
-from grdl_rt.execution.validation import ValidationError, validate_workflow
+from grdl_rt.execution.validation import validate_workflow
 from grdl_rt.execution.workflow import (
     ProcessingStep,
     TapOutStepDef,

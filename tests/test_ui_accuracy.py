@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.ui._accuracy — ground truth comparison and accuracy metrics.
 """
@@ -10,9 +9,7 @@ import numpy as np
 import pytest
 
 from grdl_rt.ui._accuracy import (
-    AccuracyReport,
     _bbox_iou,
-    _build_iou_matrix,
     _extract_detections,
     _geometry_to_bbox,
     _match_greedy,

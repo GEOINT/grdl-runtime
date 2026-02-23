@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.updater — ArtifactUpdateWorker.
 
@@ -15,12 +14,12 @@ Created
 2026-02-06
 """
 
-from unittest.mock import MagicMock, patch
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from grdl_rt.catalog.models import Artifact, UpdateResult
+from grdl_rt.catalog.models import Artifact
 from grdl_rt.catalog.updater import ArtifactUpdateWorker
 
 

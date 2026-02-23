@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for GRDL v2 API integration points in grdl-runtime.
 
@@ -26,21 +25,20 @@ Modified
 2026-02-09 — migrated from grdk.core to grdl_rt.execution
 """
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from grdl_rt.execution.gpu import GpuBackend
-from grdl_rt.execution.executor import WorkflowExecutor
-from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.discovery import (
     discover_processors,
-    get_processor_tags,
-    get_all_modalities,
-    get_all_categories,
     filter_processors,
+    get_all_categories,
+    get_all_modalities,
+    get_processor_tags,
 )
+from grdl_rt.execution.executor import WorkflowExecutor
+from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
 # ---------------------------------------------------------------------------
@@ -71,7 +69,7 @@ class TestGpuCompatibleFlag:
         proc.__gpu_compatible__ = True
         proc.apply.return_value = source * 3.0
 
-        result = backend.apply_transform(proc, source)
+        backend.apply_transform(proc, source)
         # On CPU-only backend, still runs on CPU
         proc.apply.assert_called_once_with(source)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.project — GrdkProject model.
 
@@ -15,7 +14,6 @@ Created
 2026-02-06
 """
 
-import json
 import numpy as np
 import pytest
 

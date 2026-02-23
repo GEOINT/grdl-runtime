@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Dispatch Module Tests.
 
@@ -20,23 +19,22 @@ Created
 2026-02-12
 """
 
-from typing import Any, Tuple
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 shapely = pytest.importorskip("shapely", reason="shapely not installed")
-from shapely.geometry import box  # noqa: E402
-
-from grdl.IO.models.base import ImageMetadata
 from grdl.image_processing.base import ImageTransform
 from grdl.image_processing.detection.base import ImageDetector
 from grdl.image_processing.detection.models import Detection, DetectionSet
+from grdl.IO.models.base import ImageMetadata
+from shapely.geometry import box  # noqa: E402
+
 from grdl_rt.execution.dispatch import (
+    _minimal_metadata,
     execute_processor,
     supports_gpu_transfer,
-    _minimal_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -70,7 +68,7 @@ class StubDetector(ImageDetector):
         )
 
     @property
-    def output_fields(self) -> Tuple[str, ...]:
+    def output_fields(self) -> tuple[str, ...]:
         return ()
 
 
@@ -134,7 +132,10 @@ class TestExecuteProcessor:
 
     def test_execute_raw_callable(self, meta, source):
         """Raw callable dispatches via callable path."""
-        fn = lambda src: src * 3
+
+        def fn(src):
+            return src * 3
+
         result, out_meta = execute_processor(fn, meta, source)
         np.testing.assert_allclose(result, source * 3)
         assert out_meta is meta

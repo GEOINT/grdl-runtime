@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Band Adaptation Tests — Unit tests for band axis detection and adaptation.
 

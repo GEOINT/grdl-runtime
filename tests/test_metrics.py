@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.metrics and grdl_rt.execution.result.
 
@@ -14,7 +13,6 @@ Created
 import json
 
 import numpy as np
-import pytest
 
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.result import WorkflowResult

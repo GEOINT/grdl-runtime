@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.workflow — Workflow and ProcessingStep models.
 
@@ -14,8 +13,6 @@ Created
 -------
 2026-02-06
 """
-
-import pytest
 
 from grdl_rt.execution.tags import ImageModality, WorkflowTags
 from grdl_rt.execution.workflow import (

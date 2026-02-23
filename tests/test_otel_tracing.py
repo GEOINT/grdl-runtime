@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.instrumentation.tracing — OpenTelemetry hook.
 
@@ -439,9 +438,11 @@ class TestErrorHandling:
 class TestImportGuard:
     def test_import_guard_raises_when_otel_missing(self):
         """OtelHook raises ImportError when opentelemetry is not installed."""
-        with patch("grdl_rt.execution.instrumentation.tracing._otel_trace", None):
-            with pytest.raises(ImportError, match="opentelemetry"):
-                OtelHook()
+        with (
+            patch("grdl_rt.execution.instrumentation.tracing._otel_trace", None),
+            pytest.raises(ImportError, match="opentelemetry"),
+        ):
+            OtelHook()
 
 
 # ---------------------------------------------------------------------------

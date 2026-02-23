@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.builder — Workflow, WorkflowStep, DeferredStep.
 
@@ -14,7 +13,7 @@ Created
 import numpy as np
 import pytest
 
-from grdl_rt.execution.builder import Workflow, WorkflowStep, DeferredStep
+from grdl_rt.execution.builder import DeferredStep, Workflow, WorkflowStep
 from grdl_rt.execution.result import WorkflowResult
 
 # ---------------------------------------------------------------------------
@@ -182,7 +181,7 @@ class TestWorkflowStep_Registration:
     def test_image_transform_instance(self):
         """ImageTransform instances are wrapped to call .apply()."""
         try:
-            from grdl.image_processing.base import ImageTransform
+            from grdl.image_processing.base import ImageTransform  # noqa: F401
         except ImportError:
             pytest.skip("grdl not available")
 
@@ -474,7 +473,7 @@ class TestImageTransformSteps:
     def test_chained_transform_pipeline(self):
         """ToDecibels → PercentileStretch as a composed workflow."""
         try:
-            from grdl.image_processing.intensity import ToDecibels, PercentileStretch
+            from grdl.image_processing.intensity import PercentileStretch, ToDecibels
         except ImportError:
             pytest.skip("grdl not available")
 

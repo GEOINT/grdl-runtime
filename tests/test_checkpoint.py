@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.checkpoint — CheckpointState, CheckpointManager,
 workflow hashing, atomic writes, and resume validation.
@@ -327,8 +326,8 @@ class TestCheckpointResumeLifecycle:
         from grdl_rt.execution.workflow import ProcessingStep, WorkflowDefinition
 
         wf = WorkflowDefinition(name="MultiStep", version="1.0.0")
-        for i in range(n_steps):
-            wf.add_step(ProcessingStep(f"Transform", "1.0.0"))
+        for _i in range(n_steps):
+            wf.add_step(ProcessingStep("Transform", "1.0.0"))
         return wf
 
     @patch("grdl_rt.execution.executor.resolve_processor_class")

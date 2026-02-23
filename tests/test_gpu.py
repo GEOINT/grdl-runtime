@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.execution.gpu — GpuBackend CPU fallback and transform dispatch.
 
@@ -144,6 +143,8 @@ class TestApplyTorchModel:
     def test_raises_without_torch(self):
         backend = GpuBackend(prefer_gpu=False)
         source = np.zeros((8, 8))
-        with patch.dict("sys.modules", {"torch": None}):
-            with pytest.raises(ImportError, match="PyTorch"):
-                backend.apply_torch_model("model.pt", source)
+        with (
+            patch.dict("sys.modules", {"torch": None}),
+            pytest.raises(ImportError, match="PyTorch"),
+        ):
+            backend.apply_torch_model("model.pt", source)

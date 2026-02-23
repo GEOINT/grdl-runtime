@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.ui._runner — data models and image I/O helpers.
 """
@@ -46,7 +45,7 @@ class TestReadInput:
         np.testing.assert_array_equal(loaded, arr)
 
     def test_nonexistent_file(self, tmp_path: Path):
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, ValueError)):
             _read_input(tmp_path / "missing.npy")
 
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for grdl_rt.catalog.database — SqliteArtifactCatalog.
 
@@ -15,11 +14,12 @@ Created
 2026-02-06
 """
 
-import pytest
 from unittest import mock
 
+import pytest
+
 from grdl_rt.catalog.base import ArtifactCatalogBase
-from grdl_rt.catalog.database import SqliteArtifactCatalog, ArtifactCatalog, _MIGRATIONS
+from grdl_rt.catalog.database import ArtifactCatalog, SqliteArtifactCatalog
 from grdl_rt.catalog.models import Artifact
 
 
