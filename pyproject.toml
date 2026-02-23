@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grdl-runtime"
-version = "0.1.0"
+version = "0.1.1"
 description = "GEOINT Rapid Development Library Runtime — headless execution engine for GRDL workflow orchestration"
 readme = "README.md"
 license = {text = "MIT"}
@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 dependencies = [
-    "grdl>=0.1.0",
+    "grdl>=0.1.1",
     "pyyaml>=6.0",
     "requests>=2.25",
     "packaging>=21.0",
