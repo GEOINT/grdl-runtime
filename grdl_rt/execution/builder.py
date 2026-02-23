@@ -610,7 +610,7 @@ class Workflow:
 
         # Callable (bound method, function, lambda, etc.)
         elif callable(obj):
-            fn = obj
+            fn = obj  # type: ignore[assignment]
             step_name = name or _infer_step_name(obj)
             gpu_ok = _infer_gpu_compatible(obj)
 
@@ -1104,6 +1104,8 @@ class Workflow:
                 row_width=size,
                 col_width=size,
             )
+            if isinstance(region, list):
+                region = region[0]
             return reader.read_chip(
                 region.row_start,
                 region.row_end,
@@ -1717,7 +1719,7 @@ class Workflow:
                         gpu_source = gpu.to_gpu(source)
                         result, out_meta = execute_processor(
                             ws.fn,
-                            step_meta,
+                            step_meta,  # type: ignore[arg-type]
                             gpu_source,
                         )
                         return gpu.to_cpu(result), out_meta, True
@@ -1730,7 +1732,7 @@ class Workflow:
 
                 result, out_meta = execute_processor(
                     ws.fn,
-                    step_meta,
+                    step_meta,  # type: ignore[arg-type]
                     source,
                 )
                 return result, out_meta, False

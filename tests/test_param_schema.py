@@ -59,7 +59,7 @@ class _AnnotatedProcessor:
 
 
 # Manually collect param_specs the same way ImageProcessor.__init_subclass__ does
-_AnnotatedProcessor.__param_specs__ = collect_param_specs(_AnnotatedProcessor)
+_AnnotatedProcessor.__param_specs__ = collect_param_specs(_AnnotatedProcessor)  # type: ignore[attr-defined]
 
 
 class _RequiredParamProcessor:
@@ -74,7 +74,7 @@ class _RequiredParamProcessor:
         return source
 
 
-_RequiredParamProcessor.__param_specs__ = collect_param_specs(_RequiredParamProcessor)
+_RequiredParamProcessor.__param_specs__ = collect_param_specs(_RequiredParamProcessor)  # type: ignore[attr-defined]
 
 
 # ====================================================================

@@ -297,7 +297,7 @@ class TestCheckpointManagerLoad:
 class _CountingTransform:
     """Processor that tracks which steps have been called."""
 
-    call_log = []
+    call_log: list[int] = []
 
     def apply(self, source, **kwargs):
         kwargs.pop("progress_callback", None)

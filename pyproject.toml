@@ -64,6 +64,7 @@ detection = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
+    "pytest-mypy>=1.0",
     "black>=22.0.0",
     "mypy>=0.950",
     "ruff>=0.4.0",
@@ -80,7 +81,7 @@ include = ["grdl_rt*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+addopts = "-v --mypy"
 
 [tool.black]
 line-length = 100
@@ -100,3 +101,4 @@ warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+disable_error_code = ["annotation-unchecked"]

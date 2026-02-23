@@ -76,7 +76,7 @@ class WorkflowOperator(ImageProcessor):
         -------
         tuple[Any, ImageMetadata]
         """
-        self._metadata = metadata
+        self._metadata: ImageMetadata = metadata
         return self.operate(metadata, source, **kwargs)
 
     @abstractmethod
