@@ -1157,7 +1157,7 @@ class WorkflowExecutor:
                 continue
             try:
                 processor_cls = resolve_processor_class(step.processor_name)
-            except (ImportError, Exception):
+            except ImportError:
                 continue
             if getattr(processor_cls, "__has_global_pass__", False):
                 global_steps.append((i, step, processor_cls))
@@ -1350,10 +1350,16 @@ class WorkflowExecutor:
             log.debug("step_resolving")
             try:
                 processor_cls = resolve_processor_class(step.processor_name)
-                processor = processor_cls()
-            except (ImportError, Exception) as e:
+            except ImportError as e:
                 raise ImportError(
                     f"Failed to resolve processor '{step.processor_name}': {e}"
+                ) from e
+
+            try:
+                processor = processor_cls()
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to instantiate processor '{step.processor_name}': {e}"
                 ) from e
 
         # Band adaptation from @processor_tags

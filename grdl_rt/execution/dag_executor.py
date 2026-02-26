@@ -633,9 +633,15 @@ class DAGExecutor:
 
         try:
             processor_cls = resolve_processor_class(step.processor_name)
-            processor = processor_cls()
-        except (ImportError, Exception) as e:
+        except ImportError as e:
             raise ImportError(f"Failed to resolve processor '{step.processor_name}': {e}") from e
+
+        try:
+            processor = processor_cls()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to instantiate processor '{step.processor_name}': {e}"
+            ) from e
 
         # Merge step params with kwargs
         merged_kwargs = {**kwargs, **step.params}
