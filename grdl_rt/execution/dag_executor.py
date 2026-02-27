@@ -245,6 +245,7 @@ class DAGExecutor:
                         log=log,
                         **kwargs,
                     )
+                    sm.step_index = completed_steps
                     step_metrics_list.append(sm)
                     completed_steps += 1
                 else:
@@ -265,6 +266,7 @@ class DAGExecutor:
 
                         for future in as_completed(futures):
                             sm = future.result()
+                            sm.step_index = completed_steps
                             step_metrics_list.append(sm)
                             completed_steps += 1
 
