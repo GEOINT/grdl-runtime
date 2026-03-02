@@ -1,10 +1,11 @@
 """
 DAG Executor — Parallel workflow execution over a directed acyclic graph.
 
-Executes a ``WorkflowDefinition`` whose steps form a DAG.  Steps at the
-same topological level (no mutual dependencies) are executed concurrently
-via a thread pool.  Supports conditional steps, fan-out/fan-in, per-step
-resilience (retry, timeout, circuit breaker), and structured metrics.
+Executes a ``WorkflowDefinition`` whose steps form a DAG.  Steps are
+dispatched to a thread pool the instant their specific dependencies
+complete, enabling true critical-path scheduling for asymmetric branch
+DAGs.  Supports conditional steps, fan-out/fan-in, per-step resilience
+(retry, timeout, circuit breaker), and structured metrics.
 
 Author
 ------
@@ -89,117 +90,199 @@ def _iso_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def run_dag_levels(
-    levels: list[list[str]],
+def run_dag_ready_dispatch(
+    all_step_ids: list[str],
+    deps_map: dict[str, list[str]],
     step_index_map: dict[str, int],
-    execute_step: Callable[[str], tuple[StepMetrics, Any]],
+    execute_step: Callable[[str, Any, bool], tuple[StepMetrics, Any]],
+    gather_input: Callable[[str], Any],
     results: dict[str, Any],
     *,
     max_workers: int | None = None,
     progress_callback: Callable[[float], None] | None = None,
 ) -> tuple[list[StepMetrics], int]:
-    """Execute topologically sorted DAG levels with accurate memory tracking.
+    """Execute DAG steps via readiness-based dispatch.
 
-    This is the single, authoritative implementation of the DAG level-loop
-    with ``tracemalloc``-based memory measurement.  Both
-    :class:`DAGExecutor` and the ``Workflow`` builder delegate here so
-    that measurement logic is maintained in one place.
+    A step is submitted to the thread pool the instant **all** of its
+    specific dependencies have completed.  This eliminates the
+    level-synchronisation barrier and allows downstream steps on a fast
+    branch to start before slower sibling branches finish.
 
-    For **single-step levels** the peak is scoped to that step alone
-    (via ``reset_peak``).  For **multi-step parallel levels** per-step
-    isolation is impossible because ``tracemalloc`` counters are
-    process-wide; instead the level-wide peak is recorded once and
-    assigned to every concurrent step (flagged ``concurrent=True``).
+    Total execution time equals the duration of the longest critical
+    path through the DAG rather than the sum of per-level maxima.
+
+    Thread safety
+    -------------
+    A single ``threading.Lock`` protects the shared state
+    (``completed_ids``, ``in_flight``, ``pending``, ``results``).
+    ``gather_input`` is always called while the lock is held so that
+    dependency outputs are atomically visible to the step being
+    dispatched.  ``execute_step`` runs in a worker thread, never while
+    the lock is held.
+
+    Memory tracking
+    ---------------
+    ``tracemalloc`` counters are process-wide, so true per-step isolation
+    is impossible when threads overlap.  Two modes are used:
+
+    * **Concurrent steps** (``concurrent=True``): ``peak_rss_bytes`` is
+      set to the process-wide ``tracemalloc`` peak at completion time.
+      The value reflects the shared high-water mark across all in-flight
+      steps and is labelled "shared" in reports.
+    * **Solo steps** (``concurrent=False``): the step resets the
+      ``tracemalloc`` peak immediately before its processor runs (when no
+      other threads are active) and records the peak immediately after.
+      This gives an isolated, step-specific memory reading.
 
     Parameters
     ----------
-    levels : list of list of str
-        Topologically sorted step IDs grouped by execution level.
-    step_index_map : dict
+    all_step_ids : list[str]
+        All step IDs in topological order (determines root-node set and
+        total step count).
+    deps_map : dict[str, list[str]]
+        ``{step_id: [dep_id, ...]}`` — dependency map.
+    step_index_map : dict[str, int]
         ``{step_id: int}`` — deterministic index for each step.
     execute_step : callable
-        ``(step_id) -> (StepMetrics, output)`` — executes a single
-        step.  Must **not** perform memory measurement itself;
-        ``peak_rss_bytes`` on the returned ``StepMetrics`` is
-        overwritten here.
+        ``(step_id, step_input, reset_mem_peak) -> (StepMetrics, output)``
+        — executes a single step.  When ``reset_mem_peak`` is ``True``
+        the callable must reset the ``tracemalloc`` peak before the
+        processor runs and record the peak afterwards; the returned
+        ``peak_rss_bytes`` is then used as-is.  When ``False``,
+        ``peak_rss_bytes`` is overwritten in the completion callback.
+    gather_input : callable
+        ``(step_id) -> Any`` — returns the pre-gathered input for a
+        step.  Called while the state lock is held; must read only from
+        the shared ``results`` dict and the original source array.
     results : dict
-        Shared results map.  This function writes
-        ``results[step_id] = output`` after each step completes so
-        that downstream steps can read their dependency outputs.
+        Shared results map.  Written under the lock after each step
+        completes so downstream steps receive correct dependency data.
     max_workers : int, optional
-        Maximum thread-pool workers for parallel levels.  Defaults to
-        the width of the level.
+        Maximum thread-pool size.  Defaults to total step count.
     progress_callback : callable, optional
-        Called with a float in ``[0.0, 1.0]`` after each level.
+        Called with a float in ``[0.0, 1.0]`` after each step completes.
 
     Returns
     -------
     tuple[list[StepMetrics], int]
         ``(step_metrics_list, overall_peak_bytes)``
-    """
-    step_metrics_list: list[StepMetrics] = []
-    completed = 0
-    total = sum(len(level) for level in levels)
-    overall_peak = 0
 
-    for level in levels:
-        if len(level) == 1:
-            # Single step — accurate per-step peak measurement.
-            # reset_peak() scopes the peak to this step only.
-            sid = level[0]
-            tracemalloc.reset_peak()
-            sm, output = execute_step(sid)
-            _, step_peak = tracemalloc.get_traced_memory()
-            sm.peak_rss_bytes = step_peak
-            overall_peak = max(overall_peak, step_peak)
+    Raises
+    ------
+    Exception
+        Re-raises the first exception from any failed step after the
+        thread pool has drained.
+    """
+    total = len(all_step_ids)
+    if total == 0:
+        return [], 0
+
+    # --- shared mutable state (all guarded by lock) -----------------------
+    lock = threading.RLock()
+    completed_ids: set[str] = set()
+    in_flight: set[str] = set()
+    concurrent_step_ids: set[str] = set()
+    pending: set[str] = set(all_step_ids)
+    step_metrics_list: list[StepMetrics] = []
+    completed_count = 0
+    overall_peak = 0
+    first_exc: BaseException | None = None
+    done_event = threading.Event()
+    # ----------------------------------------------------------------------
+
+    _max = max_workers or total
+
+    def _make_callback(s: str, p: ThreadPoolExecutor) -> Callable[[Any], None]:
+        def cb(f: Any) -> None:
+            _on_done(f, s, p)
+
+        return cb
+
+    def _submit_ready(pool: ThreadPoolExecutor) -> None:
+        """Submit all currently-ready steps.  Must be called under *lock*."""
+        ready = [s for s in pending if all(d in completed_ids for d in deps_map.get(s, []))]
+        already_in_flight = len(in_flight)
+        for sid in ready:
+            pending.discard(sid)
+            in_flight.add(sid)
+            # Mark all currently in-flight steps as concurrent at submission
+            # time, before any of them can complete and leave in_flight.
+            if len(in_flight) > 1:
+                concurrent_step_ids.update(in_flight)
+            step_input = gather_input(sid)  # atomic: lock held, results stable
+            # A step is solo when it is the only one in this dispatch batch
+            # AND no other steps were already running.  Solo steps get an
+            # isolated tracemalloc measurement; concurrent steps share one.
+            reset_mem_peak = len(ready) == 1 and already_in_flight == 0
+            fut = pool.submit(execute_step, sid, step_input, reset_mem_peak)
+            fut.add_done_callback(_make_callback(sid, pool))
+
+    def _on_done(fut: Any, sid: str, pool: ThreadPoolExecutor) -> None:
+        """Completion callback — runs in a worker thread."""
+        nonlocal completed_count, overall_peak, first_exc
+
+        with lock:
+            if first_exc is not None:
+                # A prior step already failed; drain in-flight but dispatch nothing.
+                in_flight.discard(sid)
+                if not in_flight and not pending:
+                    done_event.set()
+                return
+
+            try:
+                sm, output = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                first_exc = exc
+                in_flight.discard(sid)
+                done_event.set()
+                return
+
+            # Concurrent detection: a step is concurrent if it was in-flight
+            # at the same time as another step (recorded at submission time).
+            sm.concurrent = sid in concurrent_step_ids
             sm.step_index = step_index_map[sid]
+
+            _, current_peak = tracemalloc.get_traced_memory()
+            overall_peak = max(overall_peak, current_peak)
+            if sm.concurrent:
+                # Can't isolate: report the shared process-wide high-water mark.
+                sm.peak_rss_bytes = current_peak
+            # else: solo step already measured and set peak_rss_bytes itself.
+
+            in_flight.discard(sid)
+            completed_ids.add(sid)
             results[sid] = output
             step_metrics_list.append(sm)
-            completed += 1
-        else:
-            # Parallel execution of level.
-            # Per-step memory cannot be isolated when threads share
-            # the same process address space; tracemalloc counters
-            # are process-wide.  Instead, measure the peak for the
-            # entire level and assign it as the shared peak for
-            # every concurrent step.
-            tracemalloc.reset_peak()
-            level_step_metrics: list[tuple[str, StepMetrics, Any]] = []
-            _max = max_workers or len(level)
-            with ThreadPoolExecutor(max_workers=_max) as pool:
-                futures = {}
-                for sid in level:
-                    future = pool.submit(execute_step, sid)
-                    futures[future] = sid
+            completed_count += 1
 
-                for future in as_completed(futures):
-                    sid = futures[future]
-                    sm, output = future.result()
-                    sm.step_index = step_index_map[sid]
-                    sm.concurrent = True
-                    level_step_metrics.append((sid, sm, output))
-                    completed += 1
+            if progress_callback is not None and total > 0:
+                progress_callback(completed_count / total)
 
-            # Level-wide peak (accurate, from main thread)
-            _, level_peak = tracemalloc.get_traced_memory()
-            overall_peak = max(overall_peak, level_peak)
-            for sid, sm, output in level_step_metrics:
-                sm.peak_rss_bytes = level_peak
-                results[sid] = output
-                step_metrics_list.append(sm)
+            _submit_ready(pool)  # dispatch any newly unblocked steps
 
-        if progress_callback is not None and total > 0:
-            progress_callback(completed / total)
+            if not pending and not in_flight:
+                done_event.set()
+
+    with ThreadPoolExecutor(max_workers=_max) as pool:
+        with lock:
+            _submit_ready(pool)  # kick off root nodes (zero dependencies)
+        done_event.wait()        # block until all steps finish or first failure
+    # pool.__exit__ calls shutdown(wait=True), draining remaining futures
+
+    if first_exc is not None:
+        raise first_exc
 
     return step_metrics_list, overall_peak
 
 
 class DAGExecutor:
-    """Execute a workflow DAG with parallel level execution.
+    """Execute a workflow DAG with readiness-based scheduling.
 
-    Steps are topologically sorted into levels.  All steps within a
-    level execute concurrently via a thread pool.  Each step's output
-    is stored in a results map keyed by step ID, and downstream steps
+    Steps are dispatched to a thread pool the instant their specific
+    dependencies complete.  Total execution time equals the duration of
+    the longest critical path through the DAG — not the sum of the
+    longest steps at each topological level.  Each step's output is
+    stored in a results map keyed by step ID, and downstream steps
     gather their inputs from this map.
 
     Parameters
@@ -211,8 +294,7 @@ class DAGExecutor:
     circuit_breaker : Optional[CircuitBreaker]
         Circuit breaker for processor failure tracking.
     max_workers : int, optional
-        Maximum number of parallel threads.  Defaults to the number
-        of steps in the widest level.
+        Maximum number of parallel threads.  Defaults to total step count.
     """
 
     def __init__(
@@ -255,24 +337,24 @@ class DAGExecutor:
     ) -> WorkflowResult:
         """Execute the DAG workflow on a single input.
 
-        Steps are topologically sorted into levels and executed one
-        level at a time.  Steps within a level run concurrently via a
-        thread pool.
+        Steps are dispatched to the thread pool the instant all of their
+        specific dependencies complete.  This readiness-based approach
+        eliminates level-synchronisation barriers, so total runtime equals
+        the duration of the longest critical path through the DAG.
 
-        .. note:: **Level-based synchronization barrier**
+        .. note:: **Readiness-based scheduling**
 
-           All steps in a level must complete before the next level
-           starts.  For DAGs with asymmetric branch runtimes, a step
-           that depends only on a fast branch will still wait for slower
-           sibling branches in the same level to finish.  A future
-           dependency-driven scheduler would eliminate this barrier.
+           Each step starts as soon as its direct dependencies finish,
+           regardless of unrelated branches.  For asymmetric DAGs (e.g.,
+           Branch A: 10 s, Branch B: 20 s) a step that depends only on
+           Branch A starts after 10 s even while Branch B is still running.
 
         Parameters
         ----------
         source : np.ndarray
             Input image array fed to root steps (those with no deps).
         progress_callback : callable, optional
-            Called with a float in ``[0.0, 1.0]`` after each level.
+            Called with a float in ``[0.0, 1.0]`` after each step completes.
         enable_memory_check : bool
             If ``True`` (default), run memory pre-flight check.
         execution_context : dict, optional
@@ -360,16 +442,34 @@ class DAGExecutor:
         t0_cpu = time.process_time()
 
         try:
-            def _exec_step(sid: str) -> tuple[StepMetrics, Any]:
+            # Build flat step list and dependency map for readiness dispatch
+            deps_map: dict[str, list[str]] = {
+                _s.id: list(_s.depends_on or [])
+                for _s in self._workflow.steps
+                if _s.id is not None
+            }
+            all_step_ids = [sid for lvl in levels for sid in lvl]
+
+            def _gather(sid: str) -> Any:
+                _s = self._workflow.get_step(sid)
+                if _s.depends_on:
+                    dep_res = {d: results[d] for d in _s.depends_on}
+                    return next(iter(dep_res.values())) if len(dep_res) == 1 else dep_res
+                return source
+
+            def _exec_step(sid: str, step_input: Any, reset_mem_peak: bool = False) -> tuple[StepMetrics, Any]:
                 return self._execute_single_step(
-                    sid, source, results,
+                    sid, step_input, results,
+                    reset_mem_peak=reset_mem_peak,
                     user_context=user_context, log=log, **kwargs,
                 )
 
-            step_metrics_list, total_peak = run_dag_levels(
-                levels,
+            step_metrics_list, total_peak = run_dag_ready_dispatch(
+                all_step_ids,
+                deps_map,
                 step_index_map,
                 _exec_step,
+                _gather,
                 results,
                 max_workers=max_workers,
                 progress_callback=progress_callback,
@@ -500,27 +600,34 @@ class DAGExecutor:
     def _execute_single_step(
         self,
         step_id: str,
-        source: np.ndarray,
-        results: dict[str, np.ndarray],
+        step_input: Any,
+        results: dict[str, Any],
         *,
+        reset_mem_peak: bool = False,
         user_context: dict[str, Any],
         log: Any,
         **kwargs: Any,
     ) -> tuple[StepMetrics, Any]:
-        """Execute one step, gathering inputs from the results map.
+        """Execute one step with a pre-gathered input.
 
-        Memory measurement is NOT performed here — callers are
-        responsible for wrapping the call with ``tracemalloc``
-        peak tracking via :func:`run_dag_levels`.
+        For solo (non-concurrent) steps ``reset_mem_peak=True``: the
+        tracemalloc peak is reset immediately before the processor runs
+        and recorded immediately after, giving an isolated per-step
+        reading.  For concurrent steps the completion callback in
+        :func:`run_dag_ready_dispatch` overwrites ``peak_rss_bytes``
+        with the shared process-wide peak instead.
 
         Parameters
         ----------
         step_id : str
             ID of the step to execute.
-        source : np.ndarray
-            Original input (for root steps with no dependencies).
-        results : Dict[str, np.ndarray]
-            Shared results map.  Read for dependency inputs.
+        step_input : Any
+            Pre-gathered input (single array, dict, or source).  Must be
+            assembled by the caller under the state lock before this
+            method is invoked in a worker thread.
+        results : dict
+            Shared results map.  Read-only here; used only to populate
+            the condition-evaluation context.
         user_context : dict
             User-provided context for condition evaluation.
         log
@@ -534,13 +641,6 @@ class DAGExecutor:
             ``(metrics, output)`` — output is the step's result array.
         """
         step = self._workflow.get_step(step_id)
-
-        # Gather inputs
-        if step.depends_on:
-            dep_results = {dep_id: results[dep_id] for dep_id in step.depends_on}
-            step_input = next(iter(dep_results.values())) if len(dep_results) == 1 else dep_results
-        else:
-            step_input = source
 
         # Evaluate condition
         if isinstance(step, ProcessingStep) and step.condition is not None:
@@ -573,6 +673,11 @@ class DAGExecutor:
                     status="skipped",
                     step_id=step_id,
                 ), output
+
+        # For solo steps: reset the tracemalloc peak so the measurement
+        # below reflects only this step, not any preceding parallel phase.
+        if reset_mem_peak:
+            tracemalloc.reset_peak()
 
         # Execute
         step_t0_wall = time.perf_counter()
@@ -635,6 +740,11 @@ class DAGExecutor:
         step_wall = time.perf_counter() - step_t0_wall
         step_cpu = time.thread_time() - step_t0_cpu
 
+        # For solo steps, record peak now while no other threads are active.
+        # For concurrent steps, leave 0; _on_done will overwrite with the
+        # shared process-wide peak.
+        step_peak = tracemalloc.get_traced_memory()[1] if reset_mem_peak else 0
+
         processor_name = getattr(step, "processor_name", "tap_out")
         log.debug(
             "dag_step_complete",
@@ -648,7 +758,7 @@ class DAGExecutor:
             processor_name=processor_name,
             wall_time_s=step_wall,
             cpu_time_s=step_cpu,
-            peak_rss_bytes=0,
+            peak_rss_bytes=step_peak,
             gpu_used=False,
             status=step_status,
             step_id=step_id,

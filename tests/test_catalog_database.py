@@ -212,7 +212,8 @@ class TestArtifactCatalogMigrations:
 
         # Seed a v1 database without the requires_global_pass column
         conn = sqlite3.connect(str(db_path))
-        conn.executescript("""
+        conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS artifacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -250,7 +251,8 @@ class TestArtifactCatalogMigrations:
                 version INTEGER NOT NULL
             );
             INSERT INTO schema_version (version) VALUES (1);
-        """)
+        """
+        )
         conn.commit()
         conn.close()
 

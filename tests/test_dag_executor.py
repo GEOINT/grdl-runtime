@@ -89,6 +89,22 @@ class _MergeProcessor:
         return source
 
 
+class _Slow03:
+    """Sleeps 0.3 s, passes source through."""
+
+    def apply(self, source, **kwargs):
+        time.sleep(0.3)
+        return source
+
+
+class _Slow06:
+    """Sleeps 0.6 s, passes source through."""
+
+    def apply(self, source, **kwargs):
+        time.sleep(0.6)
+        return source
+
+
 # ---------------------------------------------------------------------------
 # Helper: patch resolve_processor_class to return our mocks
 # ---------------------------------------------------------------------------
@@ -100,6 +116,8 @@ _MOCK_PROCESSORS = {
     "AddOne": _AddOne,
     "SlowProcessor": _SlowProcessor,
     "MergeProcessor": _MergeProcessor,
+    "Slow03": _Slow03,
+    "Slow06": _Slow06,
 }
 
 
@@ -547,3 +565,93 @@ class TestBuilderDAGAPI:
     def test_workflow_step_with_condition(self):
         wf = Workflow("Cond").step(lambda x: x, name="s1", id="s1", condition="x > 0")
         assert wf.steps[0].condition == "x > 0"
+
+
+# ---------------------------------------------------------------------------
+# DAGExecutor — Critical-path / readiness-based scheduler
+# ---------------------------------------------------------------------------
+
+
+class TestDAGExecutorCriticalPath:
+    """Prove that the readiness-based dispatcher achieves critical-path timing.
+
+    Under the old level-based scheduler the DAG below would take ~0.9 s
+    because 'after_fast' had to wait for 'slow' (same topological level
+    as 'fast') before it could start.
+
+    Under the readiness-based scheduler, 'after_fast' starts as soon as
+    'fast' finishes, yielding a total of ~0.6 s (the critical path).
+    """
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_critical_path_asymmetric_branches(self, mock_resolve):
+        """Downstream of the fast branch starts before the slow branch finishes.
+
+        DAG::
+
+            root (instant)
+              ├── fast (0.3 s) ──► after_fast (0.3 s)
+              └── slow (0.6 s)
+
+        Level-based total ≈ 0 + 0.6 (barrier) + 0.3 = 0.9 s
+        Readiness-based total ≈ 0.6 s  (critical path)
+        """
+        wf = WorkflowDefinition(
+            name="CriticalPath",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("AddOne", "1.0", id="root"),
+                ProcessingStep("Slow03", "1.0", id="fast", depends_on=["root"]),
+                ProcessingStep("Slow06", "1.0", id="slow", depends_on=["root"]),
+                ProcessingStep("Slow03", "1.0", id="after_fast", depends_on=["fast"]),
+            ],
+        )
+        executor = DAGExecutor(wf, max_workers=4)
+        t0 = time.perf_counter()
+        result = executor.execute(np.array([1.0]), enable_memory_check=False)
+        elapsed = time.perf_counter() - t0
+
+        # Critical path is 0.6 s; level-based would be ~0.9 s.
+        assert elapsed < 0.82, (
+            f"Expected <0.82 s (critical path ~0.6 s), got {elapsed:.2f} s. "
+            "Level-based scheduling would produce ~0.9 s."
+        )
+        # Numerical correctness
+        np.testing.assert_array_almost_equal(result.step_results["root"], np.array([2.0]))
+        np.testing.assert_array_almost_equal(result.step_results["after_fast"], np.array([2.0]))
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_concurrent_flag_set_for_overlapping_steps(self, mock_resolve):
+        """Steps that run simultaneously must have ``concurrent=True`` in metrics."""
+        wf = WorkflowDefinition(
+            name="ConcurrentFlag",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("AddOne", "1.0", id="root"),
+                ProcessingStep("Slow03", "1.0", id="a", depends_on=["root"]),
+                ProcessingStep("Slow03", "1.0", id="b", depends_on=["root"]),
+            ],
+        )
+        executor = DAGExecutor(wf, max_workers=2)
+        result = executor.execute(np.array([1.0]), enable_memory_check=False)
+
+        by_id = {sm.step_id: sm for sm in result.metrics.step_metrics}
+        assert by_id["a"].concurrent is True, "Branch a should be concurrent"
+        assert by_id["b"].concurrent is True, "Branch b should be concurrent"
+        assert by_id["root"].concurrent is False, "Root runs alone, not concurrent"
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_linear_chain_correct_output(self, mock_resolve):
+        """Linear A→B→C still produces correct numerical results after refactor."""
+        wf = WorkflowDefinition(
+            name="LinearCheck",
+            version="1.0.0",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="a"),
+                ProcessingStep("Scale3", "1.0", id="b", depends_on=["a"]),
+                ProcessingStep("Scale5", "1.0", id="c", depends_on=["b"]),
+            ],
+        )
+        result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
+        # 1 * 2 * 3 * 5 = 30
+        np.testing.assert_array_almost_equal(result.result, np.array([30.0]))

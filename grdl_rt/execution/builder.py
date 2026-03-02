@@ -58,7 +58,7 @@ from grdl_rt.execution.band_adaptation import (
 from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.gpu import GpuBackend
-from grdl_rt.execution.dag_executor import run_dag_levels
+from grdl_rt.execution.dag_executor import run_dag_ready_dispatch
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.resilience import (
     RetryPolicy,
@@ -1691,22 +1691,19 @@ class Workflow:
         progress_callback: Callable[[float], None] | None,
         metadata: Any | None = None,
     ) -> WorkflowResult:
-        """Execute resolved steps as a DAG with parallel-level scheduling.
+        """Execute resolved steps as a DAG with readiness-based scheduling.
 
-        Steps are topologically sorted into levels.  Steps within a level
-        have no mutual dependencies and execute concurrently via a thread
-        pool.  Each step's input is routed from its ``depends_on`` entries
-        (not the sequential ``current``), ensuring correct fan-out
-        semantics for branches.
+        Steps are dispatched to a thread pool the instant all of their
+        specific dependencies complete.  Each step's input is routed from
+        its ``depends_on`` entries (not the sequential ``current``),
+        ensuring correct fan-out semantics for branches.
 
-        .. note:: **Level-based synchronization barrier**
+        .. note:: **Readiness-based scheduling**
 
-           All steps in a level must complete before the next level starts.
-           For DAGs with asymmetric branch runtimes this can add latency.
-           For example, in a fan-out where branch A (10 s) and branch B
-           (30 s) are at the same level, a step that depends only on A
-           will still wait for B to finish before it can start.  A future
-           dependency-driven scheduler would eliminate this barrier.
+           Each step starts as soon as its direct dependencies finish,
+           regardless of unrelated branches.  Total execution time equals
+           the duration of the longest critical path through the DAG —
+           not the sum of the longest steps at each topological level.
 
         Parameters
         ----------
@@ -1717,7 +1714,7 @@ class Workflow:
         prefer_gpu : bool
             Whether to attempt GPU acceleration.
         progress_callback : callable, optional
-            Called with a float in ``[0.0, 1.0]`` after each level.
+            Called with a float in ``[0.0, 1.0]`` after each step completes.
         metadata : optional
             Image metadata threaded through the pipeline.
 
@@ -1780,18 +1777,32 @@ class Workflow:
 
         total = len(steps)
 
-        def _exec_step(sid: str) -> tuple[StepMetrics, Any]:
+        # Build flat step list and dependency map for readiness dispatch
+        id_set = {s.id for s in steps if s.id is not None}
+        deps_map: dict[str, list[str]] = {}
+        for _s in steps:
+            if _s.id is not None:
+                raw = getattr(_s, "depends_on", None) or []
+                deps_map[_s.id] = [d for d in raw if d in id_set]
+        all_step_ids = [sid for lvl in levels for sid in lvl]
+
+        def _gather(sid: str) -> Any:
             ws = step_by_id[sid]
-            step_input = _gather_input(ws, source, results)
+            return _gather_input(ws, source, results)  # called under lock
+
+        def _exec_step(sid: str, step_input: Any, reset_mem_peak: bool = False) -> tuple[StepMetrics, Any]:
+            ws = step_by_id[sid]
             return self._execute_dag_step(
                 ws, step_input, gpu, step_index_map[sid], total,
-                step_id=sid, metadata=metadata,
+                step_id=sid, metadata=metadata, reset_mem_peak=reset_mem_peak,
             )
 
-        step_metrics_list, overall_peak = run_dag_levels(
-            levels,
+        step_metrics_list, overall_peak = run_dag_ready_dispatch(
+            all_step_ids,
+            deps_map,
             step_index_map,
             _exec_step,
+            _gather,
             results,
             progress_callback=progress_callback,
         )
@@ -1846,6 +1857,7 @@ class Workflow:
         *,
         step_id: str | None = None,
         metadata: Any | None = None,
+        reset_mem_peak: bool = False,
     ) -> tuple[StepMetrics, Any]:
         """Execute a single DAG step and return ``(metrics, output)``.
 
@@ -1882,6 +1894,9 @@ class Workflow:
             )
             return sm, step_input
 
+        if reset_mem_peak:
+            tracemalloc.reset_peak()
+
         t0_wall = time.perf_counter()
         t0_cpu = time.thread_time()
 
@@ -1889,12 +1904,14 @@ class Workflow:
             ws, step_input, gpu, step_index, n_steps, metadata=metadata,
         )
 
+        step_peak = tracemalloc.get_traced_memory()[1] if reset_mem_peak else 0
+
         sm = StepMetrics(
             step_index=step_index,
             processor_name=ws.name,
             wall_time_s=time.perf_counter() - t0_wall,
             cpu_time_s=time.thread_time() - t0_cpu,
-            peak_rss_bytes=0,  # overwritten by run_dag_levels()
+            peak_rss_bytes=step_peak,  # 0 for concurrent steps, overwritten by run_dag_ready_dispatch()
             gpu_used=gpu_used,
             step_id=step_id,
         )
