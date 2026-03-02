@@ -59,6 +59,12 @@ class StepMetrics:
         ``"success"`` or ``"failed"``.
     error_message : Optional[str]
         If status is ``"failed"``, the exception message.
+    concurrent : bool
+        Whether this step ran concurrently with other steps in a
+        parallel DAG level.  When ``True``, ``peak_rss_bytes``
+        reflects the shared level-wide peak (not isolated to this
+        step) because per-thread memory isolation is not possible
+        with ``tracemalloc``.
     """
 
     step_index: int
@@ -73,6 +79,7 @@ class StepMetrics:
     gpu_memory_bytes: int | None = None
     global_pass_duration: float | None = None
     global_pass_memory: int | None = None
+    concurrent: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -90,6 +97,7 @@ class StepMetrics:
             "gpu_used": self.gpu_used,
             "status": self.status,
             "error_message": self.error_message,
+            "concurrent": self.concurrent,
         }
         if self.step_id is not None:
             d["step_id"] = self.step_id

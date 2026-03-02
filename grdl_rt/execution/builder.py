@@ -58,6 +58,7 @@ from grdl_rt.execution.band_adaptation import (
 from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.dag_executor import run_dag_levels
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.resilience import (
     RetryPolicy,
@@ -922,6 +923,14 @@ class Workflow:
         # Array mode → direct pipeline
         if isinstance(source, np.ndarray):
             steps = self._resolve_steps(metadata)
+            if self._is_dag:
+                return self._run_dag_pipeline(
+                    source,
+                    steps,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                    metadata=metadata,
+                )
             if auto_tap_out:
                 return self._run_pipeline_with_auto_tap_out(
                     source,
@@ -945,6 +954,14 @@ class Workflow:
             if self._source is not None:
                 array = self._source()
                 steps = self._resolve_steps(metadata)
+                if self._is_dag:
+                    return self._run_dag_pipeline(
+                        array,
+                        steps,
+                        prefer_gpu=prefer_gpu,
+                        progress_callback=progress_callback,
+                        metadata=metadata,
+                    )
                 if auto_tap_out:
                     return self._run_pipeline_with_auto_tap_out(
                         array,
@@ -1054,6 +1071,14 @@ class Workflow:
             resolved = self._resolve_steps(meta)
 
             # Run the pipeline
+            if self._is_dag:
+                return self._run_dag_pipeline(
+                    chip,
+                    resolved,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                    metadata=meta,
+                )
             if auto_tap_out:
                 return self._run_pipeline_with_auto_tap_out(
                     chip,
@@ -1195,6 +1220,10 @@ class Workflow:
             gpu_compatible=gpu_ok,
             retry=ds.retry,
             timeout_seconds=ds.timeout_seconds,
+            id=ds.id,
+            depends_on=ds.depends_on,
+            condition=ds.condition,
+            phase=ds.phase,
             required_bands=required_bands,
             band_expansion=ds.band_expansion,
             band_reduction=ds.band_reduction,
@@ -1649,6 +1678,228 @@ class Workflow:
 
         return WorkflowResult(result=current, metrics=wf_metrics)
 
+    # ------------------------------------------------------------------
+    # DAG Pipeline
+    # ------------------------------------------------------------------
+
+    def _run_dag_pipeline(
+        self,
+        source: np.ndarray,
+        steps: list[WorkflowStep | TapOutStep],
+        *,
+        prefer_gpu: bool,
+        progress_callback: Callable[[float], None] | None,
+        metadata: Any | None = None,
+    ) -> WorkflowResult:
+        """Execute resolved steps as a DAG with parallel-level scheduling.
+
+        Steps are topologically sorted into levels.  Steps within a level
+        have no mutual dependencies and execute concurrently via a thread
+        pool.  Each step's input is routed from its ``depends_on`` entries
+        (not the sequential ``current``), ensuring correct fan-out
+        semantics for branches.
+
+        .. note:: **Level-based synchronization barrier**
+
+           All steps in a level must complete before the next level starts.
+           For DAGs with asymmetric branch runtimes this can add latency.
+           For example, in a fan-out where branch A (10 s) and branch B
+           (30 s) are at the same level, a step that depends only on A
+           will still wait for B to finish before it can start.  A future
+           dependency-driven scheduler would eliminate this barrier.
+
+        Parameters
+        ----------
+        source : np.ndarray
+            Input data fed to root steps (those with no ``depends_on``).
+        steps : List[Union[WorkflowStep, TapOutStep]]
+            Fully resolved step list (no ``DeferredStep`` instances).
+        prefer_gpu : bool
+            Whether to attempt GPU acceleration.
+        progress_callback : callable, optional
+            Called with a float in ``[0.0, 1.0]`` after each level.
+        metadata : optional
+            Image metadata threaded through the pipeline.
+
+        Returns
+        -------
+        WorkflowResult
+            Result with ``step_results`` populated as ``{step_id: output}``.
+        """
+        ctx = ExecutionContext(
+            workflow_id=f"{self._name}:{self._version}",
+            workflow_name=self._name,
+        )
+        cfg = get_runtime_config()
+
+        tracemalloc_was_running = tracemalloc.is_tracing()
+        if not tracemalloc_was_running:
+            tracemalloc.start()
+        tracemalloc.reset_peak()
+
+        started_at = datetime.now(UTC).isoformat()
+        t0_wall = time.perf_counter()
+        t0_cpu = time.process_time()
+        step_metrics_list: list[StepMetrics] = []
+
+        # Build step lookup — every step must have an id for DAG routing
+        step_by_id: dict[str, WorkflowStep | TapOutStep] = {}
+        for s in steps:
+            if s.id is None:
+                raise ValueError(
+                    "DAG pipeline requires all steps to have an id.  "
+                    "Use .branches() or set id= on each .step()."
+                )
+            step_by_id[s.id] = s
+
+        # Memory pre-flight (estimate based on widest parallel level)
+        levels = _topological_sort_steps(steps)
+        processing_steps = [s for s in steps if isinstance(s, WorkflowStep)]
+        if processing_steps:
+            max_width = max(len(level) for level in levels) if levels else 1
+            run_memory_preflight(
+                source,
+                n_steps=max_width,
+                multiplier=cfg.memory.estimation_multiplier,
+                warn_threshold=cfg.memory.warn_threshold,
+                abort_threshold=cfg.memory.abort_threshold,
+            )
+
+        results: dict[str, Any] = {}
+        gpu = GpuBackend(prefer_gpu=prefer_gpu)
+
+        # Pre-compute stable step indices from topological order so that
+        # parallel steps get unique, deterministic indices regardless of
+        # completion order.
+        step_index_map: dict[str, int] = {}
+        idx = 0
+        for _lvl in levels:
+            for _sid in _lvl:
+                step_index_map[_sid] = idx
+                idx += 1
+
+        total = len(steps)
+
+        def _exec_step(sid: str) -> tuple[StepMetrics, Any]:
+            ws = step_by_id[sid]
+            step_input = _gather_input(ws, source, results)
+            return self._execute_dag_step(
+                ws, step_input, gpu, step_index_map[sid], total,
+                step_id=sid, metadata=metadata,
+            )
+
+        step_metrics_list, overall_peak = run_dag_levels(
+            levels,
+            step_index_map,
+            _exec_step,
+            results,
+            progress_callback=progress_callback,
+        )
+
+        # Determine terminal output
+        terminal_ids = [
+            s.id for s in steps
+            if s.id is not None
+            and not any(
+                s.id in (getattr(o, "depends_on", None) or [])
+                for o in steps
+            )
+        ]
+        if len(terminal_ids) == 1:
+            final = results[terminal_ids[0]]
+        elif terminal_ids:
+            final = results[levels[-1][-1]] if levels else source
+        else:
+            final = source
+
+        wall = time.perf_counter() - t0_wall
+        cpu = time.process_time() - t0_cpu
+        completed_at = datetime.now(UTC).isoformat()
+
+        wf_metrics = WorkflowMetrics(
+            workflow_id=ctx.workflow_id,
+            run_id=ctx.run_id,
+            workflow_name=self._name,
+            workflow_version=self._version,
+            total_wall_time_s=wall,
+            total_cpu_time_s=cpu,
+            peak_rss_bytes=overall_peak,
+            step_metrics=step_metrics_list,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+
+        if not tracemalloc_was_running:
+            tracemalloc.stop()
+
+        return WorkflowResult(
+            result=final, metrics=wf_metrics, step_results=results,
+        )
+
+    def _execute_dag_step(
+        self,
+        ws: WorkflowStep | TapOutStep,
+        step_input: Any,
+        gpu: GpuBackend,
+        step_index: int,
+        n_steps: int,
+        *,
+        step_id: str | None = None,
+        metadata: Any | None = None,
+    ) -> tuple[StepMetrics, Any]:
+        """Execute a single DAG step and return ``(metrics, output)``.
+
+        Delegates to :meth:`_execute_step_gpu_aware` for the actual
+        processing, preserving GPU dispatch, retry, and timeout logic.
+
+        Parameters
+        ----------
+        ws : WorkflowStep or TapOutStep
+        step_input : Any
+            Routed input (array, dict, or source).
+        gpu : GpuBackend
+        step_index : int
+        n_steps : int
+        step_id : str, optional
+            Stable step identifier for DAG metric grouping.
+        metadata : optional
+
+        Returns
+        -------
+        Tuple[StepMetrics, Any]
+            ``(step_metrics, output)``
+        """
+        if isinstance(ws, TapOutStep):
+            self._execute_tap_out(ws, step_input)
+            sm = StepMetrics(
+                step_index=step_index,
+                processor_name=ws.name,
+                wall_time_s=0.0,
+                cpu_time_s=0.0,
+                peak_rss_bytes=0,
+                gpu_used=False,
+                step_id=step_id,
+            )
+            return sm, step_input
+
+        t0_wall = time.perf_counter()
+        t0_cpu = time.thread_time()
+
+        result, _meta, gpu_used = self._execute_step_gpu_aware(
+            ws, step_input, gpu, step_index, n_steps, metadata=metadata,
+        )
+
+        sm = StepMetrics(
+            step_index=step_index,
+            processor_name=ws.name,
+            wall_time_s=time.perf_counter() - t0_wall,
+            cpu_time_s=time.thread_time() - t0_cpu,
+            peak_rss_bytes=0,  # overwritten by run_dag_levels()
+            gpu_used=gpu_used,
+            step_id=step_id,
+        )
+        return sm, result
+
     def _execute_tap_out(
         self,
         tap: TapOutStep,
@@ -1865,3 +2116,83 @@ def _sanitize_filename(name: str) -> str:
     safe = re.sub(r"[^\w\-]", "_", name)
     safe = re.sub(r"_+", "_", safe).strip("_")
     return safe or "step"
+
+
+def _gather_input(
+    ws: WorkflowStep | DeferredStep | TapOutStep,
+    source: np.ndarray,
+    results: dict[str, Any],
+) -> Any:
+    """Route the correct input to a step based on ``depends_on``.
+
+    Parameters
+    ----------
+    ws : WorkflowStep, DeferredStep, or TapOutStep
+        The step whose input to resolve.
+    source : np.ndarray
+        Original pipeline source (for root steps with no deps).
+    results : Dict[str, Any]
+        Completed step outputs keyed by step ID.
+
+    Returns
+    -------
+    Any
+        Single array for single-dependency, dict for multi-dependency,
+        or *source* for root steps.
+    """
+    deps = getattr(ws, "depends_on", None)
+    if not deps:
+        return source
+    if len(deps) == 1:
+        return results[deps[0]]
+    return {dep_id: results[dep_id] for dep_id in deps}
+
+
+def _topological_sort_steps(
+    steps: list[WorkflowStep | TapOutStep],
+) -> list[list[str]]:
+    """Sort resolved steps into parallel execution levels.
+
+    Steps with no unmet dependencies form a level.  All steps within
+    a level can execute concurrently.
+
+    Parameters
+    ----------
+    steps : list
+        Resolved steps, each with an ``id`` attribute.
+
+    Returns
+    -------
+    List[List[str]]
+        Ordered list of levels, each level is a list of step IDs.
+
+    Raises
+    ------
+    ValueError
+        If a cycle is detected in the dependency graph.
+    """
+    id_set = {s.id for s in steps if s.id is not None}
+    deps_map: dict[str, list[str]] = {}
+    for s in steps:
+        sid = s.id
+        if sid is None:
+            continue
+        raw_deps = getattr(s, "depends_on", None) or []
+        deps_map[sid] = [d for d in raw_deps if d in id_set]
+
+    levels: list[list[str]] = []
+    placed: set[str] = set()
+    remaining = set(deps_map.keys())
+
+    while remaining:
+        level = [
+            sid for sid in remaining
+            if all(d in placed for d in deps_map[sid])
+        ]
+        if not level:
+            raise ValueError("Cycle detected in workflow DAG")
+        levels.append(sorted(level))
+        placed.update(level)
+        remaining -= set(level)
+
+    return levels
