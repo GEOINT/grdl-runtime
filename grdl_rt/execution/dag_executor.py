@@ -34,7 +34,7 @@ import time
 import tracemalloc
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -387,8 +387,6 @@ class DAGExecutor:
 
         # Topological sort into levels
         levels = self._workflow.topological_sort()
-        total_steps = sum(len(level) for level in levels)
-
         # Memory pre-flight
         if enable_memory_check:
             processing_steps = [s for s in self._workflow.steps if isinstance(s, ProcessingStep)]
@@ -421,7 +419,6 @@ class DAGExecutor:
         # Results map: step_id -> output array
         results: dict[str, np.ndarray] = {}
         step_metrics_list: list[StepMetrics] = []
-        completed_steps = 0
 
         # Pre-compute stable step indices from topological order so that
         # parallel steps get unique, deterministic indices regardless of
@@ -759,7 +756,8 @@ class DAGExecutor:
             wall_time_s=step_wall,
             cpu_time_s=step_cpu,
             peak_rss_bytes=step_peak,
-            gpu_used=False,
+            gpu_used=self._gpu.last_gpu_used,
+            gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
             status=step_status,
             step_id=step_id,
         ), output

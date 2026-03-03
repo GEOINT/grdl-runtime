@@ -48,17 +48,16 @@ from typing import Any
 # Third-party
 import numpy as np
 
+# grdl-runtime internal
 from grdl_rt.execution.band_adaptation import (
     BandExpansion,
     BandReduction,
     adapt_bands,
 )
-
-# grdl-runtime internal
 from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
-from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.dag_executor import run_dag_ready_dispatch
+from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.resilience import (
     RetryPolicy,
