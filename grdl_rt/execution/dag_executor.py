@@ -266,7 +266,7 @@ def run_dag_ready_dispatch(
     with ThreadPoolExecutor(max_workers=_max) as pool:
         with lock:
             _submit_ready(pool)  # kick off root nodes (zero dependencies)
-        done_event.wait()        # block until all steps finish or first failure
+        done_event.wait()  # block until all steps finish or first failure
     # pool.__exit__ calls shutdown(wait=True), draining remaining futures
 
     if first_exc is not None:
@@ -441,9 +441,7 @@ class DAGExecutor:
         try:
             # Build flat step list and dependency map for readiness dispatch
             deps_map: dict[str, list[str]] = {
-                _s.id: list(_s.depends_on or [])
-                for _s in self._workflow.steps
-                if _s.id is not None
+                _s.id: list(_s.depends_on or []) for _s in self._workflow.steps if _s.id is not None
             }
             all_step_ids = [sid for lvl in levels for sid in lvl]
 
@@ -454,11 +452,17 @@ class DAGExecutor:
                     return next(iter(dep_res.values())) if len(dep_res) == 1 else dep_res
                 return source
 
-            def _exec_step(sid: str, step_input: Any, reset_mem_peak: bool = False) -> tuple[StepMetrics, Any]:
+            def _exec_step(
+                sid: str, step_input: Any, reset_mem_peak: bool = False
+            ) -> tuple[StepMetrics, Any]:
                 return self._execute_single_step(
-                    sid, step_input, results,
+                    sid,
+                    step_input,
+                    results,
                     reset_mem_peak=reset_mem_peak,
-                    user_context=user_context, log=log, **kwargs,
+                    user_context=user_context,
+                    log=log,
+                    **kwargs,
                 )
 
             step_metrics_list, total_peak = run_dag_ready_dispatch(
@@ -660,16 +664,19 @@ class DAGExecutor:
                     output = next(iter(step_input.values()))
                 else:
                     output = step_input
-                return StepMetrics(
-                    step_index=0,
-                    processor_name=getattr(step, "processor_name", "tap_out"),
-                    wall_time_s=0.0,
-                    cpu_time_s=0.0,
-                    peak_rss_bytes=0,
-                    gpu_used=False,
-                    status="skipped",
-                    step_id=step_id,
-                ), output
+                return (
+                    StepMetrics(
+                        step_index=0,
+                        processor_name=getattr(step, "processor_name", "tap_out"),
+                        wall_time_s=0.0,
+                        cpu_time_s=0.0,
+                        peak_rss_bytes=0,
+                        gpu_used=False,
+                        status="skipped",
+                        step_id=step_id,
+                    ),
+                    output,
+                )
 
         # For solo steps: reset the tracemalloc peak so the measurement
         # below reflects only this step, not any preceding parallel phase.
@@ -750,17 +757,20 @@ class DAGExecutor:
             wall_time_s=round(step_wall, 4),
         )
 
-        return StepMetrics(
-            step_index=0,
-            processor_name=processor_name,
-            wall_time_s=step_wall,
-            cpu_time_s=step_cpu,
-            peak_rss_bytes=step_peak,
-            gpu_used=self._gpu.last_gpu_used,
-            gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
-            status=step_status,
-            step_id=step_id,
-        ), output
+        return (
+            StepMetrics(
+                step_index=0,
+                processor_name=processor_name,
+                wall_time_s=step_wall,
+                cpu_time_s=step_cpu,
+                peak_rss_bytes=step_peak,
+                gpu_used=self._gpu.last_gpu_used,
+                gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
+                status=step_status,
+                step_id=step_id,
+            ),
+            output,
+        )
 
     def _execute_processor_resilient(
         self,
@@ -860,7 +870,9 @@ class DAGExecutor:
         merged_kwargs = {**kwargs, **step.params}
 
         try:
-            result = self._gpu.apply_transform(processor, step_input, **merged_kwargs)  # type: ignore[arg-type]
+            result = self._gpu.apply_transform(
+                processor, step_input, **merged_kwargs  # type: ignore[arg-type]
+            )
         except Exception as e:
             if GrdlError is not None and isinstance(e, GrdlError):
                 log.error(

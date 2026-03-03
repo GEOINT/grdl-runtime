@@ -119,7 +119,8 @@ class TestSqliteSchemaMigration:
 
         db_path = tmp_path / "migrate.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("""
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS artifacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -141,16 +142,20 @@ class TestSqliteSchemaMigration:
                 updated_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(name, version)
             )
-        """)
-        conn.execute("""
+        """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS workflow_tags (
                 artifact_id INTEGER,
                 tag_key TEXT NOT NULL,
                 tag_value TEXT NOT NULL,
                 PRIMARY KEY (artifact_id, tag_key, tag_value)
             )
-        """)
-        conn.execute("""
+        """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS remote_versions (
                 artifact_id INTEGER,
                 source TEXT NOT NULL,
@@ -158,12 +163,15 @@ class TestSqliteSchemaMigration:
                 checked_at TEXT DEFAULT (datetime('now')),
                 PRIMARY KEY (artifact_id, source)
             )
-        """)
-        conn.execute("""
+        """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL
             )
-        """)
+        """
+        )
         conn.execute("INSERT INTO schema_version (version) VALUES (2)")
         # Insert a pre-existing artifact without alternatives column
         conn.execute(

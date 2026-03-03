@@ -236,3 +236,104 @@ class TestParamsFromSchema:
 
         assert result["mode"].choices == ["reflect", "nearest", "wrap"]
         assert result["mode"].required is False
+
+
+# ── Tests: _load_module edge cases ───────────────────────────────────
+
+
+class TestLoadModule:
+    def test_load_module_spec_none_raises(self, tmp_path: Path):
+        """_load_module raises ImportError when spec_from_file_location returns None."""
+        from unittest.mock import patch
+
+        from grdl_rt.ui._importer import _load_module
+
+        p = tmp_path / "fake.py"
+        p.write_text("x = 1", encoding="utf-8")
+        with (
+            patch("importlib.util.spec_from_file_location", return_value=None),
+            pytest.raises(ImportError, match="Cannot create import spec"),
+        ):
+            _load_module(p)
+
+    def test_load_module_exec_error_cleans_up(self, tmp_path: Path):
+        """_load_module removes the module from sys.modules if exec_module raises."""
+        import sys
+
+        from grdl_rt.ui._importer import _load_module
+
+        p = tmp_path / "bad_module.py"
+        p.write_text("raise RuntimeError('boom')", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="boom"):
+            _load_module(p)
+        # module should not linger in sys.modules
+        leaked = [k for k in sys.modules if "bad_module" in k]
+        assert leaked == []
+
+
+# ── Tests: discover_workflow_in_module additional paths ──────────────
+
+
+class TestDiscoverWorkflowAdditionalPaths:
+    def test_module_level_workflow_instance(self, tmp_path: Path):
+        """A module-level Workflow instance is detected as a workflow."""
+        src = textwrap.dedent(
+            """\
+            from grdl_rt.execution.builder import Workflow
+
+            class _Step:
+                def apply(self, source):
+                    return source * 2
+
+            my_wf = Workflow("module_level").step(_Step)
+        """
+        )
+        p = tmp_path / "mod_wf.py"
+        p.write_text(src, encoding="utf-8")
+        from grdl_rt.execution.builder import Workflow
+        from grdl_rt.ui._importer import discover_workflow_in_module
+
+        result = discover_workflow_in_module(p)
+        assert isinstance(result, Workflow)
+
+    def test_build_workflow_raises_returns_none(self, tmp_path: Path):
+        """discover_workflow_in_module returns None if build_workflow() raises."""
+        src = textwrap.dedent(
+            """\
+            def build_workflow():
+                raise RuntimeError("intentional failure")
+        """
+        )
+        p = tmp_path / "bad_wf.py"
+        p.write_text(src, encoding="utf-8")
+        from grdl_rt.ui._importer import discover_workflow_in_module
+
+        result = discover_workflow_in_module(p)
+        assert result is None
+
+
+# ── Tests: _params_from_signature additional paths ───────────────────
+
+
+class TestParamsFromSignatureEdgeCases:
+    def test_param_with_no_annotation_no_default(self):
+        """Parameter with no type annotation and no default → type 'str'."""
+
+        class _NoAnnotation:
+            def __init__(self, x):
+                pass
+
+        params = _params_from_signature(_NoAnnotation)
+        assert "x" in params
+        assert params["x"].param_type == "str"
+        assert params["x"].required is True
+
+    def test_var_args_and_kwargs_skipped(self):
+        """*args and **kwargs are skipped in parameter extraction."""
+
+        class _VarArgs:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        params = _params_from_signature(_VarArgs)
+        assert params == {}

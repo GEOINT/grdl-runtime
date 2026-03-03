@@ -233,3 +233,42 @@ class TestQuotaEnforcerMemoryViolation:
         enforcer = QuotaEnforcer(quota)
         # Event is not set — should pass silently
         enforcer.check_memory_violation()
+
+
+# ======================================================================
+# QuotaEnforcer — background memory monitoring thread
+# ======================================================================
+
+
+class TestQuotaMonitoring:
+    def test_start_monitoring_psutil_unavailable(self):
+        """start_monitoring() is a no-op when psutil is not installed."""
+        with patch("grdl_rt.execution.quota._psutil", None):
+            enforcer = QuotaEnforcer(ResourceQuota(max_memory_bytes=10 * 1024**3))
+            enforcer.start_monitoring()
+            assert enforcer._monitor_thread is None
+
+    def test_start_and_stop_monitoring(self):
+        """start_monitoring() spawns a daemon thread; stop_monitoring() joins it."""
+        enforcer = QuotaEnforcer(ResourceQuota(max_memory_bytes=10 * 1024**3))
+        enforcer.start_monitoring()
+        assert enforcer._monitor_thread is not None
+        enforcer.stop_monitoring()
+        assert enforcer._monitor_thread is None
+
+    def test_monitor_detects_violation(self):
+        """_monitor_loop sets the violation event when RSS exceeds the limit."""
+        # A limit of 1 byte is always exceeded by any real process
+        enforcer = QuotaEnforcer(ResourceQuota(max_memory_bytes=1))
+        enforcer.start_monitoring()
+        triggered = enforcer._violation_event.wait(timeout=5.0)
+        enforcer.stop_monitoring()
+        assert triggered, "violation event was not set within timeout"
+        assert enforcer._violation_event.is_set()
+        assert enforcer._violation_detail is not None
+
+    def test_quota_property(self):
+        """quota property returns the ResourceQuota passed at construction."""
+        q = ResourceQuota(max_memory_bytes=1_000_000)
+        enforcer = QuotaEnforcer(q)
+        assert enforcer.quota is q

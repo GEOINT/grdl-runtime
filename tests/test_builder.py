@@ -737,3 +737,74 @@ class TestBackwardCompatibility:
         assert isinstance(wr, WorkflowResult)
         assert wr.metrics.total_wall_time_s >= 0
         assert np.isfinite(wr.result[0])
+
+
+# ---------------------------------------------------------------------------
+# DAG execution — Workflow.branches() → _run_dag_pipeline
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowDagExecution:
+    """Tests for the DAG execution path triggered by .branches()."""
+
+    def test_dag_single_branch(self):
+        """Single-branch DAG: root → branch step returns correct output."""
+        arr = np.ones((3, 3), dtype=np.float32)
+        wf = (
+            Workflow("dag_linear")
+            .step(_double, id="root")
+            .branches(
+                Workflow.branch("b1").step(_add_one, id="b1"),
+            )
+        )
+        result = wf.execute(arr)
+        assert isinstance(result, WorkflowResult)
+        # root: arr*2=2; b1: 2+1=3
+        np.testing.assert_array_almost_equal(result.result, np.full((3, 3), 3.0))
+        assert "root" in result.step_results
+        assert "b1" in result.step_results
+        assert result.metrics.total_wall_time_s >= 0
+
+    def test_dag_two_branches(self):
+        """Two parallel branches from root; result dict contains both outputs."""
+        arr = np.ones((2, 2), dtype=np.float32)
+        wf = (
+            Workflow("dag_two_branches")
+            .step(_double, id="root")
+            .branches(
+                Workflow.branch("fast").step(_add_one, id="fast"),
+                Workflow.branch("slow").step(_double, id="slow"),
+            )
+        )
+        result = wf.execute(arr)
+        assert isinstance(result, WorkflowResult)
+        assert "root" in result.step_results
+        assert "fast" in result.step_results
+        assert "slow" in result.step_results
+        # root output = arr*2 = 2; fast = 2+1 = 3; slow = 2*2 = 4
+        np.testing.assert_array_almost_equal(result.step_results["fast"], np.full((2, 2), 3.0))
+        np.testing.assert_array_almost_equal(result.step_results["slow"], np.full((2, 2), 4.0))
+
+    def test_dag_step_missing_id_raises(self):
+        """A DAG step without an id raises ValueError."""
+        arr = np.ones((2, 2), dtype=np.float32)
+        wf = Workflow("dag_no_id")
+        wf._is_dag = True
+        wf._steps.append(WorkflowStep(fn=_double, name="no_id_step", gpu_compatible=False))
+        with pytest.raises(ValueError, match="requires all steps to have an id"):
+            wf.execute(arr)
+
+    def test_dag_progress_callback(self):
+        """progress_callback is called with values in [0, 1]."""
+        arr = np.ones((2, 2), dtype=np.float32)
+        progress_values: list[float] = []
+        wf = (
+            Workflow("dag_progress")
+            .step(_double, id="s1")
+            .branches(
+                Workflow.branch("b").step(_add_one, id="s2"),
+            )
+        )
+        wf.execute(arr, progress_callback=progress_values.append)
+        assert len(progress_values) > 0
+        assert all(0.0 <= v <= 1.0 for v in progress_values)

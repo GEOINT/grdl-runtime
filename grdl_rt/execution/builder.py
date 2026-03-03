@@ -1789,11 +1789,19 @@ class Workflow:
             ws = step_by_id[sid]
             return _gather_input(ws, source, results)  # called under lock
 
-        def _exec_step(sid: str, step_input: Any, reset_mem_peak: bool = False) -> tuple[StepMetrics, Any]:
+        def _exec_step(
+            sid: str, step_input: Any, reset_mem_peak: bool = False
+        ) -> tuple[StepMetrics, Any]:
             ws = step_by_id[sid]
             return self._execute_dag_step(
-                ws, step_input, gpu, step_index_map[sid], total,
-                step_id=sid, metadata=metadata, reset_mem_peak=reset_mem_peak,
+                ws,
+                step_input,
+                gpu,
+                step_index_map[sid],
+                total,
+                step_id=sid,
+                metadata=metadata,
+                reset_mem_peak=reset_mem_peak,
             )
 
         step_metrics_list, overall_peak = run_dag_ready_dispatch(
@@ -1808,12 +1816,10 @@ class Workflow:
 
         # Determine terminal output
         terminal_ids = [
-            s.id for s in steps
+            s.id
+            for s in steps
             if s.id is not None
-            and not any(
-                s.id in (getattr(o, "depends_on", None) or [])
-                for o in steps
-            )
+            and not any(s.id in (getattr(o, "depends_on", None) or []) for o in steps)
         ]
         if len(terminal_ids) == 1:
             final = results[terminal_ids[0]]
@@ -1843,7 +1849,9 @@ class Workflow:
             tracemalloc.stop()
 
         return WorkflowResult(
-            result=final, metrics=wf_metrics, step_results=results,
+            result=final,
+            metrics=wf_metrics,
+            step_results=results,
         )
 
     def _execute_dag_step(
@@ -1900,7 +1908,12 @@ class Workflow:
         t0_cpu = time.thread_time()
 
         result, _meta, gpu_used = self._execute_step_gpu_aware(
-            ws, step_input, gpu, step_index, n_steps, metadata=metadata,
+            ws,
+            step_input,
+            gpu,
+            step_index,
+            n_steps,
+            metadata=metadata,
         )
 
         step_peak = tracemalloc.get_traced_memory()[1] if reset_mem_peak else 0
@@ -2201,10 +2214,7 @@ def _topological_sort_steps(
     remaining = set(deps_map.keys())
 
     while remaining:
-        level = [
-            sid for sid in remaining
-            if all(d in placed for d in deps_map[sid])
-        ]
+        level = [sid for sid in remaining if all(d in placed for d in deps_map[sid])]
         if not level:
             raise ValueError("Cycle detected in workflow DAG")
         levels.append(sorted(level))
