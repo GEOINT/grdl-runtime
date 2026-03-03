@@ -127,12 +127,13 @@ def execute_processor(
 def supports_gpu_transfer(processor: Any) -> bool:
     """Check if a processor benefits from CuPy GPU array transfer.
 
-    Only ``ImageTransform`` subclasses with ``__gpu_compatible__ = True``
-    should receive GPU arrays.  Detectors, decompositions, and operators
-    typically use scipy/shapely which don't work on GPU arrays.
-    Processors that manage their own GPU path internally (e.g. via
-    PyTorch) should NOT be in the ``ImageTransform`` hierarchy and will
-    correctly return ``False`` here — they are not sent CuPy arrays.
+    Any ``ImageProcessor`` subclass that explicitly sets
+    ``__gpu_compatible__ = True`` will receive a CuPy array.  The flag
+    defaults to ``False`` on ``ImageProcessor``, so only processors that
+    opt in are affected.  Processors that use scipy, shapely, or other
+    CPU-only libraries must leave the flag at its default ``False``.
+    Processors that set the flag but fail on GPU are caught by
+    ``GpuBackend``'s existing warning + CPU fallback.
 
     Parameters
     ----------
@@ -143,9 +144,7 @@ def supports_gpu_transfer(processor: Any) -> bool:
     -------
     bool
     """
-    if ImageTransform is not None and isinstance(processor, ImageTransform):
-        return bool(getattr(processor, "__gpu_compatible__", False))
-    return False
+    return bool(getattr(processor, "__gpu_compatible__", False))
 
 
 def _minimal_metadata(source: np.ndarray) -> ImageMetadata:

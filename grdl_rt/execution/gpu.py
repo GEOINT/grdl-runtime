@@ -46,8 +46,45 @@ from grdl_rt.execution.context import get_logger
 logger = get_logger(__name__)
 
 
+def _preload_nvidia_cuda_libs() -> None:
+    """Pre-load CUDA libraries from nvidia-*-cuNN wheel packages.
+
+    ``nvidia-*-cuNN`` wheels install ``.so`` files under
+    ``site-packages/nvidia/<pkg>/lib/``, a path the OS dynamic linker
+    never searches.  Loading them with ``RTLD_GLOBAL`` inserts the symbols
+    into the process namespace so that CuPy's compiled extensions can
+    resolve them without requiring ``LD_LIBRARY_PATH`` to be set.
+
+    Safe to call multiple times.  Silently ignores packages that are not
+    installed or libraries that cannot be loaded.
+    """
+    import ctypes
+    import os
+    import sys
+
+    for search_path in sys.path:
+        nvidia_root = os.path.join(search_path, "nvidia")
+        if not os.path.isdir(nvidia_root):
+            continue
+        for pkg in os.listdir(nvidia_root):
+            lib_dir = os.path.join(nvidia_root, pkg, "lib")
+            if not os.path.isdir(lib_dir):
+                continue
+            for fname in os.listdir(lib_dir):
+                if ".so" not in fname:
+                    continue
+                lib_path = os.path.join(lib_dir, fname)
+                if not os.path.isfile(lib_path):
+                    continue
+                try:
+                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+
+
 def _check_cupy() -> bool:
     """Check if CuPy is available."""
+    _preload_nvidia_cuda_libs()
     try:
         import cupy  # noqa: F401
 
@@ -146,10 +183,27 @@ class GpuBackend:
                 return cp.asnumpy(arr)
         return np.asarray(arr)
 
+    def is_gpu_array(self, arr: Any) -> bool:
+        """Return True if *arr* is a CuPy GPU array.
+
+        Parameters
+        ----------
+        arr : Any
+            Array to check.
+
+        Returns
+        -------
+        bool
+        """
+        if self._cupy_available:
+            import cupy as cp
+            return isinstance(arr, cp.ndarray)
+        return False
+
     def apply_transform(
         self,
         transform: Any,
-        source: np.ndarray,
+        source: Any,
         *,
         metadata: Any = None,
         **kwargs: Any,
@@ -158,14 +212,18 @@ class GpuBackend:
 
         Uses the GRDL ``execute(metadata, source, **kwargs)`` protocol
         via ``execute_processor()``.  CuPy GPU transfer is only attempted
-        for ``ImageTransform`` instances with ``__gpu_compatible__ = True``.
+        for processors with ``__gpu_compatible__ = True``.
+
+        The result is returned as-is — GPU arrays are not automatically
+        converted to CPU.  Call ``to_cpu()`` at I/O boundaries when a
+        numpy array is required.
 
         Parameters
         ----------
         transform : Any
             GRDL ``ImageProcessor`` instance, legacy processor, or callable.
-        source : np.ndarray
-            Input image array.
+        source : Any
+            Input image array (numpy or CuPy).
         metadata : ImageMetadata, optional
             Image metadata.  If ``None``, a minimal synthetic metadata
             is derived from the source array shape/dtype.
@@ -176,7 +234,8 @@ class GpuBackend:
         -------
         tuple[Any, ImageMetadata]
             ``(result, updated_metadata)`` when *metadata* was provided.
-        np.ndarray
+            *result* may be a ``np.ndarray`` or ``cupy.ndarray``.
+        Any
             Raw result when *metadata* was ``None`` (legacy path).
         """
         from grdl_rt.execution.dispatch import (
@@ -206,13 +265,12 @@ class GpuBackend:
                     gpu_source,
                     **kwargs,
                 )
-                cpu_result = self.to_cpu(result)
                 mem_after = cp.cuda.Device().mem_info[0]
                 self.last_gpu_used = True
                 self.last_gpu_memory_bytes = max(0, mem_before - mem_after)
                 if have_metadata:
-                    return cpu_result, updated_meta
-                return cpu_result
+                    return result, updated_meta
+                return result
             except Exception as e:
                 logger.warning(
                     "GPU execution failed, falling back to CPU",

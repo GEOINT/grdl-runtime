@@ -60,8 +60,12 @@ class WorkflowResult:
     metrics : WorkflowMetrics
         Timing and resource usage metrics for the run.
     step_results : Optional[Dict[str, Any]]
-        For DAG executions, the full results map keyed by step ID.
-        ``None`` for linear executions.
+        For DAG executions, the results map keyed by step ID.
+        ``None`` for linear executions.  With eager intermediate eviction,
+        only **terminal** step outputs are present — intermediate results
+        are deleted as soon as their last consumer completes, so accessing
+        ``step_results["<intermediate_id>"]`` will raise ``KeyError``.
+        Use a ``TapOutStep`` to preserve a specific intermediate.
     lineage : Optional[DataLineage]
         Data lineage record mapping input to output through transforms.
         ``None`` if lineage tracking was not enabled.

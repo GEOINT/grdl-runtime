@@ -1318,7 +1318,9 @@ class Workflow:
                     step_index=i,
                     tap_out_path=ws.path,
                 )
-                self._execute_tap_out(ws, current)
+                self._execute_tap_out(
+                    ws, gpu.to_cpu(current) if gpu.is_gpu_array(current) else current
+                )
             else:
                 logger.debug(
                     "step_start",
@@ -1414,6 +1416,9 @@ class Workflow:
         if not tracemalloc_was_running:
             tracemalloc.stop()
 
+        if gpu.is_gpu_array(current):
+            current = gpu.to_cpu(current)
+
         return WorkflowResult(
             result=current,
             metrics=wf_metrics,
@@ -1500,7 +1505,9 @@ class Workflow:
             if isinstance(ws, TapOutStep):
                 # Explicit tap-out steps still write to their own path
                 tap_wall_t0 = time.perf_counter()
-                self._execute_tap_out(ws, current)
+                self._execute_tap_out(
+                    ws, gpu.to_cpu(current) if gpu.is_gpu_array(current) else current
+                )
                 tap_elapsed = time.perf_counter() - tap_wall_t0
                 manifest_entries.append(
                     {
@@ -1583,7 +1590,10 @@ class Workflow:
                 try:
                     from grdl.IO import write as io_write
 
-                    io_write(current, out_path)
+                    io_write(
+                        gpu.to_cpu(current) if gpu.is_gpu_array(current) else current,
+                        out_path,
+                    )
                 except Exception as e:
                     logger.warning(
                         "Auto tap-out write failed for '%s': %s",
@@ -1611,7 +1621,10 @@ class Workflow:
         try:
             from grdl.IO import write as io_write
 
-            io_write(current, run_dir / final_filename)
+            io_write(
+                gpu.to_cpu(current) if gpu.is_gpu_array(current) else current,
+                run_dir / final_filename,
+            )
         except Exception as e:
             logger.warning("Auto tap-out final output write failed: %s", e)
 
@@ -1674,6 +1687,9 @@ class Workflow:
 
         if not tracemalloc_was_running:
             tracemalloc.stop()
+
+        if gpu.is_gpu_array(current):
+            current = gpu.to_cpu(current)
 
         return WorkflowResult(result=current, metrics=wf_metrics)
 
@@ -1989,20 +2005,23 @@ class Workflow:
 
         def _do_raw_step() -> tuple[Any, Any, bool]:
             try:
+                is_gpu_source = gpu.is_gpu_array(source)
+
                 if (
                     gpu.cupy_available
                     and ws.gpu_compatible
                     and supports_gpu_transfer(ws.fn)
-                    and isinstance(source, np.ndarray)
                 ):
                     try:
-                        gpu_source = gpu.to_gpu(source)
+                        # Re-use the GPU array if previous step already left
+                        # it on device; otherwise upload from CPU.
+                        gpu_source = source if is_gpu_source else gpu.to_gpu(source)
                         result, out_meta = execute_processor(
                             ws.fn,
                             step_meta,  # type: ignore[arg-type]
                             gpu_source,
                         )
-                        return gpu.to_cpu(result), out_meta, True
+                        return result, out_meta, True
                     except Exception as gpu_err:
                         logger.warning(
                             "GPU execution failed for step '%s', " "falling back to CPU: %s",
@@ -2010,10 +2029,12 @@ class Workflow:
                             gpu_err,
                         )
 
+                # CPU path — pull off GPU first if the previous step left it there.
+                cpu_source = gpu.to_cpu(source) if is_gpu_source else source
                 result, out_meta = execute_processor(
                     ws.fn,
                     step_meta,  # type: ignore[arg-type]
-                    source,
+                    cpu_source,
                 )
                 return result, out_meta, False
 

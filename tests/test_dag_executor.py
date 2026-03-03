@@ -436,7 +436,7 @@ class TestDAGExecutorMetrics:
 
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_step_results_dict(self, mock_resolve):
-        """WorkflowResult.step_results contains all step outputs."""
+        """step_results contains terminal outputs only; intermediates are evicted."""
         wf = WorkflowDefinition(
             name="Steps",
             steps=[
@@ -448,9 +448,10 @@ class TestDAGExecutorMetrics:
         result = executor.execute(np.array([1.0]), enable_memory_check=False)
 
         assert result.step_results is not None
-        assert "root" in result.step_results
+        # "root" is an intermediate consumed by "child" — evicted after child completes.
+        assert "root" not in result.step_results
+        # "child" is the terminal — must be present.
         assert "child" in result.step_results
-        np.testing.assert_array_almost_equal(result.step_results["root"], np.array([2.0]))
         np.testing.assert_array_almost_equal(result.step_results["child"], np.array([6.0]))
 
 
@@ -616,8 +617,9 @@ class TestDAGExecutorCriticalPath:
             f"Expected <0.82 s (critical path ~0.6 s), got {elapsed:.2f} s. "
             "Level-based scheduling would produce ~0.9 s."
         )
-        # Numerical correctness
-        np.testing.assert_array_almost_equal(result.step_results["root"], np.array([2.0]))
+        # Numerical correctness — only terminal outputs remain in step_results.
+        # "root" is an intermediate (consumed by fast and slow) and is evicted.
+        assert "root" not in result.step_results
         np.testing.assert_array_almost_equal(result.step_results["after_fast"], np.array([2.0]))
 
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
@@ -655,3 +657,91 @@ class TestDAGExecutorCriticalPath:
         result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
         # 1 * 2 * 3 * 5 = 30
         np.testing.assert_array_almost_equal(result.result, np.array([30.0]))
+
+
+# ---------------------------------------------------------------------------
+# DAGExecutor — Consumer-count intermediate eviction
+# ---------------------------------------------------------------------------
+
+
+class TestDAGExecutorEviction:
+    """Verify that the eager consumer-count eviction policy is correct.
+
+    Intermediates (steps with at least one downstream consumer) must be
+    removed from ``step_results`` once their last consumer completes.
+    Terminal outputs (no downstream consumers) must always be present.
+    """
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_intermediate_evicted_from_step_results(self, mock_resolve):
+        """Intermediate nodes are absent from WorkflowResult.step_results."""
+        # root → child  (root is intermediate, child is terminal)
+        wf = WorkflowDefinition(
+            name="EvictIntermediate",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="root"),
+                ProcessingStep("Scale3", "1.0", id="child", depends_on=["root"]),
+            ],
+        )
+        result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
+
+        assert result.step_results is not None
+        assert "root" not in result.step_results, (
+            "Intermediate 'root' should be evicted after its sole consumer 'child' completes"
+        )
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_terminal_outputs_preserved(self, mock_resolve):
+        """Terminal nodes are always present and numerically correct in step_results."""
+        # a, b are independent roots (terminals of their own branches merged together)
+        # root → [left, right] → merge
+        wf = WorkflowDefinition(
+            name="EvictTerminal",
+            steps=[
+                ProcessingStep("Scale2", "1.0", id="root"),
+                ProcessingStep("Scale2", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("Scale3", "1.0", id="right", depends_on=["root"]),
+                ProcessingStep("MergeProcessor", "1.0", id="merge", depends_on=["left", "right"]),
+            ],
+        )
+        result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
+
+        assert result.step_results is not None
+        # Only terminal "merge" survives; intermediates are evicted.
+        assert "merge" in result.step_results, "Terminal 'merge' must be in step_results"
+        assert "root" not in result.step_results, "'root' (intermediate) must be evicted"
+        assert "left" not in result.step_results, "'left' (intermediate) must be evicted"
+        assert "right" not in result.step_results, "'right' (intermediate) must be evicted"
+        # root:1*2=2, left:2*2=4, right:2*3=6, merge:4+6=10
+        np.testing.assert_array_almost_equal(result.step_results["merge"], np.array([10.0]))
+
+    @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
+    def test_shared_intermediate_evicted_after_last_consumer(self, mock_resolve):
+        """An intermediate shared by two consumers is evicted only after both complete.
+
+        DAG::
+
+            root → left  ─┐
+                 → right ─┘→ merge
+
+        'root' must survive until both 'left' and 'right' finish.
+        """
+        wf = WorkflowDefinition(
+            name="SharedIntermediate",
+            steps=[
+                ProcessingStep("AddOne", "1.0", id="root"),
+                ProcessingStep("Scale2", "1.0", id="left", depends_on=["root"]),
+                ProcessingStep("Scale5", "1.0", id="right", depends_on=["root"]),
+                ProcessingStep("MergeProcessor", "1.0", id="merge", depends_on=["left", "right"]),
+            ],
+        )
+        result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
+
+        # root(1+1=2), left(2*2=4), right(2*5=10), merge(4+10=14)
+        np.testing.assert_array_almost_equal(result.result, np.array([14.0]))
+        # All intermediates evicted; only terminal present.
+        assert result.step_results is not None
+        assert "merge" in result.step_results
+        assert "root" not in result.step_results
+        assert "left" not in result.step_results
+        assert "right" not in result.step_results

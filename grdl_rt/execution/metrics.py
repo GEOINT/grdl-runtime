@@ -65,6 +65,17 @@ class StepMetrics:
         reflects the shared level-wide peak (not isolated to this
         step) because per-thread memory isolation is not possible
         with ``tracemalloc``.
+    peak_overhead_bytes : int
+        Extra RAM the step allocated and then released during its
+        execution.  Computed as the historical peak captured
+        immediately after the step minus the live allocation
+        measured after intermediate results are freed.  This is
+        "The Spike" shown in the memory profile table.
+    end_of_step_footprint_bytes : int
+        Total live RAM occupied by workflow data at the moment this
+        step completed.  This is the "End-of-Step Footprint (Live)"
+        column — the running total that accumulates as the workflow
+        produces outputs.
     """
 
     step_index: int
@@ -80,6 +91,8 @@ class StepMetrics:
     global_pass_duration: float | None = None
     global_pass_memory: int | None = None
     concurrent: bool = False
+    peak_overhead_bytes: int = 0
+    end_of_step_footprint_bytes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -98,6 +111,8 @@ class StepMetrics:
             "status": self.status,
             "error_message": self.error_message,
             "concurrent": self.concurrent,
+            "peak_overhead_bytes": self.peak_overhead_bytes,
+            "end_of_step_footprint_bytes": self.end_of_step_footprint_bytes,
         }
         if self.step_id is not None:
             d["step_id"] = self.step_id

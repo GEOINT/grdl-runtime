@@ -465,7 +465,14 @@ class WorkflowExecutor:
 
                     step_wall = time.perf_counter() - step_t0_wall
                     step_cpu = time.process_time() - step_t0_cpu
-                    _, step_peak = tracemalloc.get_traced_memory()
+
+                    # tracemalloc.reset_peak() was called before this step, so
+                    # get_traced_memory()[1] is the step-isolated historical peak.
+                    # In sequential mode there is no consumer-count eviction —
+                    # each step's output becomes `current` directly — so alloc_now
+                    # is captured immediately after execution.
+                    hist_peak = tracemalloc.get_traced_memory()[1]
+                    alloc_now = tracemalloc.get_traced_memory()[0]
 
                     self._circuit_breaker.record_success(step.processor_name)
 
@@ -474,11 +481,13 @@ class WorkflowExecutor:
                         processor_name=step.processor_name,
                         wall_time_s=step_wall,
                         cpu_time_s=step_cpu,
-                        peak_rss_bytes=step_peak,
+                        peak_rss_bytes=hist_peak,
                         gpu_used=self._gpu.last_gpu_used,
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(gp_info[1] if gp_info else None),
                         global_pass_memory=(gp_info[2] if gp_info else None),
+                        peak_overhead_bytes=max(0, hist_peak - alloc_now),
+                        end_of_step_footprint_bytes=alloc_now,
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i

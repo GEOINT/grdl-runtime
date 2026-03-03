@@ -134,6 +134,20 @@ def run_dag_ready_dispatch(
       other threads are active) and records the peak immediately after.
       This gives an isolated, step-specific memory reading.
 
+    Memory eviction
+    ---------------
+    A **consumer-count eviction** policy is applied to prevent intermediate
+    results from accumulating in the ``results`` dict.  Before dispatch, each
+    step ID is assigned a consumer count equal to the number of downstream
+    steps that list it as a dependency.  Each time a consumer completes, its
+    dependencies' counts are decremented; when a count reaches zero the
+    intermediate tensor is deleted from ``results`` (still under the lock,
+    so the deletion is race-free).
+
+    Consequence: after execution, ``results`` contains only **terminal**
+    outputs — steps with no downstream consumers.  Callers that need
+    intermediate outputs preserved should use a ``TapOutStep``.
+
     Parameters
     ----------
     all_step_ids : list[str]
@@ -192,6 +206,13 @@ def run_dag_ready_dispatch(
 
     _max = max_workers or total
 
+    # Consumer-count eviction: precompute how many steps depend on each result.
+    # A result is evicted from `results` when its last consumer completes.
+    consumer_count: dict[str, int] = {
+        sid: sum(1 for deps in deps_map.values() if sid in deps)
+        for sid in all_step_ids
+    }
+
     def _make_callback(s: str, p: ThreadPoolExecutor) -> Callable[[Any], None]:
         def cb(f: Any) -> None:
             _on_done(f, s, p)
@@ -242,11 +263,14 @@ def run_dag_ready_dispatch(
             sm.concurrent = sid in concurrent_step_ids
             sm.step_index = step_index_map[sid]
 
-            _, current_peak = tracemalloc.get_traced_memory()
-            overall_peak = max(overall_peak, current_peak)
+            # Bracketing step 1: capture hist_peak BEFORE eviction.
+            # For concurrent steps: shared process-wide high-water mark.
+            # For solo steps: isolated step peak (tracemalloc was reset before this step).
+            _, hist_peak = tracemalloc.get_traced_memory()
+            overall_peak = max(overall_peak, hist_peak)
             if sm.concurrent:
                 # Can't isolate: report the shared process-wide high-water mark.
-                sm.peak_rss_bytes = current_peak
+                sm.peak_rss_bytes = hist_peak
             # else: solo step already measured and set peak_rss_bytes itself.
 
             in_flight.discard(sid)
@@ -259,6 +283,28 @@ def run_dag_ready_dispatch(
                 progress_callback(completed_count / total)
 
             _submit_ready(pool)  # dispatch any newly unblocked steps
+
+            # Evict intermediates whose last consumer just completed.
+            for dep_id in deps_map.get(sid, []):
+                consumer_count[dep_id] -= 1
+                if consumer_count[dep_id] == 0:
+                    del results[dep_id]  # safe: all consumers have already read it
+
+            # Bracketing step 2: capture alloc_now AFTER eviction.
+            alloc_now, _ = tracemalloc.get_traced_memory()
+            sm.peak_overhead_bytes = max(0, hist_peak - alloc_now)
+            sm.end_of_step_footprint_bytes = alloc_now
+
+            # Experiment D probe — enable with GRDL_DEBUG_ALLOC=1
+            import os as _os
+            if _os.environ.get("GRDL_DEBUG_ALLOC"):
+                print(
+                    f"  [D] {sid:20s}  "
+                    f"hist_peak={hist_peak / 1e9:.3f} GB  "
+                    f"alloc_now={alloc_now / 1e9:.3f} GB  "
+                    f"peak_overhead={sm.peak_overhead_bytes / 1e9:.3f} GB  "
+                    f"footprint={sm.end_of_step_footprint_bytes / 1e9:.3f} GB"
+                )
 
             if not pending and not in_flight:
                 done_event.set()
