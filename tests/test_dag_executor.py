@@ -686,9 +686,9 @@ class TestDAGExecutorEviction:
         result = DAGExecutor(wf).execute(np.array([1.0]), enable_memory_check=False)
 
         assert result.step_results is not None
-        assert "root" not in result.step_results, (
-            "Intermediate 'root' should be evicted after its sole consumer 'child' completes"
-        )
+        assert (
+            "root" not in result.step_results
+        ), "Intermediate 'root' should be evicted after its sole consumer 'child' completes"
 
     @patch("grdl_rt.execution.dag_executor.resolve_processor_class", side_effect=_mock_resolve)
     def test_terminal_outputs_preserved(self, mock_resolve):
