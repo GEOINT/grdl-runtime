@@ -78,8 +78,8 @@ def _preload_nvidia_cuda_libs() -> None:
                     continue
                 try:
                     ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("nvidia_lib_load_skipped", path=lib_path, reason=str(exc))
 
 
 def _check_cupy() -> bool:

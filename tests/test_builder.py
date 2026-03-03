@@ -761,8 +761,8 @@ class TestWorkflowDagExecution:
         assert isinstance(result, WorkflowResult)
         # root: arr*2=2; b1: 2+1=3
         np.testing.assert_array_almost_equal(result.result, np.full((3, 3), 3.0))
-        assert "root" in result.step_results
         assert "b1" in result.step_results
+        assert "root" not in result.step_results
         assert result.metrics.total_wall_time_s >= 0
 
     def test_dag_two_branches(self):
@@ -778,9 +778,9 @@ class TestWorkflowDagExecution:
         )
         result = wf.execute(arr)
         assert isinstance(result, WorkflowResult)
-        assert "root" in result.step_results
         assert "fast" in result.step_results
         assert "slow" in result.step_results
+        assert "root" not in result.step_results
         # root output = arr*2 = 2; fast = 2+1 = 3; slow = 2*2 = 4
         np.testing.assert_array_almost_equal(result.step_results["fast"], np.full((2, 2), 3.0))
         np.testing.assert_array_almost_equal(result.step_results["slow"], np.full((2, 2), 4.0))
