@@ -209,8 +209,7 @@ def run_dag_ready_dispatch(
     # Consumer-count eviction: precompute how many steps depend on each result.
     # A result is evicted from `results` when its last consumer completes.
     consumer_count: dict[str, int] = {
-        sid: sum(1 for deps in deps_map.values() if sid in deps)
-        for sid in all_step_ids
+        sid: sum(1 for deps in deps_map.values() if sid in deps) for sid in all_step_ids
     }
 
     def _make_callback(s: str, p: ThreadPoolExecutor) -> Callable[[Any], None]:
@@ -224,6 +223,12 @@ def run_dag_ready_dispatch(
         ready = [s for s in pending if all(d in completed_ids for d in deps_map.get(s, []))]
         already_in_flight = len(in_flight)
         for sid in ready:
+            if sid not in pending:
+                # A reentrant _on_done callback (triggered when a step
+                # completes before add_done_callback is called) already
+                # dispatched this step via an inner _submit_ready call.
+                # Skip to avoid double-submission.
+                continue
             pending.discard(sid)
             in_flight.add(sid)
             # Mark all currently in-flight steps as concurrent at submission
@@ -297,6 +302,7 @@ def run_dag_ready_dispatch(
 
             # Experiment D probe — enable with GRDL_DEBUG_ALLOC=1
             import os as _os
+
             if _os.environ.get("GRDL_DEBUG_ALLOC"):
                 print(
                     f"  [D] {sid:20s}  "

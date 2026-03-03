@@ -197,6 +197,7 @@ class GpuBackend:
         """
         if self._cupy_available:
             import cupy as cp
+
             return isinstance(arr, cp.ndarray)
         return False
 

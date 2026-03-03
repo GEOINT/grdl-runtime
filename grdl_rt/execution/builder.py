@@ -2007,11 +2007,7 @@ class Workflow:
             try:
                 is_gpu_source = gpu.is_gpu_array(source)
 
-                if (
-                    gpu.cupy_available
-                    and ws.gpu_compatible
-                    and supports_gpu_transfer(ws.fn)
-                ):
+                if gpu.cupy_available and ws.gpu_compatible and supports_gpu_transfer(ws.fn):
                     try:
                         # Re-use the GPU array if previous step already left
                         # it on device; otherwise upload from CPU.
