@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install ruff black
+      - run: pip install -e ".[dev]"
       - run: ruff check grdl_rt/
       - run: black --check grdl_rt/ tests/
 

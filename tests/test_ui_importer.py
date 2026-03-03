@@ -22,8 +22,7 @@ from grdl_rt.ui._importer import (
 @pytest.fixture
 def tmp_component_file(tmp_path: Path) -> Path:
     """Create a temporary .py file with a fake processor class."""
-    src = textwrap.dedent(
-        """\
+    src = textwrap.dedent("""\
         import numpy as np
 
         class FakeFilter:
@@ -35,8 +34,7 @@ def tmp_component_file(tmp_path: Path) -> Path:
 
             def apply(self, source):
                 return source * self.sigma
-    """
-    )
+    """)
     p = tmp_path / "fake_filter.py"
     p.write_text(src, encoding="utf-8")
     return p
@@ -45,8 +43,7 @@ def tmp_component_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def tmp_multi_processor_file(tmp_path: Path) -> Path:
     """Create a .py file with multiple processor classes."""
-    src = textwrap.dedent(
-        """\
+    src = textwrap.dedent("""\
         import numpy as np
 
         class FilterA:
@@ -64,8 +61,7 @@ def tmp_multi_processor_file(tmp_path: Path) -> Path:
             \"\"\"No apply method.\"\"\"
             def run(self):
                 pass
-    """
-    )
+    """)
     p = tmp_path / "multi_procs.py"
     p.write_text(src, encoding="utf-8")
     return p
@@ -74,8 +70,7 @@ def tmp_multi_processor_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def tmp_workflow_file(tmp_path: Path) -> Path:
     """Create a .py file that defines a workflow via build_workflow()."""
-    src = textwrap.dedent(
-        """\
+    src = textwrap.dedent("""\
         from grdl_rt.execution.builder import Workflow
 
         class SimpleStep:
@@ -84,8 +79,7 @@ def tmp_workflow_file(tmp_path: Path) -> Path:
 
         def build_workflow():
             return Workflow("TestWorkflow").step(SimpleStep)
-    """
-    )
+    """)
     p = tmp_path / "wf_builder.py"
     p.write_text(src, encoding="utf-8")
     return p
@@ -277,8 +271,7 @@ class TestLoadModule:
 class TestDiscoverWorkflowAdditionalPaths:
     def test_module_level_workflow_instance(self, tmp_path: Path):
         """A module-level Workflow instance is detected as a workflow."""
-        src = textwrap.dedent(
-            """\
+        src = textwrap.dedent("""\
             from grdl_rt.execution.builder import Workflow
 
             class _Step:
@@ -286,8 +279,7 @@ class TestDiscoverWorkflowAdditionalPaths:
                     return source * 2
 
             my_wf = Workflow("module_level").step(_Step)
-        """
-        )
+        """)
         p = tmp_path / "mod_wf.py"
         p.write_text(src, encoding="utf-8")
         from grdl_rt.execution.builder import Workflow
@@ -298,12 +290,10 @@ class TestDiscoverWorkflowAdditionalPaths:
 
     def test_build_workflow_raises_returns_none(self, tmp_path: Path):
         """discover_workflow_in_module returns None if build_workflow() raises."""
-        src = textwrap.dedent(
-            """\
+        src = textwrap.dedent("""\
             def build_workflow():
                 raise RuntimeError("intentional failure")
-        """
-        )
+        """)
         p = tmp_path / "bad_wf.py"
         p.write_text(src, encoding="utf-8")
         from grdl_rt.ui._importer import discover_workflow_in_module
