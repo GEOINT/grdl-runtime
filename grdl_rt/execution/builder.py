@@ -133,6 +133,7 @@ class WorkflowStep:
     required_bands: int | None = None
     band_expansion: str | None = None
     band_reduction: str | None = None
+    branch: str | None = None
 
 
 @dataclass
@@ -178,6 +179,7 @@ class DeferredStep:
     required_bands: int | None = None
     band_expansion: str | None = None
     band_reduction: str | None = None
+    branch: str | None = None
 
 
 @dataclass
@@ -207,6 +209,7 @@ class TapOutStep:
     name: str = "tap_out"
     id: str | None = None
     depends_on: list[str] | None = None
+    branch: str | None = None
 
 
 class BranchBuilder:
@@ -221,8 +224,9 @@ class BranchBuilder:
         Branch name (used as prefix for step IDs).
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, source: Any = None) -> None:
         self._name = name
+        self._source = source
         self._steps: list[WorkflowStep | DeferredStep | TapOutStep] = []
 
     @property
@@ -270,8 +274,13 @@ class BranchBuilder:
                 "steps (deferred construction)."
             )
 
-        if ImageTransform is not None and isinstance(obj, ImageTransform):
-            fn = obj.apply
+        if (
+            ImageProcessor is not None
+            and isinstance(obj, ImageProcessor)
+            or ImageTransform is not None
+            and isinstance(obj, ImageTransform)
+        ):
+            fn = obj
             step_name = name or type(obj).__name__
             gpu_ok = getattr(obj, "__gpu_compatible__", False)
         elif callable(obj):
@@ -370,6 +379,7 @@ class Workflow:
         self._is_dag: bool = False
         self._branch_terminal_ids: list[str] = []
         self._step_counter: int = 0
+        self._branch_sources: dict[str, Any] = {}
         self._band_expansion = BandExpansion(band_expansion)
         self._band_reduction = BandReduction(band_reduction)
 
@@ -675,19 +685,22 @@ class Workflow:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def branch(name: str) -> BranchBuilder:
+    def branch(name: str, *, source: Any = None) -> BranchBuilder:
         """Create a branch builder for fan-out patterns.
 
         Parameters
         ----------
         name : str
             Branch name (used as prefix for step IDs).
+        source : optional
+            Override input for this branch.  When provided, the first
+            step receives *source* instead of the parent step's output.
 
         Returns
         -------
         BranchBuilder
         """
-        return BranchBuilder(name)
+        return BranchBuilder(name, source=source)
 
     def branches(self, *branch_builders: BranchBuilder) -> "Workflow":
         """Add parallel branches that fan out from the last step.
@@ -725,8 +738,11 @@ class Workflow:
                 # Assign ID if not set
                 if bstep.id is None:
                     bstep.id = f"{bb.name}_{i}"
-                # Wire dependency
-                if bstep.depends_on is None and prev_id is not None:
+                bstep.branch = bb.name
+                # Branch source override: first step gets its own input
+                if i == 0 and bb._source is not None:
+                    self._branch_sources[bstep.id] = bb._source
+                elif bstep.depends_on is None and prev_id is not None:
                     bstep.depends_on = [prev_id]
                 self._steps.append(bstep)
                 prev_id = bstep.id
@@ -1226,6 +1242,7 @@ class Workflow:
             required_bands=required_bands,
             band_expansion=ds.band_expansion,
             band_reduction=ds.band_reduction,
+            branch=ds.branch,
         )
 
     def _run_pipeline(
@@ -1803,7 +1820,7 @@ class Workflow:
 
         def _gather(sid: str) -> Any:
             ws = step_by_id[sid]
-            return _gather_input(ws, source, results)  # called under lock
+            return _gather_input(ws, source, results, self._branch_sources)
 
         def _exec_step(
             sid: str, step_input: Any, reset_mem_peak: bool = False
@@ -1905,6 +1922,12 @@ class Workflow:
             ``(step_metrics, output)``
         """
         if isinstance(ws, TapOutStep):
+            logger.debug(
+                "tap_out",
+                workflow_name=self._name,
+                step_index=step_index,
+                tap_out_path=ws.path,
+            )
             self._execute_tap_out(ws, step_input)
             sm = StepMetrics(
                 step_index=step_index,
@@ -1916,6 +1939,15 @@ class Workflow:
                 step_id=step_id,
             )
             return sm, step_input
+
+        log_kw: dict[str, Any] = dict(
+            workflow_name=self._name,
+            step_index=step_index,
+            step_name=ws.name,
+        )
+        if ws.branch is not None:
+            log_kw["branch"] = ws.branch
+        logger.debug("step_start", **log_kw)
 
         if reset_mem_peak:
             tracemalloc.reset_peak()
@@ -2168,6 +2200,7 @@ def _gather_input(
     ws: WorkflowStep | DeferredStep | TapOutStep,
     source: np.ndarray,
     results: dict[str, Any],
+    branch_sources: dict[str, Any] | None = None,
 ) -> Any:
     """Route the correct input to a step based on ``depends_on``.
 
@@ -2179,6 +2212,9 @@ def _gather_input(
         Original pipeline source (for root steps with no deps).
     results : Dict[str, Any]
         Completed step outputs keyed by step ID.
+    branch_sources : optional
+        Mapping of step ID → override source for branches created
+        with ``Workflow.branch(name, source=...)``.
 
     Returns
     -------
@@ -2186,6 +2222,9 @@ def _gather_input(
         Single array for single-dependency, dict for multi-dependency,
         or *source* for root steps.
     """
+    sid = getattr(ws, "id", None)
+    if branch_sources and sid in branch_sources:
+        return branch_sources[sid]
     deps = getattr(ws, "depends_on", None)
     if not deps:
         return source
