@@ -305,11 +305,12 @@ def run_dag_ready_dispatch(
 
             if _os.environ.get("GRDL_DEBUG_ALLOC"):
                 print(
-                    f"  [D] {sid:20s}  "
-                    f"hist_peak={hist_peak / 1e9:.3f} GB  "
-                    f"alloc_now={alloc_now / 1e9:.3f} GB  "
+                    f"\n  [D] {sid:20s}  "
+                    f"step_peak={hist_peak / 1e9:.3f} GB  "
+                    f"overall_peak={overall_peak / 1e9:.3f} GB  "
                     f"peak_overhead={sm.peak_overhead_bytes / 1e9:.3f} GB  "
-                    f"footprint={sm.end_of_step_footprint_bytes / 1e9:.3f} GB"
+                    f"footprint={sm.end_of_step_footprint_bytes / 1e9:.3f} GB\n",
+                    flush=True,
                 )
 
             if not pending and not in_flight:
