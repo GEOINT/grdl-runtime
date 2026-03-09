@@ -280,7 +280,7 @@ class BranchBuilder:
             or ImageTransform is not None
             and isinstance(obj, ImageTransform)
         ):
-            fn = obj
+            fn: Any = obj
             step_name = name or type(obj).__name__
             gpu_ok = getattr(obj, "__gpu_compatible__", False)
         elif callable(obj):
