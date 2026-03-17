@@ -155,6 +155,16 @@ class WorkflowMetrics:
         ``"success"``, ``"failed"``, or ``"cancelled"``.
     error_message : Optional[str]
         If status is ``"failed"``, the exception message.
+    hardware : dict, optional
+        Serialized hardware snapshot captured at execution start (cpu_count,
+        total_memory_bytes, gpu_available, gpu_devices, gpu_memory_bytes,
+        platform_info, python_version, hostname, captured_at).  ``None``
+        for runs produced before this field was added.
+    step_depends_on : dict, optional
+        Maps each step_id to its list of dependency step_ids.  Populated
+        for DAG (``WorkflowExecutor``) workflows where
+        ``ProcessingStep.depends_on`` is set.  ``None`` for linear pipelines
+        (``Workflow`` builder) and for runs produced before this field was added.
     """
 
     workflow_id: str
@@ -169,6 +179,8 @@ class WorkflowMetrics:
     completed_at: str = ""
     status: str = "success"
     error_message: str | None = None
+    hardware: dict[str, Any] | None = None
+    step_depends_on: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -177,7 +189,7 @@ class WorkflowMetrics:
         -------
         Dict[str, Any]
         """
-        return {
+        d: dict[str, Any] = {
             "workflow_id": self.workflow_id,
             "run_id": self.run_id,
             "workflow_name": self.workflow_name,
@@ -191,6 +203,11 @@ class WorkflowMetrics:
             "status": self.status,
             "error_message": self.error_message,
         }
+        if self.hardware is not None:
+            d["hardware"] = self.hardware
+        if self.step_depends_on is not None:
+            d["step_depends_on"] = self.step_depends_on
+        return d
 
     def to_json(self, indent: int = 2) -> str:
         """Serialize to JSON string.

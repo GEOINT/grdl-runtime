@@ -53,6 +53,7 @@ from grdl_rt.execution.errors import (
     StepRetryExhaustedError,
 )
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.hardware import LocalHardwareContext
 from grdl_rt.execution.instrumentation import ExecutionHook
 from grdl_rt.execution.lineage import build_lineage
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
@@ -487,6 +488,19 @@ class DAGExecutor:
         max_width = max((len(level) for level in levels), default=1)
         max_workers = self._max_workers or max_width
 
+        # Capture hardware and dependency graph before execution begins
+        try:
+            _hardware_dict: dict[str, Any] | None = LocalHardwareContext().to_dict()
+        except Exception:
+            _hardware_dict = None
+
+        _dep_map_for_metrics: dict[str, list[str]] = {
+            str(_s.id): list(_s.depends_on)
+            for _s in self._workflow.steps
+            if _s.id is not None and _s.depends_on
+        }
+        _step_depends_on: dict[str, list[str]] | None = _dep_map_for_metrics or None
+
         tracemalloc.start()
         t0_wall = time.perf_counter()
         t0_cpu = time.process_time()
@@ -512,6 +526,7 @@ class DAGExecutor:
                     sid,
                     step_input,
                     results,
+                    step_index=step_index_map.get(sid, 0),
                     reset_mem_peak=reset_mem_peak,
                     user_context=user_context,
                     log=log,
@@ -562,6 +577,8 @@ class DAGExecutor:
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
+                hardware=_hardware_dict,
+                step_depends_on=_step_depends_on,
             )
 
             # Build data lineage
@@ -624,6 +641,8 @@ class DAGExecutor:
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
+                hardware=_hardware_dict,
+                step_depends_on=_step_depends_on,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[attr-defined]
 
@@ -657,6 +676,7 @@ class DAGExecutor:
         step_input: Any,
         results: dict[str, Any],
         *,
+        step_index: int = 0,
         reset_mem_peak: bool = False,
         user_context: dict[str, Any],
         log: Any,
@@ -719,7 +739,7 @@ class DAGExecutor:
                     output = step_input
                 return (
                     StepMetrics(
-                        step_index=0,
+                        step_index=step_index,
                         processor_name=getattr(step, "processor_name", "tap_out"),
                         wall_time_s=0.0,
                         cpu_time_s=0.0,
@@ -812,7 +832,7 @@ class DAGExecutor:
 
         return (
             StepMetrics(
-                step_index=0,
+                step_index=step_index,
                 processor_name=processor_name,
                 wall_time_s=step_wall,
                 cpu_time_s=step_cpu,

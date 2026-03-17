@@ -58,6 +58,7 @@ from grdl_rt.execution.config import get_runtime_config
 from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.dag_executor import run_dag_ready_dispatch
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.hardware import LocalHardwareContext
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.resilience import (
     RetryPolicy,
@@ -88,6 +89,14 @@ try:
     from grdl.data_prep import ChipExtractor
 except ImportError:
     ChipExtractor = None  # type: ignore[misc,assignment]
+
+
+def _capture_hardware() -> dict[str, Any] | None:
+    """Capture a hardware snapshot dict, returning None on failure."""
+    try:
+        return LocalHardwareContext().to_dict()
+    except Exception:
+        return None
 
 
 @dataclass
@@ -1281,6 +1290,7 @@ class Workflow:
         if not tracemalloc_was_running:
             tracemalloc.start()
 
+        _hardware_dict = _capture_hardware()
         started_at = datetime.now(UTC).isoformat()
         pipeline_wall_t0 = time.perf_counter()
         pipeline_cpu_t0 = time.process_time()
@@ -1303,6 +1313,7 @@ class Workflow:
                 step_metrics=[],
                 started_at=started_at,
                 completed_at=completed_at,
+                hardware=_hardware_dict,
             )
 
             if not tracemalloc_was_running:
@@ -1428,6 +1439,7 @@ class Workflow:
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
+            hardware=_hardware_dict,
         )
 
         if not tracemalloc_was_running:
@@ -1489,6 +1501,8 @@ class Workflow:
             workflow_id=f"{self._name}:{self._version}",
             workflow_name=self._name,
         )
+
+        _hardware_dict = _capture_hardware()
 
         # Start tracemalloc for peak memory tracking
         tracemalloc_was_running = tracemalloc.is_tracing()
@@ -1700,6 +1714,7 @@ class Workflow:
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
+            hardware=_hardware_dict,
         )
 
         if not tracemalloc_was_running:
@@ -1760,6 +1775,8 @@ class Workflow:
             workflow_name=self._name,
         )
         cfg = get_runtime_config()
+
+        _hardware_dict = _capture_hardware()
 
         tracemalloc_was_running = tracemalloc.is_tracing()
         if not tracemalloc_was_running:
@@ -1865,6 +1882,13 @@ class Workflow:
         cpu = time.process_time() - t0_cpu
         completed_at = datetime.now(UTC).isoformat()
 
+        _dep_map: dict[str, list[str]] = {
+            str(s.id): list(s.depends_on)
+            for s in steps
+            if s.id is not None and s.depends_on
+        }
+        _step_depends_on: dict[str, list[str]] | None = _dep_map or None
+
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
             run_id=ctx.run_id,
@@ -1876,6 +1900,8 @@ class Workflow:
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
+            hardware=_hardware_dict,
+            step_depends_on=_step_depends_on,
         )
 
         if not tracemalloc_was_running:
