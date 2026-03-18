@@ -163,12 +163,20 @@ class LocalHardwareContext(HardwareContext):
     (with graceful fallback), and GPU availability via ``torch.cuda``
     and CuPy introspection.  All values are cached at construction
     time — hardware does not change during a run.
+    
+    GPU device detection is cached at the class level so the probe
+    (and any associated warnings) only runs once per process regardless
+    of how many ``LocalHardwareContext`` instances are created.
     """
+
+    _gpu_cache: list | None = None  # class-level cache; None = not yet probed
 
     def __init__(self) -> None:
         self._cpu_count = os.cpu_count() or 1
         self._total_memory, self._available_memory = self._query_memory()
-        self._gpu_devices = self._query_gpu_devices()
+        if LocalHardwareContext._gpu_cache is None:
+            LocalHardwareContext._gpu_cache = self._query_gpu_devices()
+        self._gpu_devices = LocalHardwareContext._gpu_cache
 
     @staticmethod
     def _query_memory() -> tuple:
