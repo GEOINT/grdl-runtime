@@ -67,6 +67,7 @@ from grdl_rt.execution.errors import (
     StepTimeoutError,
 )
 from grdl_rt.execution.gpu import GpuBackend
+from grdl_rt.execution.hardware import LocalHardwareContext
 from grdl_rt.execution.history import ExecutionHistoryDB
 from grdl_rt.execution.instrumentation import ExecutionHook
 from grdl_rt.execution.lineage import build_lineage, compute_array_hash
@@ -371,6 +372,20 @@ class WorkflowExecutor:
             except Exception as e:
                 log.warning("as_planned_write_failed", error=str(e))
 
+        # Capture hardware snapshot once before execution
+        try:
+            _hardware_dict: dict[str, Any] | None = LocalHardwareContext().to_dict()
+        except Exception:
+            _hardware_dict = None
+
+        # Extract step dependency graph for DAG workflows
+        _dep_map: dict[str, list[str]] = {
+            str(step.id): list(step.depends_on)
+            for step in self._workflow.steps
+            if step.id is not None and step.depends_on
+        }
+        _step_depends_on: dict[str, list[str]] | None = _dep_map or None
+
         tracemalloc.start()
         t0_wall = time.perf_counter()
         t0_cpu = time.process_time()
@@ -562,6 +577,8 @@ class WorkflowExecutor:
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
+                hardware=_hardware_dict,
+                step_depends_on=_step_depends_on,
             )
             # Notify hooks of successful completion
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
@@ -651,6 +668,7 @@ class WorkflowExecutor:
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
+                hardware=_hardware_dict,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
@@ -687,6 +705,7 @@ class WorkflowExecutor:
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
+                hardware=_hardware_dict,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
@@ -797,6 +816,11 @@ class WorkflowExecutor:
                 abort_threshold=cfg.memory.abort_threshold,
                 log=log,
             )
+
+        try:
+            _hardware_dict: dict[str, Any] | None = LocalHardwareContext().to_dict()
+        except Exception:
+            _hardware_dict = None
 
         # Determine output directory
         if tap_out_dir is not None:
@@ -996,6 +1020,7 @@ class WorkflowExecutor:
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
+                hardware=_hardware_dict,
             )
             log.info("auto_tap_out_complete", run_dir=str(run_dir))
             return WorkflowResult(result=current, metrics=wf_metrics)
@@ -1020,6 +1045,7 @@ class WorkflowExecutor:
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
+                hardware=_hardware_dict,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             raise
@@ -1105,6 +1131,11 @@ class WorkflowExecutor:
                 gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
             )
 
+            try:
+                _hw_single_dict: dict[str, Any] | None = LocalHardwareContext().to_dict()
+            except Exception:
+                _hw_single_dict = None
+
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
                 run_id=ctx.run_id,
@@ -1117,6 +1148,7 @@ class WorkflowExecutor:
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
+                hardware=_hw_single_dict,
             )
             return WorkflowResult(result=result, metrics=wf_metrics)
         finally:

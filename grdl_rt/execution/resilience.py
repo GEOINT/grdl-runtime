@@ -263,7 +263,7 @@ def _release_gpu_memory() -> None:
 
         pool = cp.get_default_memory_pool()
         pool.free_all_blocks()
-    except ImportError:
+    except (ImportError, Exception):
         pass
 
 
