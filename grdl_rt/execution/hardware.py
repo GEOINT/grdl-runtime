@@ -163,7 +163,7 @@ class LocalHardwareContext(HardwareContext):
     (with graceful fallback), and GPU availability via ``torch.cuda``
     and CuPy introspection.  All values are cached at construction
     time — hardware does not change during a run.
-    
+
     GPU device detection is cached at the class level so the probe
     (and any associated warnings) only runs once per process regardless
     of how many ``LocalHardwareContext`` instances are created.
