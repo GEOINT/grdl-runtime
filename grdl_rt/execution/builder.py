@@ -1377,6 +1377,8 @@ class Workflow:
                     )
 
                 # Capture step-level metrics
+                _in_shape = getattr(current, 'shape', None)
+                _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
                 snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
@@ -1418,6 +1420,8 @@ class Workflow:
                         cpu_time_s=step_cpu_elapsed,
                         peak_rss_bytes=step_peak_rss,
                         gpu_used=gpu_used,
+                        input_shape=_in_shape,
+                        input_dtype=_in_dtype,
                     )
                 )
 
@@ -1579,6 +1583,8 @@ class Workflow:
                     )
 
                 # Capture step-level metrics
+                _in_shape = getattr(current, 'shape', None)
+                _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
                 snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
@@ -1609,6 +1615,8 @@ class Workflow:
                         cpu_time_s=step_cpu_elapsed,
                         peak_rss_bytes=step_peak_rss,
                         gpu_used=gpu_used,
+                        input_shape=_in_shape,
+                        input_dtype=_in_dtype,
                     )
                 )
 
@@ -1961,6 +1969,8 @@ class Workflow:
                 peak_rss_bytes=0,
                 gpu_used=False,
                 step_id=step_id,
+                input_shape=getattr(step_input, 'shape', None),
+                input_dtype=str(step_input.dtype) if hasattr(step_input, 'dtype') else None,
             )
             return sm, step_input
 
@@ -1972,6 +1982,9 @@ class Workflow:
         if ws.branch is not None:
             log_kw["branch"] = ws.branch
         logger.debug("step_start", **log_kw)
+
+        _in_shape = getattr(step_input, 'shape', None)
+        _in_dtype = str(step_input.dtype) if hasattr(step_input, 'dtype') else None
 
         if reset_mem_peak:
             tracemalloc.reset_peak()
@@ -1998,6 +2011,8 @@ class Workflow:
             peak_rss_bytes=step_peak,  # 0 for concurrent steps, overwritten by run_dag_ready_dispatch()
             gpu_used=gpu_used,
             step_id=step_id,
+            input_shape=_in_shape,
+            input_dtype=_in_dtype,
         )
         return sm, result
 

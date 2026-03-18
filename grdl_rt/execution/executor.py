@@ -470,6 +470,9 @@ class WorkflowExecutor:
                     gp_info = global_pass_processors.get(i)
                     pre_inst = gp_info[0] if gp_info else None
 
+                    _in_shape = getattr(current, 'shape', None)
+                    _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+
                     current = self._execute_step_resilient(
                         step,
                         current,
@@ -503,6 +506,8 @@ class WorkflowExecutor:
                         global_pass_memory=(gp_info[2] if gp_info else None),
                         peak_overhead_bytes=max(0, hist_peak - alloc_now),
                         end_of_step_footprint_bytes=alloc_now,
+                        input_shape=_in_shape,
+                        input_dtype=_in_dtype,
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -906,6 +911,9 @@ class WorkflowExecutor:
                     gp_info = global_pass_processors.get(i)
                     pre_inst = gp_info[0] if gp_info else None
 
+                    _in_shape = getattr(current, 'shape', None)
+                    _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+
                     current = self._execute_step_resilient(
                         step_def,
                         current,
@@ -931,6 +939,8 @@ class WorkflowExecutor:
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(gp_info[1] if gp_info else None),
                         global_pass_memory=(gp_info[2] if gp_info else None),
+                        input_shape=_in_shape,
+                        input_dtype=_in_dtype,
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -1129,6 +1139,8 @@ class WorkflowExecutor:
                 peak_rss_bytes=step_peak,
                 gpu_used=self._gpu.last_gpu_used,
                 gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
+                input_shape=getattr(source, 'shape', None),
+                input_dtype=str(source.dtype) if hasattr(source, 'dtype') else None,
             )
 
             try:
@@ -1496,6 +1508,7 @@ class WorkflowExecutor:
         # Reconstruct prior metrics from checkpoint
         prior_metrics: list[StepMetrics] = []
         for m in state.metrics_so_far:
+            _raw_shape = m.get("input_shape")
             prior_metrics.append(
                 StepMetrics(
                     step_index=m.get("step_index", 0),
@@ -1506,6 +1519,8 @@ class WorkflowExecutor:
                     gpu_used=m.get("gpu_used", False),
                     status=m.get("status", "success"),
                     error_message=m.get("error_message"),
+                    input_shape=tuple(_raw_shape) if _raw_shape is not None else None,
+                    input_dtype=m.get("input_dtype"),
                 )
             )
 

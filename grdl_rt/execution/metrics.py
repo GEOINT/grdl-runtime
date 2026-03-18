@@ -76,6 +76,14 @@ class StepMetrics:
         step completed.  This is the "End-of-Step Footprint (Live)"
         column — the running total that accumulates as the workflow
         produces outputs.
+    input_shape : tuple of int, optional
+        Shape of the NumPy array passed as input to this step.
+        ``None`` when the input is not an ndarray (e.g., a file path
+        or dict).  Used by the benchmarking layer to compute
+        throughput (elements/sec).
+    input_dtype : str, optional
+        String representation of the input array's dtype (e.g.,
+        ``"float32"``).  ``None`` when the input is not an ndarray.
     """
 
     step_index: int
@@ -93,6 +101,8 @@ class StepMetrics:
     concurrent: bool = False
     peak_overhead_bytes: int = 0
     end_of_step_footprint_bytes: int = 0
+    input_shape: tuple[int, ...] | None = None
+    input_dtype: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -122,6 +132,10 @@ class StepMetrics:
             d["global_pass_duration"] = self.global_pass_duration
         if self.global_pass_memory is not None:
             d["global_pass_memory"] = self.global_pass_memory
+        if self.input_shape is not None:
+            d["input_shape"] = list(self.input_shape)
+        if self.input_dtype is not None:
+            d["input_dtype"] = self.input_dtype
         return d
 
 
