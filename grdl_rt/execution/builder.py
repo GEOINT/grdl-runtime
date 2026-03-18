@@ -1883,9 +1883,7 @@ class Workflow:
         completed_at = datetime.now(UTC).isoformat()
 
         _dep_map: dict[str, list[str]] = {
-            str(s.id): list(s.depends_on)
-            for s in steps
-            if s.id is not None and s.depends_on
+            str(s.id): list(s.depends_on) for s in steps if s.id is not None and s.depends_on
         }
         _step_depends_on: dict[str, list[str]] | None = _dep_map or None
 
