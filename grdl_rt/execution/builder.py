@@ -1374,8 +1374,8 @@ class Workflow:
                     )
 
                 # Capture step-level metrics
-                _in_shape = getattr(current, 'shape', None)
-                _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+                _in_shape = getattr(current, "shape", None)
+                _in_dtype = str(current.dtype) if hasattr(current, "dtype") else None
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
@@ -1572,8 +1572,8 @@ class Workflow:
                     )
 
                 # Capture step-level metrics
-                _in_shape = getattr(current, 'shape', None)
-                _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+                _in_shape = getattr(current, "shape", None)
+                _in_dtype = str(current.dtype) if hasattr(current, "dtype") else None
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
@@ -1829,7 +1829,8 @@ class Workflow:
             return _gather_input(ws, source, results, self._branch_sources)
 
         def _exec_step(
-            sid: str, step_input: Any,
+            sid: str,
+            step_input: Any,
         ) -> tuple[StepMetrics, Any]:
             ws = step_by_id[sid]
             return self._execute_dag_step(
@@ -1948,8 +1949,8 @@ class Workflow:
                 peak_rss_bytes=0,
                 gpu_used=False,
                 step_id=step_id,
-                input_shape=getattr(step_input, 'shape', None),
-                input_dtype=str(step_input.dtype) if hasattr(step_input, 'dtype') else None,
+                input_shape=getattr(step_input, "shape", None),
+                input_dtype=str(step_input.dtype) if hasattr(step_input, "dtype") else None,
             )
             return sm, step_input
 
@@ -1962,8 +1963,8 @@ class Workflow:
             log_kw["branch"] = ws.branch
         logger.debug("step_start", **log_kw)
 
-        _in_shape = getattr(step_input, 'shape', None)
-        _in_dtype = str(step_input.dtype) if hasattr(step_input, 'dtype') else None
+        _in_shape = getattr(step_input, "shape", None)
+        _in_dtype = str(step_input.dtype) if hasattr(step_input, "dtype") else None
 
         t0_wall = time.perf_counter()
         t0_cpu = time.thread_time()

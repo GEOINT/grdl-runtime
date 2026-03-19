@@ -256,11 +256,7 @@ class MemorySampler:
         mv = self._mem_values
         if ts is None or mv is None:
             return 0
-        return (
-            sys.getsizeof(ts)
-            + sys.getsizeof(mv)
-            + self._header_overhead
-        )
+        return sys.getsizeof(ts) + sys.getsizeof(mv) + self._header_overhead
 
     def _sample_loop(self) -> None:
         """Polling loop executed in the background thread."""

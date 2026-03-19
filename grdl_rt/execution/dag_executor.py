@@ -475,7 +475,8 @@ class DAGExecutor:
                 return source
 
             def _exec_step(
-                sid: str, step_input: Any,
+                sid: str,
+                step_input: Any,
             ) -> tuple[StepMetrics, Any]:
                 return self._execute_single_step(
                     sid,

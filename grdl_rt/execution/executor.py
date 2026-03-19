@@ -470,8 +470,8 @@ class WorkflowExecutor:
                     gp_info = global_pass_processors.get(i)
                     pre_inst = gp_info[0] if gp_info else None
 
-                    _in_shape = getattr(current, 'shape', None)
-                    _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+                    _in_shape = getattr(current, "shape", None)
+                    _in_dtype = str(current.dtype) if hasattr(current, "dtype") else None
 
                     current = self._execute_step_resilient(
                         step,
@@ -906,8 +906,8 @@ class WorkflowExecutor:
                     gp_info = global_pass_processors.get(i)
                     pre_inst = gp_info[0] if gp_info else None
 
-                    _in_shape = getattr(current, 'shape', None)
-                    _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
+                    _in_shape = getattr(current, "shape", None)
+                    _in_dtype = str(current.dtype) if hasattr(current, "dtype") else None
 
                     current = self._execute_step_resilient(
                         step_def,
@@ -1138,8 +1138,8 @@ class WorkflowExecutor:
                 peak_rss_bytes=_timeline.peak(),
                 gpu_used=self._gpu.last_gpu_used,
                 gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
-                input_shape=getattr(source, 'shape', None),
-                input_dtype=str(source.dtype) if hasattr(source, 'dtype') else None,
+                input_shape=getattr(source, "shape", None),
+                input_dtype=str(source.dtype) if hasattr(source, "dtype") else None,
                 wall_start=t0_wall,
                 wall_end=step_t_end,
             )
