@@ -38,7 +38,6 @@ Modified
 import functools
 import inspect
 import time
-import tracemalloc
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -59,6 +58,7 @@ from grdl_rt.execution.context import ExecutionContext, get_logger
 from grdl_rt.execution.dag_executor import run_dag_ready_dispatch
 from grdl_rt.execution.gpu import GpuBackend
 from grdl_rt.execution.hardware import LocalHardwareContext
+from grdl_rt.execution.memory_sampler import MemorySampler
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.resilience import (
     RetryPolicy,
@@ -1285,22 +1285,21 @@ class Workflow:
         )
         cfg = get_runtime_config()
 
-        # Start tracemalloc for peak memory tracking
-        tracemalloc_was_running = tracemalloc.is_tracing()
-        if not tracemalloc_was_running:
-            tracemalloc.start()
+        # Start memory sampler for timeline-based tracking
+        _sampler = MemorySampler()
+        _sampler.start()
 
         _hardware_dict = _capture_hardware()
         started_at = datetime.now(UTC).isoformat()
         pipeline_wall_t0 = time.perf_counter()
         pipeline_cpu_t0 = time.process_time()
         step_metrics_list: list[StepMetrics] = []
-        overall_peak_rss = 0
 
         if not steps:
             pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
             pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
             completed_at = datetime.now(UTC).isoformat()
+            _timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -1314,10 +1313,8 @@ class Workflow:
                 started_at=started_at,
                 completed_at=completed_at,
                 hardware=_hardware_dict,
+                memory_timeline=_timeline,
             )
-
-            if not tracemalloc_was_running:
-                tracemalloc.stop()
 
             return WorkflowResult(result=source, metrics=wf_metrics)
 
@@ -1379,7 +1376,6 @@ class Workflow:
                 # Capture step-level metrics
                 _in_shape = getattr(current, 'shape', None)
                 _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
-                snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
@@ -1402,15 +1398,9 @@ class Workflow:
                         }
                     )
 
-                step_wall_elapsed = time.perf_counter() - step_wall_t0
+                step_wall_end = time.perf_counter()
+                step_wall_elapsed = step_wall_end - step_wall_t0
                 step_cpu_elapsed = time.process_time() - step_cpu_t0
-                snapshot_after = tracemalloc.take_snapshot()
-
-                # Compute peak memory delta
-                stats = snapshot_after.compare_to(snapshot_before, "lineno")
-                step_peak_rss = sum(s.size_diff for s in stats if s.size_diff > 0)
-                if step_peak_rss > overall_peak_rss:
-                    overall_peak_rss = step_peak_rss
 
                 step_metrics_list.append(
                     StepMetrics(
@@ -1418,10 +1408,12 @@ class Workflow:
                         processor_name=ws.name,
                         wall_time_s=step_wall_elapsed,
                         cpu_time_s=step_cpu_elapsed,
-                        peak_rss_bytes=step_peak_rss,
+                        peak_rss_bytes=0,
                         gpu_used=gpu_used,
                         input_shape=_in_shape,
                         input_dtype=_in_dtype,
+                        wall_start=step_wall_t0,
+                        wall_end=step_wall_end,
                     )
                 )
 
@@ -1431,6 +1423,7 @@ class Workflow:
         pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
         pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
         completed_at = datetime.now(UTC).isoformat()
+        _timeline = _sampler.stop()
 
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
@@ -1439,15 +1432,13 @@ class Workflow:
             workflow_version=self._version,
             total_wall_time_s=pipeline_wall_elapsed,
             total_cpu_time_s=pipeline_cpu_elapsed,
-            peak_rss_bytes=overall_peak_rss,
+            peak_rss_bytes=_timeline.peak(),
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
             hardware=_hardware_dict,
+            memory_timeline=_timeline,
         )
-
-        if not tracemalloc_was_running:
-            tracemalloc.stop()
 
         if gpu.is_gpu_array(current):
             current = gpu.to_cpu(current)
@@ -1508,16 +1499,14 @@ class Workflow:
 
         _hardware_dict = _capture_hardware()
 
-        # Start tracemalloc for peak memory tracking
-        tracemalloc_was_running = tracemalloc.is_tracing()
-        if not tracemalloc_was_running:
-            tracemalloc.start()
+        # Start memory sampler for timeline-based tracking
+        _sampler = MemorySampler()
+        _sampler.start()
 
         started_at = datetime.now(UTC).isoformat()
         pipeline_wall_t0 = time.perf_counter()
         pipeline_cpu_t0 = time.process_time()
         step_metrics_list: list[StepMetrics] = []
-        overall_peak_rss = 0
 
         # Determine output directory
         if tap_out_dir is not None:
@@ -1585,7 +1574,6 @@ class Workflow:
                 # Capture step-level metrics
                 _in_shape = getattr(current, 'shape', None)
                 _in_dtype = str(current.dtype) if hasattr(current, 'dtype') else None
-                snapshot_before = tracemalloc.take_snapshot()
                 step_wall_t0 = time.perf_counter()
                 step_cpu_t0 = time.process_time()
 
@@ -1597,15 +1585,9 @@ class Workflow:
                     n_steps,
                 )
 
-                step_wall_elapsed = time.perf_counter() - step_wall_t0
+                step_wall_end = time.perf_counter()
+                step_wall_elapsed = step_wall_end - step_wall_t0
                 step_cpu_elapsed = time.process_time() - step_cpu_t0
-                snapshot_after = tracemalloc.take_snapshot()
-
-                # Compute peak memory delta
-                stats = snapshot_after.compare_to(snapshot_before, "lineno")
-                step_peak_rss = sum(s.size_diff for s in stats if s.size_diff > 0)
-                if step_peak_rss > overall_peak_rss:
-                    overall_peak_rss = step_peak_rss
 
                 step_metrics_list.append(
                     StepMetrics(
@@ -1613,10 +1595,12 @@ class Workflow:
                         processor_name=ws.name,
                         wall_time_s=step_wall_elapsed,
                         cpu_time_s=step_cpu_elapsed,
-                        peak_rss_bytes=step_peak_rss,
+                        peak_rss_bytes=0,
                         gpu_used=gpu_used,
                         input_shape=_in_shape,
                         input_dtype=_in_dtype,
+                        wall_start=step_wall_t0,
+                        wall_end=step_wall_end,
                     )
                 )
 
@@ -1710,6 +1694,7 @@ class Workflow:
         pipeline_wall_elapsed = time.perf_counter() - pipeline_wall_t0
         pipeline_cpu_elapsed = time.process_time() - pipeline_cpu_t0
         completed_at = datetime.now(UTC).isoformat()
+        _timeline = _sampler.stop()
 
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
@@ -1718,15 +1703,13 @@ class Workflow:
             workflow_version=self._version,
             total_wall_time_s=pipeline_wall_elapsed,
             total_cpu_time_s=pipeline_cpu_elapsed,
-            peak_rss_bytes=overall_peak_rss,
+            peak_rss_bytes=_timeline.peak(),
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
             hardware=_hardware_dict,
+            memory_timeline=_timeline,
         )
-
-        if not tracemalloc_was_running:
-            tracemalloc.stop()
 
         if gpu.is_gpu_array(current):
             current = gpu.to_cpu(current)
@@ -1786,10 +1769,8 @@ class Workflow:
 
         _hardware_dict = _capture_hardware()
 
-        tracemalloc_was_running = tracemalloc.is_tracing()
-        if not tracemalloc_was_running:
-            tracemalloc.start()
-        tracemalloc.reset_peak()
+        _sampler = MemorySampler()
+        _sampler.start()
 
         started_at = datetime.now(UTC).isoformat()
         t0_wall = time.perf_counter()
@@ -1848,7 +1829,7 @@ class Workflow:
             return _gather_input(ws, source, results, self._branch_sources)
 
         def _exec_step(
-            sid: str, step_input: Any, reset_mem_peak: bool = False
+            sid: str, step_input: Any,
         ) -> tuple[StepMetrics, Any]:
             ws = step_by_id[sid]
             return self._execute_dag_step(
@@ -1859,10 +1840,9 @@ class Workflow:
                 total,
                 step_id=sid,
                 metadata=metadata,
-                reset_mem_peak=reset_mem_peak,
             )
 
-        step_metrics_list, overall_peak = run_dag_ready_dispatch(
+        step_metrics_list = run_dag_ready_dispatch(
             all_step_ids,
             deps_map,
             step_index_map,
@@ -1895,6 +1875,8 @@ class Workflow:
         }
         _step_depends_on: dict[str, list[str]] | None = _dep_map or None
 
+        _timeline = _sampler.stop()
+
         wf_metrics = WorkflowMetrics(
             workflow_id=ctx.workflow_id,
             run_id=ctx.run_id,
@@ -1902,16 +1884,14 @@ class Workflow:
             workflow_version=self._version,
             total_wall_time_s=wall,
             total_cpu_time_s=cpu,
-            peak_rss_bytes=overall_peak,
+            peak_rss_bytes=_timeline.peak(),
             step_metrics=step_metrics_list,
             started_at=started_at,
             completed_at=completed_at,
             hardware=_hardware_dict,
             step_depends_on=_step_depends_on,
+            memory_timeline=_timeline,
         )
-
-        if not tracemalloc_was_running:
-            tracemalloc.stop()
 
         return WorkflowResult(
             result=final,
@@ -1929,7 +1909,6 @@ class Workflow:
         *,
         step_id: str | None = None,
         metadata: Any | None = None,
-        reset_mem_peak: bool = False,
     ) -> tuple[StepMetrics, Any]:
         """Execute a single DAG step and return ``(metrics, output)``.
 
@@ -1986,9 +1965,6 @@ class Workflow:
         _in_shape = getattr(step_input, 'shape', None)
         _in_dtype = str(step_input.dtype) if hasattr(step_input, 'dtype') else None
 
-        if reset_mem_peak:
-            tracemalloc.reset_peak()
-
         t0_wall = time.perf_counter()
         t0_cpu = time.thread_time()
 
@@ -2001,18 +1977,20 @@ class Workflow:
             metadata=metadata,
         )
 
-        step_peak = tracemalloc.get_traced_memory()[1] if reset_mem_peak else 0
+        t_end = time.perf_counter()
 
         sm = StepMetrics(
             step_index=step_index,
             processor_name=ws.name,
-            wall_time_s=time.perf_counter() - t0_wall,
+            wall_time_s=t_end - t0_wall,
             cpu_time_s=time.thread_time() - t0_cpu,
-            peak_rss_bytes=step_peak,  # 0 for concurrent steps, overwritten by run_dag_ready_dispatch()
+            peak_rss_bytes=0,
             gpu_used=gpu_used,
             step_id=step_id,
             input_shape=_in_shape,
             input_dtype=_in_dtype,
+            wall_start=t0_wall,
+            wall_end=t_end,
         )
         return sm, result
 

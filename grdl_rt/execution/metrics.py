@@ -2,9 +2,14 @@
 Execution Metrics — Structured timing and resource usage data.
 
 Provides ``StepMetrics`` and ``WorkflowMetrics`` dataclasses that capture
-wall-clock time, CPU time, peak memory, and GPU usage for every step and
-the overall workflow execution.  These are returned as part of
-``WorkflowResult`` from all execution paths.
+wall-clock time, CPU time, peak memory, GPU usage, and a continuous
+memory timeline for every workflow execution.  These are returned as
+part of ``WorkflowResult`` from all execution paths.
+
+Memory is measured by a background ``MemorySampler`` thread that polls
+``tracemalloc`` at 1 ms intervals.  The resulting ``MemoryTimeline``
+on ``WorkflowMetrics`` can be overlaid with each step's
+``wall_start`` / ``wall_end`` timestamps for visualization.
 
 Author
 ------
@@ -39,6 +44,18 @@ from typing import Any
 class StepMetrics:
     """Timing and resource metrics for a single workflow step.
 
+    Memory is tracked at the workflow level via a ``MemorySampler``
+    background thread that produces a continuous ``MemoryTimeline``
+    of corrected ``tracemalloc`` readings.  Per-step memory fields
+    (``peak_rss_bytes``, ``peak_overhead_bytes``,
+    ``end_of_step_footprint_bytes``) are retained for backward
+    compatibility but are **not populated** for pipeline steps.
+    Use ``wall_start`` / ``wall_end`` to correlate steps with the
+    workflow-level ``memory_timeline`` for visualization.
+
+    For single-component benchmarks (``execute_single_step``),
+    ``peak_rss_bytes`` reflects the timeline peak for that step.
+
     Attributes
     ----------
     step_index : int
@@ -50,7 +67,9 @@ class StepMetrics:
     cpu_time_s : float
         CPU time in seconds (``time.process_time`` delta).
     peak_rss_bytes : int
-        Peak memory delta in bytes (``tracemalloc``).
+        Peak memory in bytes.  For single-component benchmarks this
+        is the timeline peak for the step.  For pipeline steps this
+        is 0 — use the workflow-level ``memory_timeline`` instead.
     gpu_used : bool
         Whether this step ran on GPU.
     gpu_memory_bytes : Optional[int]
@@ -61,21 +80,14 @@ class StepMetrics:
         If status is ``"failed"``, the exception message.
     concurrent : bool
         Whether this step ran concurrently with other steps in a
-        parallel DAG level.  When ``True``, ``peak_rss_bytes``
-        reflects the shared level-wide peak (not isolated to this
-        step) because per-thread memory isolation is not possible
-        with ``tracemalloc``.
+        parallel DAG level.  Used by the benchmarking layer for
+        topology classification and report rendering.
     peak_overhead_bytes : int
-        Extra RAM the step allocated and then released during its
-        execution.  Computed as the historical peak captured
-        immediately after the step minus the live allocation
-        measured after intermediate results are freed.  This is
-        "The Spike" shown in the memory profile table.
+        Legacy field retained for backward compatibility.  No longer
+        populated by the runtime — always 0 for pipeline steps.
     end_of_step_footprint_bytes : int
-        Total live RAM occupied by workflow data at the moment this
-        step completed.  This is the "End-of-Step Footprint (Live)"
-        column — the running total that accumulates as the workflow
-        produces outputs.
+        Legacy field retained for backward compatibility.  No longer
+        populated by the runtime — always 0 for pipeline steps.
     input_shape : tuple of int, optional
         Shape of the NumPy array passed as input to this step.
         ``None`` when the input is not an ndarray (e.g., a file path
@@ -84,6 +96,11 @@ class StepMetrics:
     input_dtype : str, optional
         String representation of the input array's dtype (e.g.,
         ``"float32"``).  ``None`` when the input is not an ndarray.
+    wall_start : float
+        Absolute ``time.perf_counter()`` value when this step began.
+        Used to correlate with the workflow-level ``memory_timeline``.
+    wall_end : float
+        Absolute ``time.perf_counter()`` value when this step ended.
     """
 
     step_index: int
@@ -103,6 +120,8 @@ class StepMetrics:
     end_of_step_footprint_bytes: int = 0
     input_shape: tuple[int, ...] | None = None
     input_dtype: str | None = None
+    wall_start: float = 0.0
+    wall_end: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -136,12 +155,23 @@ class StepMetrics:
             d["input_shape"] = list(self.input_shape)
         if self.input_dtype is not None:
             d["input_dtype"] = self.input_dtype
+        if self.wall_start > 0.0:
+            d["wall_start"] = self.wall_start
+        if self.wall_end > 0.0:
+            d["wall_end"] = self.wall_end
         return d
 
 
 @dataclass
 class WorkflowMetrics:
     """Aggregate metrics for a complete workflow execution.
+
+    Memory is measured via a ``MemorySampler`` background thread that
+    polls ``tracemalloc.get_traced_memory()`` at 1 ms intervals and
+    subtracts its own storage overhead from every reading.  The
+    resulting ``memory_timeline`` is a continuous time-series of
+    corrected memory values that can be overlaid with step
+    ``wall_start`` / ``wall_end`` timestamps for visualization.
 
     Attributes
     ----------
@@ -158,7 +188,8 @@ class WorkflowMetrics:
     total_cpu_time_s : float
         Total CPU time in seconds.
     peak_rss_bytes : int
-        Peak memory usage in bytes across the entire run.
+        Peak memory usage in bytes across the entire run, derived from
+        the ``memory_timeline``.
     step_metrics : List[StepMetrics]
         Per-step metrics, one entry per processing step.
     started_at : str
@@ -179,6 +210,12 @@ class WorkflowMetrics:
         for DAG (``WorkflowExecutor``) workflows where
         ``ProcessingStep.depends_on`` is set.  ``None`` for linear pipelines
         (``Workflow`` builder) and for runs produced before this field was added.
+    memory_timeline : MemoryTimeline, optional
+        Continuous time-series of corrected ``tracemalloc`` memory
+        readings sampled at 1 ms intervals over the pipeline lifetime.
+        Correlate with each step's ``wall_start`` / ``wall_end`` for
+        per-step memory visualization.  ``None`` for runs produced
+        before this field was added.
     """
 
     workflow_id: str
@@ -195,6 +232,7 @@ class WorkflowMetrics:
     error_message: str | None = None
     hardware: dict[str, Any] | None = None
     step_depends_on: dict[str, list[str]] | None = None
+    memory_timeline: Any = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -221,6 +259,8 @@ class WorkflowMetrics:
             d["hardware"] = self.hardware
         if self.step_depends_on is not None:
             d["step_depends_on"] = self.step_depends_on
+        if self.memory_timeline is not None:
+            d["memory_timeline"] = self.memory_timeline.to_dict()
         return d
 
     def to_json(self, indent: int = 2) -> str:

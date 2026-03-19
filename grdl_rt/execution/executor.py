@@ -40,7 +40,6 @@ import json
 import re
 import sys
 import time
-import tracemalloc
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -71,6 +70,7 @@ from grdl_rt.execution.hardware import LocalHardwareContext
 from grdl_rt.execution.history import ExecutionHistoryDB
 from grdl_rt.execution.instrumentation import ExecutionHook
 from grdl_rt.execution.lineage import build_lineage, compute_array_hash
+from grdl_rt.execution.memory_sampler import MemorySampler
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.quota import QuotaEnforcer, ResourceQuota
 from grdl_rt.execution.resilience import (
@@ -386,7 +386,8 @@ class WorkflowExecutor:
         }
         _step_depends_on: dict[str, list[str]] | None = _dep_map or None
 
-        tracemalloc.start()
+        _sampler = MemorySampler()
+        _sampler.start()
         t0_wall = time.perf_counter()
         t0_cpu = time.process_time()
 
@@ -435,7 +436,6 @@ class WorkflowExecutor:
                 else:
                     step_t0_wall = time.perf_counter()
                     step_t0_cpu = time.process_time()
-                    tracemalloc.reset_peak()
 
                     # Build a rescaled callback for this step's internal progress
                     step_kwargs = dict(kwargs)
@@ -481,16 +481,9 @@ class WorkflowExecutor:
                         **step_kwargs,
                     )
 
-                    step_wall = time.perf_counter() - step_t0_wall
+                    step_t_end = time.perf_counter()
+                    step_wall = step_t_end - step_t0_wall
                     step_cpu = time.process_time() - step_t0_cpu
-
-                    # tracemalloc.reset_peak() was called before this step, so
-                    # get_traced_memory()[1] is the step-isolated historical peak.
-                    # In sequential mode there is no consumer-count eviction —
-                    # each step's output becomes `current` directly — so alloc_now
-                    # is captured immediately after execution.
-                    hist_peak = tracemalloc.get_traced_memory()[1]
-                    alloc_now = tracemalloc.get_traced_memory()[0]
 
                     self._circuit_breaker.record_success(step.processor_name)
 
@@ -499,15 +492,15 @@ class WorkflowExecutor:
                         processor_name=step.processor_name,
                         wall_time_s=step_wall,
                         cpu_time_s=step_cpu,
-                        peak_rss_bytes=hist_peak,
+                        peak_rss_bytes=0,
                         gpu_used=self._gpu.last_gpu_used,
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(gp_info[1] if gp_info else None),
                         global_pass_memory=(gp_info[2] if gp_info else None),
-                        peak_overhead_bytes=max(0, hist_peak - alloc_now),
-                        end_of_step_footprint_bytes=alloc_now,
                         input_shape=_in_shape,
                         input_dtype=_in_dtype,
+                        wall_start=step_t0_wall,
+                        wall_end=step_t_end,
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -568,7 +561,7 @@ class WorkflowExecutor:
 
             total_wall = time.perf_counter() - t0_wall
             total_cpu = time.process_time() - t0_cpu
-            _, total_peak = tracemalloc.get_traced_memory()
+            _timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -577,13 +570,14 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=total_wall,
                 total_cpu_time_s=total_cpu,
-                peak_rss_bytes=total_peak,
+                peak_rss_bytes=_timeline.peak(),
                 step_metrics=step_metrics_list,
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
                 hardware=_hardware_dict,
                 step_depends_on=_step_depends_on,
+                memory_timeline=_timeline,
             )
             # Notify hooks of successful completion
             self._call_hooks("on_workflow_end", ctx, wf_metrics)
@@ -658,7 +652,7 @@ class WorkflowExecutor:
                 self._circuit_breaker.record_failure(exc.step_name)
             total_wall = time.perf_counter() - t0_wall
             total_cpu = time.process_time() - t0_cpu
-            _, total_peak = tracemalloc.get_traced_memory()
+            _err_timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -667,13 +661,14 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=total_wall,
                 total_cpu_time_s=total_cpu,
-                peak_rss_bytes=total_peak,
+                peak_rss_bytes=_err_timeline.peak(),
                 step_metrics=step_metrics_list,
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
                 hardware=_hardware_dict,
+                memory_timeline=_err_timeline,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
@@ -695,7 +690,7 @@ class WorkflowExecutor:
         except Exception as exc:
             total_wall = time.perf_counter() - t0_wall
             total_cpu = time.process_time() - t0_cpu
-            _, total_peak = tracemalloc.get_traced_memory()
+            _err_timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -704,13 +699,14 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=total_wall,
                 total_cpu_time_s=total_cpu,
-                peak_rss_bytes=total_peak,
+                peak_rss_bytes=_err_timeline.peak(),
                 step_metrics=step_metrics_list,
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
                 hardware=_hardware_dict,
+                memory_timeline=_err_timeline,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             self._call_hooks("on_error", ctx, exc)
@@ -731,7 +727,6 @@ class WorkflowExecutor:
         finally:
             if quota_enforcer is not None:
                 quota_enforcer.stop_monitoring()
-            tracemalloc.stop()
 
     def _record_failure(
         self,
@@ -846,7 +841,8 @@ class WorkflowExecutor:
         step_counter = 0
         last_completed_index = -1
 
-        tracemalloc.start()
+        _sampler = MemorySampler()
+        _sampler.start()
         t0_wall = time.perf_counter()
         t0_cpu = time.process_time()
 
@@ -891,7 +887,6 @@ class WorkflowExecutor:
                 else:
                     step_t0_wall = time.perf_counter()
                     step_t0_cpu = time.process_time()
-                    tracemalloc.reset_peak()
 
                     step_kwargs = dict(kwargs)
                     if progress_callback is not None and n_steps > 0:
@@ -922,9 +917,9 @@ class WorkflowExecutor:
                         **step_kwargs,
                     )
 
-                    step_wall = time.perf_counter() - step_t0_wall
+                    step_t_end = time.perf_counter()
+                    step_wall = step_t_end - step_t0_wall
                     step_cpu = time.process_time() - step_t0_cpu
-                    _, step_peak = tracemalloc.get_traced_memory()
                     step_counter += 1
 
                     self._circuit_breaker.record_success(step_def.processor_name)
@@ -934,13 +929,15 @@ class WorkflowExecutor:
                         processor_name=step_def.processor_name,
                         wall_time_s=step_wall,
                         cpu_time_s=step_cpu,
-                        peak_rss_bytes=step_peak,
+                        peak_rss_bytes=0,
                         gpu_used=self._gpu.last_gpu_used,
                         gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                         global_pass_duration=(gp_info[1] if gp_info else None),
                         global_pass_memory=(gp_info[2] if gp_info else None),
                         input_shape=_in_shape,
                         input_dtype=_in_dtype,
+                        wall_start=step_t0_wall,
+                        wall_end=step_t_end,
                     )
                     step_metrics_list.append(sm)
                     last_completed_index = i
@@ -1016,7 +1013,7 @@ class WorkflowExecutor:
 
             total_wall = time.perf_counter() - t0_wall
             total_cpu = time.process_time() - t0_cpu
-            _, total_peak = tracemalloc.get_traced_memory()
+            _timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -1025,12 +1022,13 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=total_wall,
                 total_cpu_time_s=total_cpu,
-                peak_rss_bytes=total_peak,
+                peak_rss_bytes=_timeline.peak(),
                 step_metrics=step_metrics_list,
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
                 hardware=_hardware_dict,
+                memory_timeline=_timeline,
             )
             log.info("auto_tap_out_complete", run_dir=str(run_dir))
             return WorkflowResult(result=current, metrics=wf_metrics)
@@ -1040,7 +1038,7 @@ class WorkflowExecutor:
                 self._circuit_breaker.record_failure(exc.step_name)
             total_wall = time.perf_counter() - t0_wall
             total_cpu = time.process_time() - t0_cpu
-            _, total_peak = tracemalloc.get_traced_memory()
+            _err_timeline = _sampler.stop()
 
             wf_metrics = WorkflowMetrics(
                 workflow_id=ctx.workflow_id,
@@ -1049,18 +1047,17 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=total_wall,
                 total_cpu_time_s=total_cpu,
-                peak_rss_bytes=total_peak,
+                peak_rss_bytes=_err_timeline.peak(),
                 step_metrics=step_metrics_list,
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="failed",
                 error_message=str(exc),
                 hardware=_hardware_dict,
+                memory_timeline=_err_timeline,
             )
             exc.__workflow_metrics__ = wf_metrics  # type: ignore[union-attr, attr-defined]
             raise
-        finally:
-            tracemalloc.stop()
 
     def execute_batch(
         self,
@@ -1116,7 +1113,8 @@ class WorkflowExecutor:
         started_at = _iso_now()
         step = self._workflow.steps[step_index]
 
-        tracemalloc.start()
+        _sampler = MemorySampler()
+        _sampler.start()
         t0_wall = time.perf_counter()
         t0_cpu = time.process_time()
 
@@ -1126,9 +1124,10 @@ class WorkflowExecutor:
             else:
                 result = self._execute_step(step, source, **kwargs)  # type: ignore[arg-type]
 
-            step_wall = time.perf_counter() - t0_wall
+            step_t_end = time.perf_counter()
+            step_wall = step_t_end - t0_wall
             step_cpu = time.process_time() - t0_cpu
-            _, step_peak = tracemalloc.get_traced_memory()
+            _timeline = _sampler.stop()
 
             processor_name = getattr(step, "processor_name", "unknown")
             sm = StepMetrics(
@@ -1136,11 +1135,13 @@ class WorkflowExecutor:
                 processor_name=processor_name,
                 wall_time_s=step_wall,
                 cpu_time_s=step_cpu,
-                peak_rss_bytes=step_peak,
+                peak_rss_bytes=_timeline.peak(),
                 gpu_used=self._gpu.last_gpu_used,
                 gpu_memory_bytes=self._gpu.last_gpu_memory_bytes,
                 input_shape=getattr(source, 'shape', None),
                 input_dtype=str(source.dtype) if hasattr(source, 'dtype') else None,
+                wall_start=t0_wall,
+                wall_end=step_t_end,
             )
 
             try:
@@ -1155,16 +1156,18 @@ class WorkflowExecutor:
                 workflow_version=self._workflow.version,
                 total_wall_time_s=step_wall,
                 total_cpu_time_s=step_cpu,
-                peak_rss_bytes=step_peak,
+                peak_rss_bytes=_timeline.peak(),
                 step_metrics=[sm],
                 started_at=started_at,
                 completed_at=_iso_now(),
                 status="success",
                 hardware=_hw_single_dict,
+                memory_timeline=_timeline,
             )
             return WorkflowResult(result=result, metrics=wf_metrics)
-        finally:
-            tracemalloc.stop()
+        except Exception:
+            _sampler.stop()
+            raise
 
     # ------------------------------------------------------------------
     # Global pass execution
@@ -1222,9 +1225,7 @@ class WorkflowExecutor:
         readonly_source = source.view()
         readonly_source.flags.writeable = False
 
-        # Start tracemalloc for global pass memory tracking
-        tracemalloc.start()
-
+        # Use a sampler per global-pass step to measure peak memory
         for i, step, processor_cls in global_steps:
             log.debug(
                 "global_pass_start",
@@ -1241,12 +1242,14 @@ class WorkflowExecutor:
                     step.processor_name,
                 )
 
+            gp_sampler = MemorySampler()
+            gp_sampler.start()
             gp_t0 = time.perf_counter()
-            tracemalloc.reset_peak()
 
             try:
                 processor = processor_cls()
             except Exception as e:
+                gp_sampler.stop()
                 log.warning(
                     "global_pass_instantiation_failed",
                     step_index=i,
@@ -1281,7 +1284,8 @@ class WorkflowExecutor:
                     raise
 
             gp_duration = time.perf_counter() - gp_t0
-            _, gp_peak = tracemalloc.get_traced_memory()
+            gp_timeline = gp_sampler.stop()
+            gp_peak = gp_timeline.peak()
 
             pre_instantiated[i] = (processor, gp_duration, gp_peak)
 
@@ -1302,7 +1306,6 @@ class WorkflowExecutor:
                 duration_s=round(gp_duration, 4),
             )
 
-        tracemalloc.stop()
         return pre_instantiated
 
     # ------------------------------------------------------------------
