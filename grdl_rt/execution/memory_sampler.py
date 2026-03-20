@@ -230,9 +230,16 @@ class MemorySampler:
             self._thread.join(timeout=2.0)
             self._thread = None
 
-        # Build the immutable result before tearing down buffers.
+        # Take one final sample so fast pipelines that finish between
+        # polling intervals still have coverage up to the stop point.
         ts = self._timestamps
         mv = self._mem_values
+        if ts is not None and mv is not None and tracemalloc.is_tracing():
+            overhead = self._own_footprint()
+            raw = tracemalloc.get_traced_memory()[0]
+            corrected = raw - overhead
+            ts.append(time.perf_counter() - self._t0)
+            mv.append(float(max(0, corrected)))
         timeline = MemoryTimeline(
             timestamps=list(ts) if ts else [],
             values=[int(v) for v in mv] if mv else [],
