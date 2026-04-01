@@ -78,8 +78,14 @@ dev = [
 [project.urls]
 Repository = "https://github.com/geoint-org/GRDL"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["grdl_rt*"]
+
+[tool.setuptools.data-files]
+"share/grdl-runtime" = ["README.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "grdl_rt"]
