@@ -144,6 +144,9 @@ def validate_workflow(
             )
         )
 
+    # Type compatibility validation
+    _validate_type_compatibility(workflow, errors)
+
     # Phase ordering validation
     _validate_phase_ordering(workflow, errors)
 
@@ -372,6 +375,30 @@ def _validate_via_signature(
                     ),
                 )
             )
+
+
+def _validate_type_compatibility(
+    workflow: "WorkflowDefinition",
+    errors: list[ValidationError],
+) -> None:
+    """Check type compatibility between connected steps.
+
+    Steps with ``input_type`` / ``output_type`` annotations are checked
+    for compatibility.  Steps without annotations (``None``) are
+    considered compatible with anything (backward compatible).
+    """
+    from grdl_rt.execution.graph import validate_type_compatibility
+
+    type_errors = validate_type_compatibility(workflow)
+    for msg in type_errors:
+        errors.append(
+            ValidationError(
+                step_index=None,
+                processor_name=None,
+                code="TYPE_MISMATCH",
+                message=msg,
+            )
+        )
 
 
 def _validate_phase_ordering(

@@ -47,6 +47,11 @@ try:
 except ImportError:
     ImageProcessor = None  # type: ignore[misc,assignment]
 
+try:
+    from grdl.image_processing.vector.base import VectorProcessor
+except ImportError:
+    VectorProcessor = None  # type: ignore[misc,assignment]
+
 
 def execute_processor(
     processor: Any,
@@ -144,6 +149,9 @@ def supports_gpu_transfer(processor: Any) -> bool:
     -------
     bool
     """
+    # VectorProcessor subclasses never benefit from GPU transfer
+    if VectorProcessor is not None and isinstance(processor, VectorProcessor):
+        return False
     return bool(getattr(processor, "__gpu_compatible__", False))
 
 

@@ -756,13 +756,13 @@ class TestDSLWithDAG:
 class TestSchemaVersion:
 
     def test_schema_version_constant(self):
-        assert SCHEMA_VERSION == "2.0"
+        assert SCHEMA_VERSION == "3.0"
 
-    def test_new_workflow_has_v2(self):
+    def test_new_workflow_has_v3(self):
         wf = WorkflowDefinition(name="Test")
-        assert wf.schema_version == "2.0"
+        assert wf.schema_version == "3.0"
 
     def test_serialized_includes_schema_version(self):
         wf = WorkflowDefinition(name="Test")
         d = wf.to_dict()
-        assert d["schema_version"] == "2.0"
+        assert d["schema_version"] == "3.0"

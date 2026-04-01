@@ -178,3 +178,126 @@ class DetectionAggregator(WorkflowOperator):
             Merged detection set.
         """
         ...
+
+
+class FeatureSetAggregator(WorkflowOperator):
+    """Aggregates multiple FeatureSet results using union or intersection.
+
+    Fan-in steps in a DAG receive a ``dict`` mapping step IDs to their
+    results.  ``FeatureSetAggregator`` merges FeatureSets according to
+    the configured strategy.
+
+    Parameters
+    ----------
+    strategy : str
+        Merge strategy: ``'union'`` (default) keeps all features from
+        all inputs, ``'intersection'`` keeps only features whose
+        geometries overlap across all inputs.
+
+    Examples
+    --------
+    >>> agg = FeatureSetAggregator(strategy='union')
+    >>> result, meta = agg.execute(metadata, {
+    ...     'step_a': feature_set_a,
+    ...     'step_b': feature_set_b,
+    ... })
+    """
+
+    def __init__(self, strategy: str = "union") -> None:
+        if strategy not in ("union", "intersection"):
+            raise ValueError(f"strategy must be 'union' or 'intersection', got {strategy!r}")
+        super().__init__()
+        self.strategy = strategy
+
+    def operate(
+        self,
+        metadata: ImageMetadata,
+        source: Any,
+        **kwargs: Any,
+    ) -> tuple:
+        """Merge FeatureSet inputs per the configured strategy.
+
+        Parameters
+        ----------
+        metadata : ImageMetadata
+        source : dict
+            ``{step_id: FeatureSet}`` from DAG fan-in.
+
+        Returns
+        -------
+        tuple[dict, ImageMetadata]
+            Merged result and metadata.
+
+        Raises
+        ------
+        TypeError
+            If source is not a dict.
+        """
+        if not isinstance(source, dict):
+            raise TypeError(
+                f"{type(self).__name__} expects a dict input from a "
+                f"fan-in step, got {type(source).__name__}. Ensure this "
+                f"step has multiple depends_on entries in the DAG."
+            )
+
+        result = self._union(source) if self.strategy == "union" else self._intersection(source)
+        return result, metadata
+
+    def _union(self, inputs: dict[str, Any]) -> dict:
+        """Merge all features from all inputs.
+
+        Concatenates feature lists from all FeatureSet-like inputs.
+        Works with dict-based FeatureSets (``{'features': [...]}``).
+        """
+        all_features: list = []
+        for value in inputs.values():
+            if isinstance(value, dict) and "features" in value:
+                all_features.extend(value["features"])
+            elif hasattr(value, "features"):
+                all_features.extend(value.features)
+            else:
+                all_features.append(value)
+        return {"features": all_features, "type": "FeatureSet"}
+
+    def _intersection(self, inputs: dict[str, Any]) -> dict:
+        """Keep only features present in all inputs.
+
+        Uses feature ID matching for intersection: a feature is kept
+        if its ``id`` appears in every input FeatureSet.
+        """
+        if not inputs:
+            return {"features": [], "type": "FeatureSet"}
+
+        # Extract feature lists
+        feature_lists: list[list] = []
+        for value in inputs.values():
+            if isinstance(value, dict) and "features" in value:
+                feature_lists.append(value["features"])
+            elif hasattr(value, "features"):
+                feature_lists.append(list(value.features))
+            else:
+                feature_lists.append([value])
+
+        if not feature_lists:
+            return {"features": [], "type": "FeatureSet"}
+
+        # Find IDs common to all inputs
+        def _get_ids(features: list) -> set:
+            ids = set()
+            for f in features:
+                fid = f.get("id") if isinstance(f, dict) else getattr(f, "id", id(f))
+                ids.add(fid)
+            return ids
+
+        common_ids = _get_ids(feature_lists[0])
+        for fl in feature_lists[1:]:
+            common_ids &= _get_ids(fl)
+
+        # Keep features from the first input that match common IDs
+        result_features = []
+        for f in feature_lists[0]:
+            fid = f.get("id") if isinstance(f, dict) else getattr(f, "id", id(f))
+            if fid in common_ids:
+                result_features.append(f)
+
+        return {"features": result_features, "type": "FeatureSet"}

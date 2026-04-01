@@ -77,6 +77,13 @@ from grdl_rt.execution.executor import (
 from grdl_rt.execution.gpu import (
     GpuBackend,
 )
+from grdl_rt.execution.graph import (
+    EdgeInfo,
+    NodeInfo,
+    WorkflowGraph,
+    types_compatible,
+    validate_type_compatibility,
+)
 from grdl_rt.execution.hardware import (
     GpuDeviceInfo,
     HardwareContext,
@@ -99,6 +106,11 @@ from grdl_rt.execution.lineage import (
 from grdl_rt.execution.metrics import (
     StepMetrics,
     WorkflowMetrics,
+)
+from grdl_rt.execution.operators import (
+    DetectionAggregator,
+    FeatureSetAggregator,
+    WorkflowOperator,
 )
 from grdl_rt.execution.plan import (
     AsExecutedManifest,
@@ -269,6 +281,16 @@ __all__ = [
     "QuotaEnforcer",
     # instrumentation
     "ExecutionHook",
+    # operators
+    "WorkflowOperator",
+    "DetectionAggregator",
+    "FeatureSetAggregator",
+    # graph
+    "WorkflowGraph",
+    "NodeInfo",
+    "EdgeInfo",
+    "types_compatible",
+    "validate_type_compatibility",
     # lineage
     "DataLineage",
     "LineageTransform",

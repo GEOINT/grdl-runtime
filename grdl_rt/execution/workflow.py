@@ -43,7 +43,10 @@ if TYPE_CHECKING:
 from grdl_rt.execution.resilience import RetryPolicy
 from grdl_rt.execution.tags import ExecutionPhase, WorkflowTags
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "3.0"
+
+# Supported schema versions for backward compatibility
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "2.0", "3.0"}
 
 
 class WorkflowState(Enum):
@@ -107,6 +110,10 @@ class ProcessingStep:
         phase: str | None = None,
         band_expansion: str | None = None,
         band_reduction: str | None = None,
+        input_type: str | None = None,
+        output_type: str | None = None,
+        output_ports: dict[str, str] | None = None,
+        position: tuple[float, float] | None = None,
     ) -> None:
         self.processor_name = processor_name
         self.processor_version = processor_version
@@ -119,6 +126,10 @@ class ProcessingStep:
         self.phase = phase
         self.band_expansion = band_expansion
         self.band_reduction = band_reduction
+        self.input_type = input_type
+        self.output_type = output_type
+        self.output_ports = output_ports
+        self.position = position
 
     def to_dict(self) -> dict:
         """Serialize to dictionary.
@@ -149,6 +160,14 @@ class ProcessingStep:
             d["band_expansion"] = self.band_expansion
         if self.band_reduction is not None:
             d["band_reduction"] = self.band_reduction
+        if self.input_type is not None:
+            d["input_type"] = self.input_type
+        if self.output_type is not None:
+            d["output_type"] = self.output_type
+        if self.output_ports is not None:
+            d["output_ports"] = dict(self.output_ports)
+        if self.position is not None:
+            d["position"] = list(self.position)
         return d
 
     @classmethod
@@ -166,6 +185,8 @@ class ProcessingStep:
         retry = None
         if "retry" in data:
             retry = RetryPolicy.from_dict(data["retry"])
+        position_raw = data.get("position")
+        position = tuple(position_raw) if position_raw is not None else None
         return cls(
             processor_name=data["processor"],
             processor_version=data.get("version", ""),
@@ -178,6 +199,10 @@ class ProcessingStep:
             phase=data.get("phase"),
             band_expansion=data.get("band_expansion"),
             band_reduction=data.get("band_reduction"),
+            input_type=data.get("input_type"),
+            output_type=data.get("output_type"),
+            output_ports=data.get("output_ports"),
+            position=position,
         )
 
 
