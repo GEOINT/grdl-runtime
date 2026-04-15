@@ -42,6 +42,7 @@ from grdl.vocabulary import (  # noqa: F401 — re-exported
     GpuCapability,
     ImageModality,
     OutputFormat,
+    PolarimetricMode,
     SegmentationType,
 )
 
@@ -107,6 +108,11 @@ class WorkflowTags:
         Types of detection performed.
     segmentation_types : List[SegmentationType]
         Types of segmentation produced.
+    pol_mode : Optional[PolarimetricMode]
+        Required polarimetric collection mode.  ``None`` means the
+        workflow places no constraint on polarimetric diversity.
+        Set to ``PolarimetricMode.QUAD_POL`` for workflows that require
+        HH, HV, VH, and VV channels simultaneously.
     """
 
     def __init__(
@@ -117,6 +123,7 @@ class WorkflowTags:
         night_capable: bool = False,
         detection_types: list[DetectionType] | None = None,
         segmentation_types: list[SegmentationType] | None = None,
+        pol_mode: PolarimetricMode | None = None,
     ) -> None:
         self.modalities = modalities or []
         self.niirs_range = niirs_range or (0.0, 9.0)
@@ -124,6 +131,7 @@ class WorkflowTags:
         self.night_capable = night_capable
         self.detection_types = detection_types or []
         self.segmentation_types = segmentation_types or []
+        self.pol_mode = pol_mode
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON/YAML storage.
@@ -140,6 +148,7 @@ class WorkflowTags:
             "night_capable": self.night_capable,
             "detection_types": [d.value for d in self.detection_types],
             "segmentation_types": [s.value for s in self.segmentation_types],
+            "pol_mode": self.pol_mode.value if self.pol_mode is not None else None,
         }
 
     @classmethod
@@ -162,4 +171,9 @@ class WorkflowTags:
             night_capable=data.get("night_capable", False),
             detection_types=[DetectionType(d) for d in data.get("detection_types", [])],
             segmentation_types=[SegmentationType(s) for s in data.get("segmentation_types", [])],
+            pol_mode=(
+                PolarimetricMode(data["pol_mode"])
+                if data.get("pol_mode") is not None
+                else None
+            ),
         )
