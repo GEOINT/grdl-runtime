@@ -21,6 +21,8 @@ from grdl_rt.execution.discovery import (
     _import_class,
     discover_processors,
     filter_processors,
+    filter_processors_for_connection,
+    filter_processors_for_modality,
     get_all_categories,
     get_all_modalities,
     get_processor_tags,
@@ -308,3 +310,200 @@ class TestFilterProcessors:
         )
         init_discovery(cat)
         assert filter_processors(processor_type="imaginary") == {}
+
+
+# ---------------------------------------------------------------------------
+# TestFilterProcessors — implicit ANY modality fix
+# ---------------------------------------------------------------------------
+
+# Custom test processor classes live in a module-level dict so they can be
+# resolved by _import_class via the catalog lookup path.  We use a helper
+# that patches the discovery module's catalog, not stdlib immutable types.
+
+
+def _make_processor_class(name: str, processor_tags: dict) -> type:
+    """Create a fresh processor class with __processor_tags__ set."""
+    return type(name, (), {"__processor_tags__": processor_tags})
+
+
+def _fqn_in_test_module(cls: type) -> str:
+    """Return a fake FQN that resolves back to this class via tests module."""
+    # We'll register the class in __main__ globals for import resolution.
+    import tests.test_discovery as _self_module
+
+    setattr(_self_module, cls.__name__, cls)
+    return f"tests.test_discovery.{cls.__name__}"
+
+
+class TestFilterProcessorsImplicitAny:
+    """Tests for the implicit-ANY modality rule in filter_processors().
+
+    A processor with an empty modalities list must be included when
+    filtering by any specific modality (implicit ANY).  Previously this
+    was a bug: the processor was excluded.
+    """
+
+    def _make_catalog_with(self, tmp_path, tags: dict):
+        cls = _make_processor_class("_TestProcImplicit", tags)
+        fqn = _fqn_in_test_module(cls)
+        cat = _make_catalog(tmp_path, [_processor_artifact("p", fqn)])
+        init_discovery(cat)
+        return cls.__name__
+
+    def test_empty_modalities_included_for_sar(self, tmp_path):
+        """Processor with no modality declaration appears in SAR palette."""
+        short = self._make_catalog_with(tmp_path, {"modalities": []})
+        result = filter_processors(modality="SAR")
+        assert (
+            short in result
+        ), "Processor with no modalities (implicit ANY) must appear in SAR palette"
+
+    def test_wrong_modality_excluded(self, tmp_path):
+        """Processor that declares EO-only must not appear in SAR palette."""
+        try:
+            from grdl.vocabulary import ImageModality
+        except ImportError:
+            pytest.skip("grdl not installed")
+        short = self._make_catalog_with(tmp_path, {"modalities": [ImageModality.EO]})
+        result = filter_processors(modality="SAR")
+        assert short not in result, "Processor that declares EO-only must not appear in SAR palette"
+
+    def test_correct_modality_included(self, tmp_path):
+        """Processor that declares SAR appears in SAR palette."""
+        try:
+            from grdl.vocabulary import ImageModality
+        except ImportError:
+            pytest.skip("grdl not installed")
+        short = self._make_catalog_with(tmp_path, {"modalities": [ImageModality.SAR]})
+        result = filter_processors(modality="SAR")
+        assert short in result
+
+
+# ---------------------------------------------------------------------------
+# TestFilterProcessorsForModality
+# ---------------------------------------------------------------------------
+
+
+class TestFilterProcessorsForModality:
+    def _make_catalog_with(self, tmp_path, tags: dict):
+        cls = _make_processor_class("_TestProcModality", tags)
+        fqn = _fqn_in_test_module(cls)
+        cat = _make_catalog(tmp_path, [_processor_artifact("p", fqn)])
+        init_discovery(cat)
+        return cls.__name__
+
+    def test_none_modality_returns_all(self, tmp_path):
+        short = self._make_catalog_with(tmp_path, {"modalities": []})
+        result = filter_processors_for_modality(None)
+        assert short in result
+
+    def test_implicit_any_included(self, tmp_path):
+        """Processor with empty modalities list appears for any modality."""
+        short = self._make_catalog_with(tmp_path, {"modalities": []})
+        for modality in ("SAR", "EO", "MSI"):
+            result = filter_processors_for_modality(modality)
+            assert short in result, f"Implicit-ANY processor must appear for modality {modality}"
+
+    def test_exclude_categories(self, tmp_path):
+        """exclude_categories removes processors in the specified category."""
+        short = self._make_catalog_with(tmp_path, {"modalities": [], "category": "filters"})
+
+        included = filter_processors_for_modality("SAR")
+        assert short in included
+
+        excluded = filter_processors_for_modality("SAR", exclude_categories={"filters"})
+        assert short not in excluded
+
+
+# ---------------------------------------------------------------------------
+# TestFilterProcessorsForConnection
+# ---------------------------------------------------------------------------
+
+
+class TestFilterProcessorsForConnection:
+    def _artifact_with_input_type(self, name, fqn, input_type, processor_type="transform"):
+        return Artifact(
+            name=name,
+            version="1.0.0",
+            artifact_type="grdl_processor",
+            processor_class=fqn,
+            processor_type=processor_type,
+            input_type=input_type,
+        )
+
+    def _make_tagged_proc(self, name, tags, input_type=None):
+        cls = _make_processor_class(name, tags)
+        fqn = _fqn_in_test_module(cls)
+        return fqn, cls.__name__
+
+    def test_none_upstream_returns_all(self, tmp_path):
+        fqn, short = self._make_tagged_proc("_Proc1", {"modalities": []})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p1", fqn, "raster")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection(None)
+        assert short in result
+
+    def test_raster_upstream_includes_raster_processor(self, tmp_path):
+        fqn, short = self._make_tagged_proc("_Proc2", {"modalities": []})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p2", fqn, "raster")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection("raster")
+        assert short in result
+
+    def test_binary_mask_upstream_includes_raster_processor(self, tmp_path):
+        """binary_mask is a raster subtype — raster processors accept it."""
+        fqn, short = self._make_tagged_proc("_Proc3", {"modalities": []})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p3", fqn, "raster")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection("binary_mask")
+        assert short in result
+
+    def test_raster_upstream_excludes_detection_processor(self, tmp_path):
+        """A raster step's output cannot feed a detection_set processor.
+
+        This is how detection post-processors are kept out of the
+        raster-stage palette without any special-case logic.
+        """
+        fqn, short = self._make_tagged_proc("_Proc4", {"modalities": []})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p4", fqn, "detection_set", "postprocess")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection("raster")
+        assert short not in result
+
+    def test_detection_set_upstream_includes_feature_set_processor(self, tmp_path):
+        """detection_set is a feature_set subtype."""
+        fqn, short = self._make_tagged_proc("_Proc5", {"modalities": []})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p5", fqn, "feature_set")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection("detection_set")
+        assert short in result
+
+    def test_modality_filter_combined_with_type(self, tmp_path):
+        """Modality and type filtering are ANDed together."""
+        try:
+            from grdl.vocabulary import ImageModality
+        except ImportError:
+            pytest.skip("grdl not installed")
+        fqn, short = self._make_tagged_proc("_Proc6", {"modalities": [ImageModality.EO]})
+        cat = _make_catalog(
+            tmp_path,
+            [self._artifact_with_input_type("p6", fqn, "raster")],
+        )
+        init_discovery(cat)
+        result = filter_processors_for_connection("raster", modality="SAR")
+        assert short not in result

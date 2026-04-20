@@ -125,35 +125,6 @@ class PolygonRegion:
             "col_end": col_max,
         }
 
-    def to_dict(self) -> dict:
-        """Serialize to dictionary.
-
-        Returns
-        -------
-        dict
-        """
-        return {
-            "vertices": self.vertices.tolist(),
-            "name": self.name,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PolygonRegion":
-        """Deserialize from dictionary.
-
-        Parameters
-        ----------
-        data : dict
-
-        Returns
-        -------
-        PolygonRegion
-        """
-        return cls(
-            vertices=np.array(data["vertices"]),
-            name=data.get("name"),
-        )
-
 
 class Chip:
     """A single image chip extracted from a polygon region.
@@ -176,6 +147,18 @@ class Chip:
         Typed extraction-provenance record.  When not provided a
         ``ChipProvenance`` is auto-constructed from the chip's
         bounding box and positional parameters.
+    annotations : list, optional
+        Zero or more annotation objects (typically
+        :class:`grdl.vector.models.Feature` instances from a GeoJSON
+        sidecar loaded via :class:`grdl.vector.io.VectorReader`) describing
+        labeled regions *within* this chip.  Empty list means the chip
+        has not been annotated.
+    modality : ImageModality, optional
+        Image modality of this chip's source imagery.  Populated by the
+        sidecar loader (from the GeoJSON FeatureCollection's ``properties``
+        dict) or by :func:`~grdl.discovery.extract_modality` applied to
+        the source reader's metadata.  ``None`` means unspecified — the
+        chip's modality is not known or was not declared.
     """
 
     def __init__(
@@ -187,6 +170,8 @@ class Chip:
         label: ChipLabel = ChipLabel.UNKNOWN,
         timestamp: str | None = None,
         provenance: ChipProvenance | None = None,
+        annotations: Optional[list] = None,
+        modality: Optional[Any] = None,  # ImageModality | None
     ) -> None:
         self.image_data = image_data
         self.source_image_index = source_image_index
@@ -194,6 +179,8 @@ class Chip:
         self.polygon_region = polygon_region
         self.label = label
         self.timestamp = timestamp
+        self.annotations: list = list(annotations) if annotations is not None else []
+        self.modality = modality
         if provenance is not None:
             self.provenance = provenance
         else:

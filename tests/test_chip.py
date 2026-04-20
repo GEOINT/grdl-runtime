@@ -15,8 +15,15 @@ Created
 """
 
 import numpy as np
+import pytest
 
-from grdl_rt.execution.chip import Chip, ChipLabel, ChipProvenance, ChipSet, PolygonRegion
+from grdl_rt.execution.chip import (
+    Chip,
+    ChipLabel,
+    ChipProvenance,
+    ChipSet,
+    PolygonRegion,
+)
 
 # ---------------------------------------------------------------------------
 # ChipLabel
@@ -75,14 +82,6 @@ class TestPolygonRegion:
         assert bb["row_end"] == -5
         assert bb["col_start"] == -21
         assert bb["col_end"] == -3
-
-    def test_to_dict_from_dict_roundtrip(self):
-        verts = np.array([[10, 20], [30, 40]])
-        region = PolygonRegion(vertices=verts, name="test")
-        data = region.to_dict()
-        restored = PolygonRegion.from_dict(data)
-        np.testing.assert_array_almost_equal(restored.vertices, region.vertices)
-        assert restored.name == "test"
 
     def test_vertices_coerced_to_float64(self):
         verts = [[1, 2], [3, 4]]  # plain list
@@ -215,3 +214,51 @@ class TestChipSet:
 
         b_chips = cs.chips_for_region(region_b)
         assert len(b_chips) == 1
+
+
+# ---------------------------------------------------------------------------
+# Chip.annotations and Chip.modality
+# ---------------------------------------------------------------------------
+
+
+class TestChipFields:
+    """Tests for Chip.annotations and Chip.modality fields."""
+
+    def _make_chip(self, annotations=None, modality=None):
+        polygon = PolygonRegion(np.array([[0, 0], [0, 10], [10, 10], [10, 0]]))
+        return Chip(
+            image_data=np.zeros((10, 10), dtype=np.float32),
+            source_image_index=0,
+            source_image_name="test.tif",
+            polygon_region=polygon,
+            annotations=annotations,
+            modality=modality,
+        )
+
+    def test_default_annotations_empty(self):
+        chip = self._make_chip()
+        assert chip.annotations == []
+
+    def test_default_modality_none(self):
+        chip = self._make_chip()
+        assert chip.modality is None
+
+    def test_modality_set(self):
+        try:
+            from grdl.vocabulary import ImageModality
+        except ImportError:
+            pytest.skip("grdl not installed")
+        chip = self._make_chip(modality=ImageModality.SAR)
+        assert chip.modality == ImageModality.SAR
+
+    def test_annotations_accepts_arbitrary_objects(self):
+        """annotations is a plain list — callers store grdl Feature objects."""
+        chip = self._make_chip(annotations=["feature_a", "feature_b"])
+        assert len(chip.annotations) == 2
+
+    def test_annotations_are_copied(self):
+        """Chip stores an independent copy of the annotations list."""
+        items = ["x"]
+        chip = self._make_chip(annotations=items)
+        items.append("y")
+        assert len(chip.annotations) == 1

@@ -346,7 +346,10 @@ def filter_processors(
             modality_values = {
                 m.value if hasattr(m, "value") else m for m in tags.get("modalities", ())
             }
-            if modality not in modality_values:
+            # An empty modality list means implicit ANY: the processor works
+            # with all modalities.  Only exclude processors that declare
+            # OTHER modalities but do not include the requested one.
+            if modality_values and modality not in modality_values:
                 continue
 
         if category:
@@ -359,5 +362,80 @@ def filter_processors(
 
         short_name = artifact.processor_class.rsplit(".", 1)[-1]
         result[short_name] = cls
+
+    return result
+
+
+def _passes_modality_and_category(
+    tags: dict,
+    modality: str | None,
+    exclude_categories: "set[str] | frozenset[str] | None",
+) -> bool:
+    """Return True if a processor's tags pass modality and category filters."""
+    if modality is not None:
+        modality_values = {
+            m.value if hasattr(m, "value") else m
+            for m in tags.get("modalities", ())
+        }
+        if modality_values and modality not in modality_values:
+            return False
+
+    if exclude_categories:
+        cat = tags.get("category")
+        cat_value = cat.value if cat is not None and hasattr(cat, "value") else cat
+        if cat_value in exclude_categories:
+            return False
+
+    return True
+
+
+def filter_processors_for_modality(
+    modality: str | None,
+    *,
+    exclude_categories: "set[str] | frozenset[str] | None" = None,
+) -> dict[str, type]:
+    """Return processors compatible with *modality* (implicit-ANY rule).
+
+    A processor is included when its declared modalities list is empty
+    (works with all imagery) or explicitly lists *modality*.  ``None``
+    means no modality filtering — all processors are returned.
+    """
+    result: dict[str, type] = {}
+    for name, cls in discover_processors().items():
+        if _passes_modality_and_category(get_processor_tags(cls), modality, exclude_categories):
+            result[name] = cls
+    return result
+
+
+def filter_processors_for_connection(
+    upstream_output_type: str | None,
+    modality: str | None = None,
+    *,
+    exclude_categories: "set[str] | frozenset[str] | None" = None,
+) -> dict[str, type]:
+    """Return processors that can receive *upstream_output_type*.
+
+    Combines port-type compatibility with modality filtering.  Only
+    processors whose ``input_type`` (as stored in the catalog) is
+    compatible with *upstream_output_type* are returned.  ``None`` for
+    either argument disables that filter.
+    """
+    from grdl_rt.execution.graph import types_compatible
+
+    catalog = _get_catalog()
+    result: dict[str, type] = {}
+
+    for artifact in catalog.list_artifacts(artifact_type="grdl_processor"):
+        if not artifact.processor_class:
+            continue
+        if not types_compatible(upstream_output_type, artifact.input_type or None):
+            continue
+        try:
+            cls = _import_class(artifact.processor_class)
+        except (ImportError, AttributeError):
+            continue
+        if _passes_modality_and_category(get_processor_tags(cls), modality, exclude_categories):
+            short_name = artifact.processor_class.rsplit(".", 1)[-1]
+            result[short_name] = cls
 
     return result

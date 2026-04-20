@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
     requires_global_pass INTEGER DEFAULT 0,
     alternatives TEXT DEFAULT '[]',
     param_schema TEXT,
+    input_type TEXT,
+    output_type TEXT,
+    output_ports TEXT,
+    kwarg_inputs TEXT,
 
     yaml_definition TEXT,
     python_dsl TEXT,
@@ -121,7 +125,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 """
 
-_CURRENT_SCHEMA_VERSION = 4
+_CURRENT_SCHEMA_VERSION = 5
 
 # Migration functions: (target_version, callable)
 # Add new migrations here as schema evolves.
@@ -139,6 +143,15 @@ _MIGRATIONS: list[tuple] = [
         ),
     ),
     (4, lambda conn: conn.execute("ALTER TABLE artifacts ADD COLUMN param_schema TEXT")),
+    (
+        5,
+        lambda conn: (
+            conn.execute("ALTER TABLE artifacts ADD COLUMN input_type TEXT"),
+            conn.execute("ALTER TABLE artifacts ADD COLUMN output_type TEXT"),
+            conn.execute("ALTER TABLE artifacts ADD COLUMN output_ports TEXT"),
+            conn.execute("ALTER TABLE artifacts ADD COLUMN kwarg_inputs TEXT"),
+        ),
+    ),
 ]
 
 
@@ -230,8 +243,9 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
              pypi_package, conda_package, conda_channel,
              processor_class, processor_version, processor_type,
              requires_global_pass, alternatives,
-             yaml_definition, python_dsl, param_schema)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             yaml_definition, python_dsl, param_schema,
+             input_type, output_type, output_ports, kwarg_inputs)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 artifact.name,
                 artifact.version,
@@ -250,6 +264,10 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
                 artifact.yaml_definition,
                 artifact.python_dsl,
                 json.dumps(artifact.param_schema) if artifact.param_schema else None,
+                artifact.input_type,
+                artifact.output_type,
+                json.dumps(artifact.output_ports) if artifact.output_ports else None,
+                json.dumps(artifact.kwarg_inputs) if artifact.kwarg_inputs else None,
             ),
         )
         artifact_id = cursor.lastrowid
@@ -460,6 +478,18 @@ class SqliteArtifactCatalog(ArtifactCatalogBase):
             requires_global_pass=bool(row["requires_global_pass"]),
             alternatives=alternatives,
             param_schema=param_schema,
+            input_type=row["input_type"] if "input_type" in row.keys() else None,  # noqa: SIM118
+            output_type=row["output_type"] if "output_type" in row.keys() else None,  # noqa: SIM118
+            output_ports=(
+                json.loads(row["output_ports"])
+                if "output_ports" in row.keys() and row["output_ports"]  # noqa: SIM118
+                else None
+            ),
+            kwarg_inputs=(
+                json.loads(row["kwarg_inputs"])
+                if "kwarg_inputs" in row.keys() and row["kwarg_inputs"]  # noqa: SIM118
+                else None
+            ),
         )
 
     def get_alternatives(

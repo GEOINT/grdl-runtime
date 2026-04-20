@@ -48,6 +48,8 @@ from grdl_rt.execution.dag_executor import (
 from grdl_rt.execution.discovery import (
     discover_processors,
     filter_processors,
+    filter_processors_for_connection,
+    filter_processors_for_modality,
     get_all_categories,
     get_all_modalities,
     get_gpu_capability,
@@ -202,6 +204,8 @@ __all__ = [
     "get_all_modalities",
     "get_all_categories",
     "filter_processors",
+    "filter_processors_for_modality",
+    "filter_processors_for_connection",
     # workflow
     "SCHEMA_VERSION",
     "WorkflowState",

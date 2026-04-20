@@ -356,6 +356,10 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             "requires_global_pass": artifact.requires_global_pass,
             "alternatives": list(artifact.alternatives),
             "param_schema": artifact.param_schema,
+            "input_type": artifact.input_type,
+            "output_type": artifact.output_type,
+            "output_ports": dict(artifact.output_ports) if artifact.output_ports else None,
+            "kwarg_inputs": dict(artifact.kwarg_inputs) if artifact.kwarg_inputs else None,
         }
 
     @staticmethod
@@ -381,4 +385,8 @@ class YamlArtifactCatalog(ArtifactCatalogBase):
             requires_global_pass=bool(entry.get("requires_global_pass", False)),
             alternatives=entry.get("alternatives") or [],
             param_schema=entry.get("param_schema"),
+            input_type=entry.get("input_type"),
+            output_type=entry.get("output_type"),
+            output_ports=entry.get("output_ports"),
+            kwarg_inputs=entry.get("kwarg_inputs"),
         )

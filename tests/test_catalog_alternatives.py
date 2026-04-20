@@ -108,7 +108,7 @@ class TestSqliteAlternatives:
         assert result == []
 
     def test_schema_version_is_4(self, catalog):
-        assert catalog.schema_version == 4
+        assert catalog.schema_version == 5
 
 
 class TestSqliteSchemaMigration:
@@ -175,7 +175,7 @@ class TestSqliteSchemaMigration:
 
         # Now open with current code — should migrate to v4
         cat = SqliteArtifactCatalog(db_path=db_path)
-        assert cat.schema_version == 4
+        assert cat.schema_version == 5
 
         # Legacy artifact should be loadable with empty alternatives
         loaded = cat.get_artifact("old-proc", "0.1.0")
