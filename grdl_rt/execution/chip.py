@@ -29,8 +29,9 @@ Modified
 """
 
 # Standard library
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 # Third-party
 import numpy as np
@@ -42,6 +43,45 @@ class ChipLabel(Enum):
     POSITIVE = "positive"
     NEGATIVE = "negative"
     UNKNOWN = "unknown"
+
+
+@dataclass
+class ChipProvenance:
+    """Typed extraction-provenance record for a single chip.
+
+    Carries only the facts that describe *where* and *when* a chip was
+    extracted from an image stack.  Channel/band information (polarization,
+    frequency sub-band, etc.) must be read from the originating
+    ``ImageReader.metadata.get_channel(band_index)`` at extraction time.
+
+    Parameters
+    ----------
+    source_image_index : int
+        Zero-based index of the source image in the image stack.
+    source_image_name : str
+        Human-readable name or file path of the source image.
+    row_start : int
+        Top row of the extracted bounding box in the source image.
+    col_start : int
+        Left column of the extracted bounding box in the source image.
+    row_end : int
+        Exclusive bottom row of the extracted bounding box.
+    col_end : int
+        Exclusive right column of the extracted bounding box.
+    timestamp : str, optional
+        ISO 8601 acquisition timestamp of the source image.
+    extras : Dict[str, Any]
+        Catch-all for additional provenance not covered by typed fields.
+    """
+
+    source_image_index: int = 0
+    source_image_name: str = ""
+    row_start: int = 0
+    col_start: int = 0
+    row_end: int = 0
+    col_end: int = 0
+    timestamp: Optional[str] = None
+    extras: Dict[str, Any] = field(default_factory=dict)
 
 
 class PolygonRegion:
@@ -132,8 +172,10 @@ class Chip:
         Label for this chip.
     timestamp : Optional[str]
         Acquisition timestamp of the source image (ISO 8601).
-    metadata : Optional[Dict[str, Any]]
-        Additional metadata (sensor, band info, etc.).
+    provenance : ChipProvenance, optional
+        Typed extraction-provenance record.  When not provided a
+        ``ChipProvenance`` is auto-constructed from the chip's
+        bounding box and positional parameters.
     """
 
     def __init__(
@@ -144,7 +186,7 @@ class Chip:
         polygon_region: PolygonRegion,
         label: ChipLabel = ChipLabel.UNKNOWN,
         timestamp: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        provenance: ChipProvenance | None = None,
     ) -> None:
         self.image_data = image_data
         self.source_image_index = source_image_index
@@ -152,7 +194,19 @@ class Chip:
         self.polygon_region = polygon_region
         self.label = label
         self.timestamp = timestamp
-        self.metadata = metadata or {}
+        if provenance is not None:
+            self.provenance = provenance
+        else:
+            bb = polygon_region.bounding_box
+            self.provenance = ChipProvenance(
+                source_image_index=source_image_index,
+                source_image_name=source_image_name,
+                row_start=bb['row_start'],
+                col_start=bb['col_start'],
+                row_end=bb['row_end'],
+                col_end=bb['col_end'],
+                timestamp=timestamp,
+            )
 
 
 class ChipSet:

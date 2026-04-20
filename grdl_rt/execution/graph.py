@@ -37,17 +37,27 @@ from grdl_rt.execution.workflow import (
     WorkflowDefinition,
 )
 
+try:
+    from grdl.vocabulary import DataPortType as _DataPortType
+    DataPortType = _DataPortType
+except ImportError:  # pragma: no cover — grdl not installed
+    DataPortType = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from grdl_rt.catalog.base import ArtifactCatalogBase
 
-# Valid data types for type-compatibility checking
-VALID_DATA_TYPES = {"raster", "feature_set", "detection_set"}
+# Valid data types for type-compatibility checking.
+# Keep in sync with grdl.vocabulary.DataPortType values.
+VALID_DATA_TYPES = {"raster", "binary_mask", "feature_set", "detection_set"}
 
 # Type compatibility matrix: (source_type, target_type) -> compatible
 # None means "any" and is always compatible.
-# DetectionSet is a specialization of FeatureSet and is compatible.
+# binary_mask is a raster subtype: it can flow into any raster processor.
+# detection_set is a feature_set subtype.
 _COMPATIBLE_PAIRS: set[tuple[str, str]] = {
     ("raster", "raster"),
+    ("binary_mask", "binary_mask"),
+    ("binary_mask", "raster"),        # binary mask can feed any raster step
     ("feature_set", "feature_set"),
     ("detection_set", "detection_set"),
     ("detection_set", "feature_set"),  # detection is a kind of feature

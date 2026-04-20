@@ -16,7 +16,7 @@ Created
 
 import numpy as np
 
-from grdl_rt.execution.chip import Chip, ChipLabel, ChipSet, PolygonRegion
+from grdl_rt.execution.chip import Chip, ChipLabel, ChipProvenance, ChipSet, PolygonRegion
 
 # ---------------------------------------------------------------------------
 # ChipLabel
@@ -111,12 +111,18 @@ class TestChip:
         assert chip.label == ChipLabel.UNKNOWN
         assert chip.source_image_index == 0
         assert chip.source_image_name == "test.tif"
-        assert chip.metadata == {}
+        assert chip.provenance.extras == {}
         assert chip.timestamp is None
 
-    def test_with_label_and_metadata(self):
+    def test_with_label_and_provenance(self):
         region = self._make_region()
         data = np.ones((4, 4), dtype=np.float32)
+        prov = ChipProvenance(
+            source_image_index=2,
+            source_image_name="img_002.tif",
+            timestamp="2026-01-15T12:00:00Z",
+            extras={"sensor": "SAR"},
+        )
         chip = Chip(
             image_data=data,
             source_image_index=2,
@@ -124,11 +130,11 @@ class TestChip:
             polygon_region=region,
             label=ChipLabel.POSITIVE,
             timestamp="2026-01-15T12:00:00Z",
-            metadata={"sensor": "SAR"},
+            provenance=prov,
         )
         assert chip.label == ChipLabel.POSITIVE
         assert chip.timestamp == "2026-01-15T12:00:00Z"
-        assert chip.metadata["sensor"] == "SAR"
+        assert chip.provenance.extras["sensor"] == "SAR"
 
 
 # ---------------------------------------------------------------------------

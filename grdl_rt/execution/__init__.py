@@ -16,6 +16,7 @@ from grdl_rt.execution.checkpoint import (
 from grdl_rt.execution.chip import (
     Chip,
     ChipLabel,
+    ChipProvenance,
     ChipSet,
     PolygonRegion,
 )
@@ -78,6 +79,7 @@ from grdl_rt.execution.gpu import (
     GpuBackend,
 )
 from grdl_rt.execution.graph import (
+    DataPortType,
     EdgeInfo,
     NodeInfo,
     WorkflowGraph,
@@ -173,6 +175,7 @@ __all__ = [
     "WorkflowTags",
     # chip
     "ChipLabel",
+    "ChipProvenance",
     "PolygonRegion",
     "Chip",
     "ChipSet",

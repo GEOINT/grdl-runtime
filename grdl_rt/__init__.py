@@ -46,10 +46,13 @@ from grdl_rt.execution import (
     Chip,
     # chip
     ChipLabel,
+    ChipProvenance,
     ChipSet,
     CircuitBreaker,
     # lineage
     DataLineage,
+    # graph
+    DataPortType,
     DetectionType,
     DslCompiler,
     ExecutedStepRecord,
@@ -168,6 +171,7 @@ __all__ = [
     "WorkflowTags",
     # execution: chip
     "ChipLabel",
+    "ChipProvenance",
     "PolygonRegion",
     "Chip",
     "ChipSet",
@@ -186,6 +190,8 @@ __all__ = [
     "reset_runtime_config",
     # execution: gpu
     "GpuBackend",
+    # execution: graph
+    "DataPortType",
     # execution: discovery
     "discover_processors",
     "resolve_processor_class",
