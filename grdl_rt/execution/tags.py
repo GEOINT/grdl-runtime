@@ -172,8 +172,6 @@ class WorkflowTags:
             detection_types=[DetectionType(d) for d in data.get("detection_types", [])],
             segmentation_types=[SegmentationType(s) for s in data.get("segmentation_types", [])],
             pol_mode=(
-                PolarimetricMode(data["pol_mode"])
-                if data.get("pol_mode") is not None
-                else None
+                PolarimetricMode(data["pol_mode"]) if data.get("pol_mode") is not None else None
             ),
         )
