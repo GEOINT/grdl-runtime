@@ -28,6 +28,7 @@ shapely = pytest.importorskip("shapely", reason="shapely not installed")
 from grdl.image_processing.base import ImageTransform
 from grdl.image_processing.detection.base import ImageDetector
 from grdl.image_processing.detection.models import Detection, DetectionSet
+from grdl.image_processing.versioning import processor_version
 from grdl.IO.models.base import ImageMetadata
 from shapely.geometry import box  # noqa: E402
 
@@ -42,11 +43,13 @@ from grdl_rt.execution.dispatch import (
 # ---------------------------------------------------------------------------
 
 
+@processor_version("1.0.0")
 class DoubleTransform(ImageTransform):
     def apply(self, source, **kwargs):
         return source * 2.0
 
 
+@processor_version("1.0.0")
 class GpuTransform(ImageTransform):
     __gpu_compatible__ = True
 
@@ -54,6 +57,7 @@ class GpuTransform(ImageTransform):
         return source + 1
 
 
+@processor_version("1.0.0")
 class StubDetector(ImageDetector):
     def detect(self, source, geolocation=None, **kwargs):
         det = Detection(

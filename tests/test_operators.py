@@ -27,6 +27,7 @@ import pytest
 shapely = pytest.importorskip("shapely", reason="shapely not installed")
 from grdl.image_processing.base import ImageProcessor
 from grdl.image_processing.detection.models import Detection, DetectionSet
+from grdl.image_processing.versioning import processor_version
 from grdl.IO.models.base import ImageMetadata
 from shapely.geometry import box  # noqa: E402
 
@@ -40,6 +41,7 @@ from grdl_rt.execution.operators import (
 # ---------------------------------------------------------------------------
 
 
+@processor_version("1.0.0")
 class SumOperator(WorkflowOperator):
     """Operator that sums dict values."""
 
@@ -48,6 +50,7 @@ class SumOperator(WorkflowOperator):
         return result, metadata
 
 
+@processor_version("1.0.0")
 class UnionAggregator(DetectionAggregator):
     """Aggregator that unions all detections."""
 

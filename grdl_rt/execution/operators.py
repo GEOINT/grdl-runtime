@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from grdl.IO.models.base import ImageMetadata
 
 
+from grdl.image_processing.versioning import processor_version
+
+@processor_version("1.0.0")
 class WorkflowOperator(ImageProcessor):
     """Base class for workflow-level operations.
 
@@ -180,6 +183,7 @@ class DetectionAggregator(WorkflowOperator):
         ...
 
 
+@processor_version("1.0.0")
 class FeatureSetAggregator(WorkflowOperator):
     """Aggregates multiple FeatureSet results using union or intersection.
 

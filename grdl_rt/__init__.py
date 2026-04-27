@@ -14,7 +14,7 @@ Created
 2026-02-09
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Claude Code (Anthropic)"
 
 # ── API convenience functions ────────────────────────────────────────
