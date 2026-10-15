@@ -11,7 +11,7 @@ recorded values.
 
 Typical usage::
 
-    sampler = MemorySampler(interval_s=0.001)
+    sampler = MemorySampler(interval_s=0.001, enabled=True)
     sampler.start()
 
     # … run pipeline …
@@ -49,6 +49,8 @@ import threading
 import time
 import tracemalloc
 from typing import Any
+
+from grdl_rt.execution.config import get_runtime_config
 
 
 class MemoryTimeline:
@@ -173,10 +175,15 @@ class MemorySampler:
     ----------
     interval_s : float
         Sampling interval in seconds.  Default ``0.001`` (1 ms).
+    enabled : bool, optional
+        Override ``memory.timeline_enabled`` in runtime configuration.
+        Disabled by default: no tracing, thread, or timestamp buffers are
+        started, and :meth:`stop` returns an empty timeline with peak 0.
     """
 
-    def __init__(self, interval_s: float = 0.001) -> None:
+    def __init__(self, interval_s: float = 0.1, *, enabled: bool | None = None) -> None:
         self.interval_s = interval_s
+        self.enabled = get_runtime_config().memory.timeline_enabled if enabled is None else enabled
         self._timestamps: array.array[float] | None = None
         self._mem_values: array.array[float] | None = None
         self._stop_event = threading.Event()
@@ -189,6 +196,8 @@ class MemorySampler:
 
     def start(self) -> None:
         """Start ``tracemalloc``, allocate buffers, and begin sampling."""
+        if not self.enabled:
+            return
         self._tracemalloc_was_running = tracemalloc.is_tracing()
         if not self._tracemalloc_was_running:
             tracemalloc.start()
@@ -225,6 +234,8 @@ class MemorySampler:
         MemoryTimeline
             Immutable timeline of corrected memory samples.
         """
+        if not self.enabled:
+            return MemoryTimeline(timestamps=[], values=[], t0=0.0)
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)

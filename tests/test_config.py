@@ -47,6 +47,7 @@ class TestRuntimeConfigDefaults:
         assert cfg.memory.warn_threshold == 0.80
         assert cfg.memory.abort_threshold == 0.95
         assert cfg.memory.estimation_multiplier == 1.5
+        assert cfg.memory.timeline_enabled is False
         assert cfg.gpu.prefer_gpu is False
         assert cfg.catalog_path is None
         assert cfg.tap_out.default_format == "npy"
@@ -98,6 +99,12 @@ class TestConfigValidation:
 
 
 class TestEnvVarOverlay:
+    @pytest.mark.parametrize("value, expected", [("true", True), ("false", False)])
+    def test_memory_timeline_enabled(self, monkeypatch, value, expected):
+        monkeypatch.setenv("GRDL_RT_MEMORY_TIMELINE_ENABLED", value)
+        cfg = load_runtime_config()
+        assert cfg.memory.timeline_enabled is expected
+
     def test_no_env_vars_set(self):
         data = _overlay_env_vars({})
         # When no GRDL_RT_* env vars are set, data should be unchanged

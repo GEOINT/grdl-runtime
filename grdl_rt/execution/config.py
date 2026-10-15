@@ -92,6 +92,10 @@ class RetryDefaults(BaseModel):
 class MemoryConfig(BaseModel):
     """Memory estimation and threshold configuration."""
 
+    timeline_enabled: bool = Field(
+        default=False,
+        description="Collect and serialize the sampled memory timeline (opt-in profiling)",
+    )
     warn_threshold: float = Field(
         default=0.80,
         ge=0,
@@ -240,6 +244,7 @@ _ENV_MAP: dict[str, tuple] = {
     "GRDL_RT_MEMORY_WARN_THRESHOLD": ("memory", "warn_threshold"),
     "GRDL_RT_MEMORY_ABORT_THRESHOLD": ("memory", "abort_threshold"),
     "GRDL_RT_MEMORY_ESTIMATION_MULTIPLIER": ("memory", "estimation_multiplier"),
+    "GRDL_RT_MEMORY_TIMELINE_ENABLED": ("memory", "timeline_enabled"),
     "GRDL_RT_GPU_PREFER_GPU": ("gpu", "prefer_gpu"),
     "GRDL_RT_GPU_MEMORY_FRACTION": ("gpu", "memory_fraction"),
     "GRDL_RT_CATALOG_PATH": (None, "catalog_path"),
@@ -266,7 +271,7 @@ _BOOL_FALSY = {"0", "false", "no", "off", ""}
 def _coerce_env_value(raw: str, section: str | None, key: str) -> Any:
     """Coerce a string env var value to the appropriate Python type."""
     # Boolean fields
-    if key in ("prefer_gpu", "enabled"):
+    if key in ("prefer_gpu", "enabled", "timeline_enabled"):
         return raw.lower() in _BOOL_TRUTHY
 
     # Float fields

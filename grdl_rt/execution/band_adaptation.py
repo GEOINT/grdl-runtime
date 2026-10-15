@@ -54,13 +54,19 @@ logger = get_logger(__name__)
 # ------------------------------------------------------------------
 
 
-def detect_band_axis(source: np.ndarray) -> int | None:
+def detect_band_axis(
+    source: np.ndarray,
+    axis_order: str | None = None,
+) -> int | None:
     """Auto-detect the band axis of an image array.
 
     Parameters
     ----------
     source : np.ndarray
         2-D or 3-D image array.
+    axis_order : str, optional
+        Metadata ``axis_order`` (``'CYX'`` or ``'YXC'``).  When given for
+        a 3-D array it is used instead of the shape heuristic.
 
     Returns
     -------
@@ -69,34 +75,43 @@ def detect_band_axis(source: np.ndarray) -> int | None:
 
     Notes
     -----
-    Heuristic for 3-D arrays:
+    Heuristic for 3-D arrays without ``axis_order``:
 
     - ``shape[0] <= shape[2]`` → CHW (bands-first, e.g. ``(3, 512, 512)``)
     - ``shape[2] < shape[0]`` → HWC (bands-last, e.g. ``(512, 512, 3)``)
+
+    The heuristic misreads small tiles (e.g. ``(4, 3, 3)``), so pass
+    ``axis_order`` whenever metadata is available.
     """
     if source.ndim == 2:
         return None
     if source.ndim != 3:
         return None
+    if axis_order == "CYX":
+        return 0
+    if axis_order == "YXC":
+        return 2
     if source.shape[0] <= source.shape[2]:
         return 0  # CHW
     return 2  # HWC
 
 
-def get_band_count(source: np.ndarray) -> int:
+def get_band_count(source: np.ndarray, axis_order: str | None = None) -> int:
     """Return the number of spectral bands in an image array.
 
     Parameters
     ----------
     source : np.ndarray
         2-D or 3-D image array.
+    axis_order : str, optional
+        Metadata ``axis_order``; see :func:`detect_band_axis`.
 
     Returns
     -------
     int
         Number of bands (1 for 2-D arrays).
     """
-    axis = detect_band_axis(source)
+    axis = detect_band_axis(source, axis_order)
     if axis is None:
         return 1
     return source.shape[axis]
@@ -112,6 +127,7 @@ def adapt_bands(
     required_bands: int,
     expansion: BandExpansion = BandExpansion.REPEAT,
     reduction: BandReduction = BandReduction.FIRST_N,
+    axis_order: str | None = None,
 ) -> np.ndarray:
     """Adapt *source* to have exactly *required_bands* bands.
 
@@ -127,6 +143,8 @@ def adapt_bands(
         Strategy when the source has fewer bands than required.
     reduction : BandReduction
         Strategy when the source has more bands than required.
+    axis_order : str, optional
+        Metadata ``axis_order``; see :func:`detect_band_axis`.
 
     Returns
     -------
@@ -138,12 +156,12 @@ def adapt_bands(
     ValueError
         If LUMINANCE reduction is requested with a non-3-band input.
     """
-    current_bands = get_band_count(source)
+    current_bands = get_band_count(source, axis_order)
 
     if current_bands == required_bands:
         return source
 
-    axis = detect_band_axis(source)
+    axis = detect_band_axis(source, axis_order)
 
     logger.warning(
         "band_adaptation",
