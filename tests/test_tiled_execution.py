@@ -19,6 +19,8 @@ Created
 
 from __future__ import annotations
 
+import errno
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -31,12 +33,14 @@ from grdl.image_processing.filters import IDANFilter, RefinedLeeFilter
 from grdl.IO.base import ImageReader
 from grdl.IO.models.base import ChannelMetadata, ImageMetadata
 from grdl.IO.sar import CollectionValidationError, ReciprocityError
-
 from grdl_rt.execution.builder import Workflow
 from grdl_rt.execution.tiled import (
     ArraySource,
     TilingConfig,
     TilingError,
+    _scratch_memmap,
+    _StepTiming,
+    _TileJob,
     plan_segments,
 )
 
@@ -124,6 +128,14 @@ class Crop(_Plain):
         return source[..., 1:, 1:]
 
 
+class TimedTile(_Plain):
+    tile_halo = 0
+
+    def apply(self, source, **kwargs):
+        time.sleep(0.03)
+        return source * 2
+
+
 @pytest.fixture
 def image_path(tmp_path):
     p = tmp_path / "scene.bin"
@@ -148,6 +160,71 @@ THREADS = {"tile_size": 32, "backend": "thread", "workers": 3}
 
 def _ws(fn, name="s", required_bands=None):
     return SimpleNamespace(fn=fn, name=name, required_bands=required_bands)
+
+
+def test_timing_merge_uses_elapsed_span_not_sum():
+    timing = _StepTiming()
+    # Out-of-order completions and overlap must not multiply elapsed time.
+    for start, end, cpu in [(104, 110, 4), (100, 108, 3), (102, 109, 2)]:
+        timing.merge(_StepTiming(start, end, cpu))
+    assert timing.wall_time_s == 10
+    assert timing.cpu_time_s == 9
+    assert (timing.wall_start, timing.wall_end) == (100, 110)
+
+
+@pytest.mark.parametrize("thread_cpu", [False, True])
+def test_tile_job_measures_cpu_independently_of_wall(monkeypatch, thread_cpu):
+    from grdl_rt.execution import tiled
+
+    cpu_ticks = iter([10.0, 11.0, 13.0, 16.0])
+    wall_ticks = iter([100.0, 150.0])
+
+    def wrong_clock():
+        raise AssertionError("Wrong CPU clock for backend")
+
+    monkeypatch.setattr(
+        tiled,
+        "time",
+        SimpleNamespace(
+            perf_counter=lambda: next(wall_ticks),
+            process_time=wrong_clock if thread_cpu else lambda: next(cpu_ticks),
+            thread_time=(lambda: next(cpu_ticks)) if thread_cpu else wrong_clock,
+        ),
+    )
+    region = SimpleNamespace(row_start=0, row_end=2, col_start=0, col_end=3)
+    tile = SimpleNamespace(read=region)
+    job = _TileJob(
+        ArraySource(array=np.ones((2, 3))),
+        [_ws(Scale(2))],
+        None,
+        tile,
+        thread_cpu=thread_cpu,
+    )
+    _, _, result, timings, job_cpu = job(tile)
+    np.testing.assert_array_equal(result, np.full((2, 3), 2))
+    assert timings[0].wall_time_s == 50
+    assert timings[0].cpu_time_s == 2
+    assert job_cpu == 6
+
+
+@pytest.mark.parametrize("backend", ["serial", "thread", "process"])
+def test_workflow_tiled_and_global_metrics_use_real_clocks(image_path, backend):
+    result = _workflow(
+        TimedTile(),
+        GlobalMaxNorm(),
+        tiling={"tile_size": 45, "backend": backend, "workers": 3},
+    ).execute(image_path)
+    metrics = result.metrics
+    tiled_step, global_step = metrics.step_metrics
+    for step in (tiled_step, global_step):
+        assert 0 < step.wall_time_s <= metrics.total_wall_time_s
+        assert step.wall_time_s == pytest.approx(step.wall_end - step.wall_start)
+        assert step.cpu_time_s > 0
+    assert tiled_step.cpu_time_s < tiled_step.wall_time_s
+    assert metrics.total_cpu_time_s >= tiled_step.cpu_time_s + global_step.cpu_time_s
+    assert global_step.wall_start >= tiled_step.wall_end
+    report = metrics.to_dict()
+    assert report["step_metrics"][1]["cpu_time_s"] > 0
 
 
 class TestPlanSegments:
@@ -280,6 +357,61 @@ class TestTiledEquivalence:
 
 
 class TestScratchOutput:
+    def test_nisar_t3_footprint_rejected_on_ten_gib_filesystem(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "grdl_rt.execution.tiled.shutil.disk_usage",
+            lambda path: SimpleNamespace(free=10 * 2**30),
+        )
+        path = tmp_path / "nisar_t3.dat"
+        with pytest.raises(TilingError, match=r"21.30 GiB.*10.00 GiB"):
+            _scratch_memmap(path, (3, 3, 12160, 26124), np.complex64)
+        assert not path.exists()
+
+    def test_insufficient_space_fails_before_mapping(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "grdl_rt.execution.tiled.shutil.disk_usage",
+            lambda path: SimpleNamespace(free=100),
+        )
+        path = tmp_path / "too_large.dat"
+        with pytest.raises(TilingError, match="Insufficient scratch space.*scratch_dir"):
+            _scratch_memmap(path, (3, 3, 10, 10), np.complex64)
+        assert not path.exists()
+
+    def test_reserves_blocks_before_mapping(self, tmp_path, monkeypatch):
+        reservations = []
+        monkeypatch.setattr(
+            "grdl_rt.execution.tiled.os.posix_fallocate",
+            lambda fd, offset, length: reservations.append((offset, length)),
+            raising=False,
+        )
+        mm = _scratch_memmap(tmp_path / "reserved.dat", (3, 3, 10, 10), np.complex64)
+        assert reservations == [(0, 7200)]
+        mm[:] = 1 + 2j
+        mm.flush()
+        np.testing.assert_array_equal(mm, 1 + 2j)
+
+    def test_reservation_enospc_is_actionable(self, tmp_path, monkeypatch):
+        def no_space(fd, offset, length):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr("grdl_rt.execution.tiled.os.posix_fallocate", no_space, raising=False)
+        with pytest.raises(TilingError, match="Cannot reserve.*scratch_dir"):
+            _scratch_memmap(tmp_path / "quota.dat", (10, 10), np.float32)
+
+    def test_unsupported_reservation_logs_and_uses_capacity_check(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        def unsupported(fd, offset, length):
+            raise OSError(errno.EOPNOTSUPP, "Operation not supported")
+
+        monkeypatch.setattr(
+            "grdl_rt.execution.tiled.os.posix_fallocate", unsupported, raising=False
+        )
+        mm = _scratch_memmap(tmp_path / "unreserved.dat", (2, 3), np.float32)
+        mm[:] = 7
+        assert "scratch_reservation_unsupported" in caplog.text
+        np.testing.assert_array_equal(mm, 7)
+
     def test_scratch_dir_keeps_memmap_output(self, image_path, tmp_path):
         out = tmp_path / "out"
         res = _workflow(

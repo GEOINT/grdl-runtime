@@ -65,8 +65,13 @@ class StepMetrics:
         Fully-qualified or short name of the processor executed.
     wall_time_s : float
         Wall-clock duration in seconds (``time.perf_counter`` delta).
+        For tiled steps, elapsed span from the first tile invocation to
+        the last completion, not the sum of worker durations. Steps in
+        one tiled segment overlap, so their wall times are not additive.
     cpu_time_s : float
-        CPU time in seconds (``time.process_time`` delta).
+        Measured CPU seconds, not estimated from wall time. Tiled steps
+        sum worker process CPU deltas (serial/process backend) or calling
+        thread CPU deltas (thread backend, excluding native helper threads).
     peak_rss_bytes : int
         Peak memory in bytes.  For single-component benchmarks this
         is the timeline peak for the step.  For pipeline steps this
@@ -188,7 +193,9 @@ class WorkflowMetrics:
     total_wall_time_s : float
         Total wall-clock duration in seconds.
     total_cpu_time_s : float
-        Total CPU time in seconds.
+        Total CPU time in seconds. Tiled process execution includes measured
+        worker-job CPU in addition to parent process CPU; worker startup and
+        interprocess serialization outside tile jobs are not included.
     peak_rss_bytes : int
         Peak memory usage in bytes across the entire run, derived from
         the ``memory_timeline``. Zero when memory profiling is disabled.

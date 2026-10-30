@@ -32,6 +32,9 @@ Created
 from __future__ import annotations
 
 import dataclasses
+import errno
+import math
+import os
 import shutil
 import tempfile
 import threading
@@ -49,11 +52,11 @@ from grdl_rt.execution.context import get_logger
 from grdl_rt.execution.dispatch import execute_processor
 
 try:
-    from grdl.data_prep import Stitcher, Tiler, memmap_sink
+    from grdl.data_prep import Stitcher, Tiler
     from grdl.data_prep.tiler import HaloTile, total_halo
     from grdl.image_processing.tiling import get_tile_halo
 except ImportError:  # grdl missing or too old: nothing can be tiled
-    Stitcher = Tiler = memmap_sink = HaloTile = total_halo = None  # type: ignore[assignment,misc]
+    Stitcher = Tiler = HaloTile = total_halo = None  # type: ignore[assignment,misc]
 
     def get_tile_halo(processor: Any) -> None:  # type: ignore[misc]
         return None
@@ -294,29 +297,57 @@ def _spatial_shapes(data: Any) -> list[tuple[int, ...]]:
     return [np.shape(data)[-2:]]
 
 
+@dataclass
+class _StepTiming:
+    wall_start: float = math.inf
+    wall_end: float = 0.0
+    cpu_time_s: float = 0.0
+
+    @property
+    def wall_time_s(self) -> float:
+        return self.wall_end - self.wall_start
+
+    def merge(self, other: _StepTiming) -> None:
+        self.wall_start = min(self.wall_start, other.wall_start)
+        self.wall_end = max(self.wall_end, other.wall_end)
+        self.cpu_time_s += other.cpu_time_s
+
+
 class _TileJob:
     """Everything a worker needs to process one tile through a segment."""
 
-    def __init__(self, source: Any, steps: list[Any], meta: Any, first_tile: Any) -> None:
+    def __init__(
+        self,
+        source: Any,
+        steps: list[Any],
+        meta: Any,
+        first_tile: Any,
+        *,
+        thread_cpu: bool = False,
+    ) -> None:
         self.source = source
         self.steps = steps
         self.meta = meta
         self.first_tile = first_tile
+        self.thread_cpu = thread_cpu
 
-    def __call__(self, tile: Any) -> tuple[Any, list[Any] | None, Any, list[float]]:
-        """Return ``(tile, per_step_metadata, block, per_step_seconds)``.
+    def __call__(self, tile: Any) -> tuple[Any, list[Any] | None, Any, list[_StepTiming], float]:
+        """Return tile output, step timings, and actual worker CPU time.
 
         Metadata is returned for the first tile only, to keep results small.
         """
+        cpu_clock = time.thread_time if self.thread_cpu else time.process_time
+        job_cpu_start = cpu_clock()
         block = self.source.read(tile.read)
         meta = _tile_metadata(self.meta, block)
         want = (tile.read.row_end - tile.read.row_start, tile.read.col_end - tile.read.col_start)
-        durations: list[float] = []
+        timings: list[_StepTiming] = []
         metas: list[Any] = []
         for step in self.steps:
             t0 = time.perf_counter()
+            cpu_t0 = cpu_clock()
             block, meta = execute_processor(step.fn, meta, block)
-            durations.append(time.perf_counter() - t0)
+            timings.append(_StepTiming(t0, time.perf_counter(), cpu_clock() - cpu_t0))
             metas.append(meta)
             for shape in _spatial_shapes(block):
                 if tuple(shape) != want:
@@ -324,7 +355,13 @@ class _TileJob:
                         f"step '{step.name}' changed the spatial size "
                         f"{want} -> {tuple(shape)}; it is not tile-safe"
                     )
-        return tile, (metas if tile == self.first_tile else None), block, durations
+        return (
+            tile,
+            (metas if tile == self.first_tile else None),
+            block,
+            timings,
+            cpu_clock() - job_cpu_start,
+        )
 
 
 _WORKER_JOB: _TileJob | None = None
@@ -358,8 +395,9 @@ class TiledRunResult:
     metadata_trace : list of dict
         Per-step metadata snapshots.
     step_times : list of tuple
-        ``(step, seconds, tiled)``; seconds for tiled steps is the sum
-        over tiles (compute time, not elapsed wall time).
+        ``(step, timing, tiled, gpu_used)``. Tiled wall time spans the
+        first invocation's start to the last invocation's end; CPU time
+        sums measured CPU work across tiles, not elapsed time.
     n_tiles : int
         Tiles processed across all tiled segments.
     """
@@ -367,8 +405,9 @@ class TiledRunResult:
     result: Any
     metadata: Any
     metadata_trace: list[dict[str, Any]]
-    step_times: list[tuple[Any, float, bool]]
+    step_times: list[tuple[Any, _StepTiming, bool, bool]]
     n_tiles: int = 0
+    worker_cpu_time_s: float = 0.0
 
 
 GlobalRunner = Callable[[Any, Any, Any, int], "tuple[Any, Any, bool]"]
@@ -435,7 +474,8 @@ class TiledExecutor:
         total_units = sum(len(s.steps) if s.kind != "tiled" else 1 for s in segments)
         done_units = 0
         trace: list[dict[str, Any]] = []
-        times: list[tuple[Any, float, bool]] = []
+        times: list[tuple[Any, _StepTiming, bool, bool]] = []
+        worker_cpu_time_s = 0.0
         n_tiles = 0
         current: Any = None  # array/dict once a segment has produced output
         meta = metadata
@@ -445,7 +485,7 @@ class TiledExecutor:
                 is_last = seg_no == len(segments) - 1
                 if seg.kind == "tiled":
                     src = source if current is None else self._as_source(current, scratch)
-                    current, seg_metas, seg_times, count = self._run_tiled(
+                    current, seg_metas, seg_times, count, worker_cpu = self._run_tiled(
                         seg,
                         src,
                         shape,
@@ -459,9 +499,11 @@ class TiledExecutor:
                         ),
                     )
                     n_tiles += count
-                    for ws, seconds, step_meta in zip(seg.steps, seg_times, seg_metas, strict=True):
+                    if self._cfg.backend == "process":
+                        worker_cpu_time_s += worker_cpu
+                    for ws, timing, step_meta in zip(seg.steps, seg_times, seg_metas, strict=True):
                         meta = step_meta
-                        times.append((ws, seconds, True))
+                        times.append((ws, timing, True, False))
                         trace.append(
                             {"step_index": step_index, "step_name": ws.name, "metadata": meta}
                         )
@@ -472,14 +514,20 @@ class TiledExecutor:
                         current = self._materialize(source, shape)
                     for ws in seg.steps:
                         t0 = time.perf_counter()
+                        cpu_t0 = time.process_time()
                         if seg.kind == "tap_out":
                             run_tap_out(ws, current)
                         else:
-                            current, meta, _ = run_global_step(ws, current, meta, step_index)
+                            current, meta, gpu_used = run_global_step(ws, current, meta, step_index)
+                            timing = _StepTiming(
+                                t0,
+                                time.perf_counter(),
+                                time.process_time() - cpu_t0,
+                            )
                             trace.append(
                                 {"step_index": step_index, "step_name": ws.name, "metadata": meta}
                             )
-                            times.append((ws, time.perf_counter() - t0, False))
+                            times.append((ws, timing, False, gpu_used))
                         step_index += 1
                         done_units += 1
                         if progress_callback is not None:
@@ -491,7 +539,7 @@ class TiledExecutor:
             if close is not None:
                 close()
             scratch.cleanup()
-        return TiledRunResult(current, meta, trace, times, n_tiles)
+        return TiledRunResult(current, meta, trace, times, n_tiles, worker_cpu_time_s)
 
     # ------------------------------------------------------------------
 
@@ -532,7 +580,7 @@ class TiledExecutor:
         if isinstance(data, np.memmap) and getattr(data, "filename", None):
             return ArraySource(spec=(str(data.filename), str(data.dtype), data.shape))
         path = scratch.new_path("global_out")
-        mm = np.memmap(path, dtype=data.dtype, mode="w+", shape=data.shape)
+        mm = _scratch_memmap(path, data.shape, data.dtype)
         mm[...] = data
         mm.flush()
         return ArraySource(spec=(str(path), str(data.dtype), tuple(data.shape)))
@@ -546,7 +594,7 @@ class TiledExecutor:
         scratch: _Scratch,
         is_last: bool,
         progress: Callable[[float], Any],
-    ) -> tuple[Any, list[Any], list[float], int]:
+    ) -> tuple[Any, list[Any], list[_StepTiming], int, float]:
         cfg = self._cfg
         rows, cols = shape
         overlapping = cfg.stride is not None
@@ -559,20 +607,28 @@ class TiledExecutor:
             sink = _numbered_sink(scratch)
         stitcher = Stitcher(rows, cols, method=method, sink=sink)
 
-        job = _TileJob(source, seg.steps, meta, tiles[0])
-        sums = [0.0] * len(seg.steps)
+        job = _TileJob(
+            source,
+            seg.steps,
+            meta,
+            tiles[0],
+            thread_cpu=cfg.backend == "thread",
+        )
+        timings = [_StepTiming() for _ in seg.steps]
+        worker_cpu = 0.0
         step_metas: list[Any] = []
         count = 0
-        for tile, tmetas, block, durations in self._map(job, tiles):
+        for tile, tmetas, block, tile_timings, cpu in self._map(job, tiles):
             if tmetas is not None:
                 step_metas = [_full_metadata(m, shape) for m in tmetas]
             stitcher.add_halo_tile(tile, block)
-            for i, d in enumerate(durations):
-                sums[i] += d
+            for accumulated, timing in zip(timings, tile_timings, strict=True):
+                accumulated.merge(timing)
+            worker_cpu += cpu
             count += 1
             progress(count / len(tiles))
         out = stitcher.finalize()
-        return out, step_metas, sums, count
+        return out, step_metas, timings, count, worker_cpu
 
     def _map(self, job: _TileJob, tiles: list[Any]):
         cfg = self._cfg
@@ -633,12 +689,48 @@ def _numbered_sink(scratch: _Scratch):
     """Sink writing each output array to a fresh memmap in ``scratch``."""
     prefix = f"{scratch._n + 1:03d}"
     scratch._n += 1
-    inner = memmap_sink(scratch.root)  # type: ignore[arg-type]
+    root = scratch.root
+    assert root is not None
 
     def sink(key: str, shape: tuple[int, ...], dtype: Any) -> np.ndarray:
-        return inner(f"{prefix}_{key}", shape, dtype)
+        return _scratch_memmap(root / f"{prefix}_{key}.dat", shape, dtype)
 
     return sink
+
+
+def _scratch_memmap(path: Path, shape: tuple[int, ...], dtype: Any) -> np.memmap:
+    """Check and reserve backing storage before any mapped pages are written."""
+    required = math.prod(shape) * np.dtype(dtype).itemsize
+    available = shutil.disk_usage(path.parent).free
+    if required > available:
+        raise TilingError(
+            f"Insufficient scratch space in {path.parent}: array {shape} ({np.dtype(dtype)}) "
+            f"requires {required / 2**30:.2f} GiB, only {available / 2**30:.2f} GiB available. "
+            "Set scratch_dir (execution.scratch_dir in the PolSAR YAML) or TMPDIR "
+            "to a filesystem with enough free space."
+        )
+    # Truncation alone creates a sparse file: mmap writes can later SIGBUS
+    # instead of raising ENOSPC. Reserve blocks before returning the mapping.
+    with path.open("w+b") as file:
+        file.truncate(required)
+        if hasattr(os, "posix_fallocate"):
+            try:
+                os.posix_fallocate(file.fileno(), 0, required)
+            except OSError as exc:
+                if exc.errno not in (errno.EOPNOTSUPP, errno.ENOSYS, errno.EINVAL):
+                    raise TilingError(
+                        f"Cannot reserve {required / 2**30:.2f} GiB of scratch storage "
+                        f"for {path}: {exc}. Choose another scratch_dir or free disk space."
+                    ) from exc
+                logger.warning(
+                    "scratch_reservation_unsupported",
+                    path=str(path),
+                    reason=str(exc),
+                    required_bytes=required,
+                )
+        else:
+            logger.warning("scratch_reservation_unavailable", path=str(path))
+    return np.memmap(path, dtype=dtype, mode="r+", shape=shape)
 
 
 def _holds_memmap(data: Any) -> bool:
