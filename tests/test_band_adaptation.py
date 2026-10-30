@@ -63,6 +63,24 @@ class TestDetectBandAxis:
         """(100, 100, 1) → axis 2 (HWC) since 100 > 1."""
         assert detect_band_axis(np.zeros((100, 100, 1))) == 2
 
+    def test_axis_order_overrides_heuristic(self):
+        """A (4, 3, 3) CYX tile is bands-first; the heuristic alone is wrong."""
+        tile = np.zeros((4, 3, 3))
+        assert detect_band_axis(tile) == 2
+        assert detect_band_axis(tile, axis_order="CYX") == 0
+        assert get_band_count(tile, axis_order="CYX") == 4
+
+    def test_axis_order_yxc(self):
+        assert detect_band_axis(np.zeros((3, 3, 4)), axis_order="YXC") == 2
+
+    def test_unrelated_axis_order_falls_back(self):
+        assert detect_band_axis(np.zeros((3, 100, 100)), axis_order="YX") == 0
+
+    def test_adapt_bands_uses_axis_order(self):
+        tile = np.arange(4 * 3 * 3, dtype=float).reshape(4, 3, 3)
+        out = adapt_bands(tile, 2, axis_order="CYX")
+        assert out.shape == (2, 3, 3)
+
 
 # ------------------------------------------------------------------
 # get_band_count

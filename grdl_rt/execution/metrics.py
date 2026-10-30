@@ -2,11 +2,12 @@
 Execution Metrics — Structured timing and resource usage data.
 
 Provides ``StepMetrics`` and ``WorkflowMetrics`` dataclasses that capture
-wall-clock time, CPU time, peak memory, GPU usage, and a continuous
-memory timeline for every workflow execution.  These are returned as
+wall-clock time, CPU time, peak memory, GPU usage, and an optional
+memory timeline for workflow executions.  These are returned as
 part of ``WorkflowResult`` from all execution paths.
 
-Memory is measured by a background ``MemorySampler`` thread that polls
+When opted in via ``memory.timeline_enabled``, memory is measured by a
+background ``MemorySampler`` thread that polls
 ``tracemalloc`` at 1 ms intervals.  The resulting ``MemoryTimeline``
 on ``WorkflowMetrics`` can be overlaid with each step's
 ``wall_start`` / ``wall_end`` timestamps for visualization.
@@ -166,7 +167,8 @@ class StepMetrics:
 class WorkflowMetrics:
     """Aggregate metrics for a complete workflow execution.
 
-    Memory is measured via a ``MemorySampler`` background thread that
+    When ``memory.timeline_enabled`` is enabled, memory is measured via
+    a ``MemorySampler`` background thread that
     polls ``tracemalloc.get_traced_memory()`` at 1 ms intervals and
     subtracts its own storage overhead from every reading.  The
     resulting ``memory_timeline`` is a continuous time-series of
@@ -189,7 +191,7 @@ class WorkflowMetrics:
         Total CPU time in seconds.
     peak_rss_bytes : int
         Peak memory usage in bytes across the entire run, derived from
-        the ``memory_timeline``.
+        the ``memory_timeline``. Zero when memory profiling is disabled.
     step_metrics : List[StepMetrics]
         Per-step metrics, one entry per processing step.
     started_at : str
@@ -215,7 +217,8 @@ class WorkflowMetrics:
         readings sampled at 1 ms intervals over the pipeline lifetime.
         Correlate with each step's ``wall_start`` / ``wall_end`` for
         per-step memory visualization.  ``None`` for runs produced
-        before this field was added.
+        before this field was added. Empty when profiling is disabled;
+        empty timelines are omitted from serialization.
     """
 
     workflow_id: str
@@ -259,7 +262,7 @@ class WorkflowMetrics:
             d["hardware"] = self.hardware
         if self.step_depends_on is not None:
             d["step_depends_on"] = self.step_depends_on
-        if self.memory_timeline is not None:
+        if self.memory_timeline is not None and len(self.memory_timeline) > 0:
             d["memory_timeline"] = self.memory_timeline.to_dict()
         return d
 

@@ -64,6 +64,27 @@ wf = (
 result = wf.execute(my_array)
 ```
 
+### Memory timeline profiling
+
+Memory time-series collection is **disabled by default** for all execution
+paths, including the NISAR example. No sampler thread or tracemalloc session
+is started, and JSON metrics omit `memory_timeline` (including its large
+`timestamps` and `values` arrays). Sampled memory peaks are reported as zero
+when profiling is disabled; run start/end times and elapsed durations are
+still recorded.
+
+To opt in, set `GRDL_RT_MEMORY_TIMELINE_ENABLED=true` before launching Python,
+or add this to `~/.grdl/runtime.toml`:
+
+```toml
+[memory]
+timeline_enabled = true
+```
+
+When enabled, the timeline is sampled every millisecond and included in JSON
+metrics. Memory estimation and safety thresholds are independent of profiling
+and remain active.
+
 ### Batch Execution
 
 ```python

@@ -11,9 +11,11 @@ Created
 """
 
 import json
+from unittest.mock import patch
 
 import numpy as np
 
+from grdl_rt.execution.memory_sampler import MemorySampler, MemoryTimeline
 from grdl_rt.execution.metrics import StepMetrics, WorkflowMetrics
 from grdl_rt.execution.result import WorkflowResult
 
@@ -152,6 +154,65 @@ class TestWorkflowMetrics:
         d = wm.to_dict()
         assert d["status"] == "failed"
         assert d["error_message"] == "step 1 failed"
+
+    def test_empty_memory_timeline_is_not_serialized(self):
+        wm = self._make_metrics()
+        wm.memory_timeline = MemoryTimeline([], [], 0.0)
+        assert "memory_timeline" not in wm.to_dict()
+        assert "timestamps" not in json.loads(wm.to_json())
+
+    def test_enabled_memory_timeline_is_serialized(self):
+        wm = self._make_metrics()
+        wm.memory_timeline = MemoryTimeline([0.001], [1024], 1.0)
+        assert json.loads(wm.to_json())["memory_timeline"] == {
+            "timestamps": [0.001],
+            "values": [1024],
+            "t0": 1.0,
+        }
+
+
+class TestMemorySampler:
+    def test_default_does_not_start_sampling(self):
+        from grdl_rt.execution.config import RuntimeConfig
+
+        with patch(
+            "grdl_rt.execution.memory_sampler.get_runtime_config",
+            return_value=RuntimeConfig(),
+        ):
+            sampler = MemorySampler()
+        with (
+            patch("grdl_rt.execution.memory_sampler.tracemalloc.start") as trace_start,
+            patch("grdl_rt.execution.memory_sampler.tracemalloc.stop") as trace_stop,
+            patch("grdl_rt.execution.memory_sampler.threading.Thread") as thread,
+        ):
+            sampler.start()
+            timeline = sampler.stop()
+        trace_start.assert_not_called()
+        trace_stop.assert_not_called()
+        thread.assert_not_called()
+        assert len(timeline) == 0
+        assert timeline.peak() == 0
+
+    def test_enabled_collects_samples(self):
+        sampler = MemorySampler(enabled=True)
+        sampler.start()
+        try:
+            data = bytearray(1024)
+        finally:
+            timeline = sampler.stop()
+        assert len(data) == 1024
+        assert len(timeline) > 0
+        assert len(timeline.timestamps) == len(timeline.values)
+        assert timeline.peak() > 0
+
+    def test_runtime_config_enables_sampling(self):
+        from grdl_rt.execution.config import MemoryConfig, RuntimeConfig
+
+        with patch(
+            "grdl_rt.execution.memory_sampler.get_runtime_config",
+            return_value=RuntimeConfig(memory=MemoryConfig(timeline_enabled=True)),
+        ):
+            assert MemorySampler().enabled is True
 
 
 # ---------------------------------------------------------------------------

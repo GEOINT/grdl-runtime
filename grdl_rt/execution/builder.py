@@ -68,6 +68,7 @@ from grdl_rt.execution.resilience import (
 )
 from grdl_rt.execution.result import WorkflowResult
 from grdl_rt.execution.tags import ExecutionPhase, ImageModality, OutputFormat, WorkflowTags
+from grdl_rt.execution.tiled import ReaderSource, TiledExecutor, TilingConfig
 
 logger = get_logger(__name__)
 
@@ -382,6 +383,9 @@ class Workflow:
         self._steps: list[WorkflowStep | DeferredStep | TapOutStep] = []
         self._source: Callable[[], np.ndarray] | None = None
         self._reader_cls: type | None = None
+        self._reader_kwargs: dict[str, Any] = {}
+        self._tiling: TilingConfig | None = None
+        self._collection_checks: dict[str, Any] | None = None
         self._chip_strategy: str | None = None
         self._chip_kwargs: dict[str, Any] = {}
         self._current_phase: str | None = None
@@ -441,7 +445,7 @@ class Workflow:
     # Builder
     # ------------------------------------------------------------------
 
-    def reader(self, reader_cls: type) -> "Workflow":
+    def reader(self, reader_cls: type, **reader_kwargs: Any) -> "Workflow":
         """Declare the reader type for this workflow.
 
         When :meth:`execute` is called with a filepath, the framework
@@ -451,6 +455,11 @@ class Workflow:
         ----------
         reader_cls : type
             An ``ImageReader`` subclass (e.g., ``SICDReader``).
+        **reader_kwargs
+            Extra constructor arguments, e.g. ``polarizations='all'`` for
+            ``NISARReader``.  For collection readers such as
+            ``SICDCollectionReader``, pass a list of paths to
+            :meth:`execute` as the source.
 
         Returns
         -------
@@ -458,6 +467,76 @@ class Workflow:
             Self, for fluent chaining.
         """
         self._reader_cls = reader_cls
+        self._reader_kwargs = reader_kwargs
+        return self
+
+    def tiling(
+        self,
+        tile_size: int | tuple[int, int] = 1024,
+        *,
+        stride: int | tuple[int, int] | None = None,
+        workers: int | None = None,
+        backend: str = "process",
+        overlap_method: str = "weighted",
+        scratch_dir: str | Path | None = None,
+    ) -> "Workflow":
+        """Run tile-safe steps in parallel on halo tiles.
+
+        Consecutive steps whose processors declare a ``tile_halo`` run
+        tile by tile; any other step runs on the assembled full array, and
+        later tile-safe steps tile again.  Only file mode with a linear
+        workflow is supported, and not together with ``chip('center')``.
+        See :class:`~grdl_rt.execution.tiled.TilingConfig` for options.
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        self._tiling = TilingConfig(
+            tile_size=tile_size,
+            stride=stride,
+            workers=workers,
+            backend=backend,
+            overlap_method=overlap_method,
+            scratch_dir=scratch_dir,
+        )
+        return self
+
+    def validate_collection(
+        self,
+        *,
+        strict: bool = True,
+        reciprocity: str | None = None,
+        **thresholds: Any,
+    ) -> "Workflow":
+        """Check that a multi-channel input is a consistent collection.
+
+        Runs ``grdl.IO.sar.validate_collection`` after the reader opens and
+        before any pixels are processed.
+
+        Parameters
+        ----------
+        strict : bool
+            Raise on validation errors; otherwise only log them.
+        reciprocity : {None, 'warn', 'strict'}
+            Also test HV/VH reciprocity on sampled chips of a quad-pol
+            input; ``'strict'`` raises on failure, ``'warn'`` warns.
+        **thresholds
+            Forwarded to ``validate_collection``.
+
+        Returns
+        -------
+        Workflow
+            Self, for fluent chaining.
+        """
+        if reciprocity not in (None, "warn", "strict"):
+            raise ValueError("reciprocity must be None, 'warn' or 'strict'")
+        self._collection_checks = {
+            "strict": strict,
+            "reciprocity": reciprocity,
+            "thresholds": thresholds,
+        }
         return self
 
     def chip(self, strategy: str = "center", **kwargs: Any) -> "Workflow":
@@ -868,7 +947,7 @@ class Workflow:
 
     def execute(
         self,
-        source: np.ndarray | str | Path | None = None,
+        source: np.ndarray | str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         *,
         prefer_gpu: bool = False,
         progress_callback: Callable[[float], None] | None = None,
@@ -900,8 +979,9 @@ class Workflow:
 
         Parameters
         ----------
-        source : np.ndarray, str, Path, or None
-            Input data.
+        source : np.ndarray, str, Path, list of paths, or None
+            Input data.  A list of paths is passed to the configured
+            reader as one argument (multi-file collections).
         prefer_gpu : bool
             If ``True``, attempt GPU acceleration for compatible steps.
         progress_callback : callable, optional
@@ -929,13 +1009,16 @@ class Workflow:
         RuntimeError
             If any step fails.
         """
-        source_path: Path | None = None
-
         # File mode → framework orchestration
-        if isinstance(source, (str, Path)):
-            source_path = Path(source)
+        if isinstance(source, (str, Path, list, tuple)):
+            if isinstance(source, (list, tuple)):
+                if not source:
+                    raise ValueError("source path list is empty")
+                paths: Path | list[Path] = [Path(p) for p in source]
+            else:
+                paths = Path(source)
             return self._execute_from_file(
-                source_path,
+                paths,
                 prefer_gpu=prefer_gpu,
                 progress_callback=progress_callback,
                 metadata_override=metadata,
@@ -1069,7 +1152,7 @@ class Workflow:
 
     def _execute_from_file(
         self,
-        filepath: Path,
+        filepath: Path | list[Path],
         *,
         prefer_gpu: bool,
         progress_callback: Callable[[float], None] | None,
@@ -1084,9 +1167,25 @@ class Workflow:
                 f"Workflow '{self._name}' received a filepath but no reader "
                 f"is configured.  Call .reader(ReaderClass) first."
             )
+        if self._tiling is not None:
+            self._check_tiling_supported()
 
-        with self._reader_cls(filepath) as rdr:
+        reader_cls, reader_kwargs = self._reader_cls, self._reader_kwargs
+        with reader_cls(filepath, **reader_kwargs) as rdr:
             meta = metadata_override if metadata_override is not None else rdr.metadata
+
+            if self._collection_checks is not None:
+                self._run_collection_checks(rdr)
+
+            if self._tiling is not None:
+                return self._execute_tiled(
+                    functools.partial(reader_cls, filepath, **reader_kwargs),
+                    meta,
+                    prefer_gpu=prefer_gpu,
+                    progress_callback=progress_callback,
+                )
+
+            source_path = filepath[0] if isinstance(filepath, list) else filepath
 
             # Read chip according to strategy
             chip = self._read_chip(rdr)
@@ -1109,7 +1208,7 @@ class Workflow:
                     resolved,
                     prefer_gpu=prefer_gpu,
                     progress_callback=progress_callback,
-                    source_path=filepath,
+                    source_path=source_path,
                     tap_out_format=tap_out_format,
                     tap_out_dir=tap_out_dir,
                 )
@@ -1120,6 +1219,117 @@ class Workflow:
                 progress_callback=progress_callback,
                 metadata=meta,
             )
+
+    def _check_tiling_supported(self) -> None:
+        if self._is_dag:
+            raise ValueError("tiling() supports linear workflows only, not DAGs")
+        if self._chip_strategy == "center":
+            raise ValueError("tiling() cannot be combined with chip('center')")
+
+    def _run_collection_checks(self, rdr: Any) -> None:
+        """Validate the opened reader as a collection and test reciprocity."""
+        try:
+            from grdl.IO.sar import check_reciprocity_reader, validate_collection
+        except ImportError as e:
+            raise ImportError(
+                "validate_collection() requires grdl with " "grdl.IO.sar.collection_validation"
+            ) from e
+
+        checks = self._collection_checks or {}
+        report = validate_collection(rdr, **checks.get("thresholds", {}))
+        for issue in report.issues:
+            logger.warning(
+                "collection_issue",
+                level=issue.level,
+                code=issue.code,
+                message=issue.message,
+            )
+        if checks.get("strict", True):
+            report.raise_if_invalid()
+
+        mode = checks.get("reciprocity")
+        if mode is not None and report.is_quad_pol:
+            check_reciprocity_reader(rdr, strict=(mode == "strict"))
+
+    def _execute_tiled(
+        self,
+        reader_factory: Callable[[], Any],
+        meta: Any,
+        *,
+        prefer_gpu: bool,
+        progress_callback: Callable[[float], None] | None,
+    ) -> WorkflowResult:
+        """Run the workflow with :class:`TiledExecutor`."""
+        assert self._tiling is not None
+        ctx = ExecutionContext(
+            workflow_id=f"{self._name}:{self._version}",
+            workflow_name=self._name,
+        )
+        hardware = _capture_hardware()
+        sampler = MemorySampler()
+        sampler.start()
+        started_at = datetime.now(UTC).isoformat()
+        wall_t0 = time.perf_counter()
+        cpu_t0 = time.process_time()
+
+        resolved = self._resolve_steps(meta)
+        gpu = GpuBackend(prefer_gpu=prefer_gpu)
+        n_steps = len(resolved)
+
+        def run_global(ws: Any, data: Any, step_meta: Any, index: int) -> tuple[Any, Any, bool]:
+            if gpu.is_gpu_array(data):
+                data = gpu.to_cpu(data)
+            return self._execute_step_gpu_aware(
+                ws,
+                data,
+                gpu,
+                index,
+                n_steps,
+                metadata=step_meta,
+            )
+
+        run = TiledExecutor(self._tiling).run(
+            ReaderSource(reader_factory),
+            (meta.rows, meta.cols),
+            resolved,
+            meta,
+            run_global,
+            self._execute_tap_out,
+            progress_callback=progress_callback,
+        )
+
+        step_metrics = [
+            StepMetrics(
+                step_index=i,
+                processor_name=ws.name,
+                wall_time_s=seconds,
+                cpu_time_s=seconds if tiled else 0.0,
+                peak_rss_bytes=0,
+                gpu_used=False,
+                concurrent=tiled,
+            )
+            for i, (ws, seconds, tiled) in enumerate(run.step_times)
+        ]
+        timeline = sampler.stop()
+        metrics = WorkflowMetrics(
+            workflow_id=ctx.workflow_id,
+            run_id=ctx.run_id,
+            workflow_name=self._name,
+            workflow_version=self._version,
+            total_wall_time_s=time.perf_counter() - wall_t0,
+            total_cpu_time_s=time.process_time() - cpu_t0,
+            peak_rss_bytes=timeline.peak(),
+            step_metrics=step_metrics,
+            started_at=started_at,
+            completed_at=datetime.now(UTC).isoformat(),
+            hardware=hardware,
+            memory_timeline=timeline,
+        )
+        return WorkflowResult(
+            result=run.result,
+            metrics=metrics,
+            metadata_trace=run.metadata_trace,
+        )
 
     def _read_chip(self, reader: Any) -> np.ndarray:
         """Plan and read a chip from the reader.
@@ -1371,6 +1581,7 @@ class Workflow:
                         ws.required_bands,
                         expansion=exp,
                         reduction=red,
+                        axis_order=getattr(current_meta, "axis_order", None),
                     )
 
                 # Capture step-level metrics
