@@ -1302,13 +1302,15 @@ class Workflow:
             StepMetrics(
                 step_index=i,
                 processor_name=ws.name,
-                wall_time_s=seconds,
-                cpu_time_s=seconds if tiled else 0.0,
+                wall_time_s=timing.wall_time_s,
+                cpu_time_s=timing.cpu_time_s,
                 peak_rss_bytes=0,
-                gpu_used=False,
+                gpu_used=gpu_used,
                 concurrent=tiled,
+                wall_start=timing.wall_start,
+                wall_end=timing.wall_end,
             )
-            for i, (ws, seconds, tiled) in enumerate(run.step_times)
+            for i, (ws, timing, tiled, gpu_used) in enumerate(run.step_times)
         ]
         timeline = sampler.stop()
         metrics = WorkflowMetrics(
@@ -1317,7 +1319,7 @@ class Workflow:
             workflow_name=self._name,
             workflow_version=self._version,
             total_wall_time_s=time.perf_counter() - wall_t0,
-            total_cpu_time_s=time.process_time() - cpu_t0,
+            total_cpu_time_s=time.process_time() - cpu_t0 + run.worker_cpu_time_s,
             peak_rss_bytes=timeline.peak(),
             step_metrics=step_metrics,
             started_at=started_at,
