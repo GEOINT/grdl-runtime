@@ -550,6 +550,39 @@ class TiledExecutor:
                 (s.kind, [getattr(x, "name", "?") for x in s.steps], s.halo) for s in segments
             ],
         )
+        step_index = 0
+        for segment in segments:
+            for step in segment.steps:
+                if segment.kind == "global":
+                    processor = step.fn
+                    seen = set()
+                    while id(processor) not in seen:
+                        seen.add(id(processor))
+                        wrapped = getattr(processor, "processor", None)
+                        if wrapped is None:
+                            break
+                        processor = wrapped
+                    parameters = {
+                        spec.name: getattr(processor, spec.name, None)
+                        for spec in getattr(processor, "__param_specs__", ())
+                    }
+                    required_bands = getattr(step, "required_bands", None)
+                    reason = (
+                        f"required_bands={required_bands} requires whole-image band routing"
+                        if required_bands is not None
+                        else "Processor declares no finite tile halo; review its parameters "
+                        "and global-processing requirements"
+                    )
+                    logger.warning(
+                        "Tiling requested but stage will run globally; "
+                        "tile workers do not parallelize this stage",
+                        step_index=step_index,
+                        step_name=getattr(step, "name", "?"),
+                        processor=type(processor).__name__,
+                        parameters=parameters,
+                        reason=reason,
+                    )
+                step_index += 1
 
     def _materialize(self, source: Any, shape: tuple[int, int]) -> np.ndarray:
         """Read the whole image for a leading global segment."""

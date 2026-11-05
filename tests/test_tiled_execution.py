@@ -29,13 +29,21 @@ import pytest
 pytest.importorskip("grdl.data_prep.stitcher")
 
 from grdl.image_processing.decomposition import CovarianceMatrix
-from grdl.image_processing.filters import IDANFilter, RefinedLeeFilter
+from grdl.image_processing.filters import (
+    GaussianFilter,
+    IDANFilter,
+    LeeSigmaFilter,
+    MeanFilter,
+    RefinedLeeFilter,
+)
 from grdl.IO.base import ImageReader
 from grdl.IO.models.base import ChannelMetadata, ImageMetadata
 from grdl.IO.sar import CollectionValidationError, ReciprocityError
+
 from grdl_rt.execution.builder import Workflow
 from grdl_rt.execution.tiled import (
     ArraySource,
+    TiledExecutor,
     TilingConfig,
     TilingError,
     _scratch_memmap,
@@ -260,6 +268,107 @@ class TestPlanSegments:
     def test_consecutive_global_steps_merge(self):
         segs = plan_segments([_ws(GlobalMaxNorm()), _ws(GlobalMaxNorm())])
         assert [(s.kind, len(s.steps)) for s in segs] == [("global", 2)]
+
+
+@pytest.mark.parametrize("backend", ["serial", "thread"])
+@pytest.mark.parametrize("mode", ["reflect", "constant", "nearest", "wrap"])
+@pytest.mark.parametrize("multiband", [False, True])
+@pytest.mark.parametrize("chained", [False, True])
+def test_gaussian_halos_match_full_real_images(backend, mode, multiband, chained):
+    shape = (3, ROWS, COLS) if multiband else (ROWS, COLS)
+    source = np.random.default_rng(42).normal(size=shape)
+    metadata = ImageMetadata(
+        format="EO",
+        rows=ROWS,
+        cols=COLS,
+        bands=3 if multiband else 1,
+        dtype="float64",
+        axis_order="CYX" if multiband else "YX",
+    )
+    processors = [GaussianFilter(sigma=1.125, truncate=4.0, mode=mode)]
+    if chained:
+        processors.append(MeanFilter(kernel_size=5, mode=mode))
+    steps = [_ws(processor) for processor in processors]
+    segments = plan_segments(steps)
+    assert len(segments) == 1
+    if mode == "wrap":
+        assert segments[0].kind == "global"
+    else:
+        assert segments[0].kind == "tiled"
+        assert segments[0].halo == ((7, 7) if chained else (5, 5))
+    expected = source
+    for processor in processors:
+        expected = processor.apply(expected)
+
+    def run_global(step, data, meta, index):
+        result, updated = step.fn.execute(meta, data)
+        return result, updated, False
+
+    def run_tap_out(step, data):
+        raise AssertionError("No tap-out steps are configured")
+
+    result = TiledExecutor(TilingConfig(tile_size=17, backend=backend, workers=2)).run(
+        ArraySource(array=source), (ROWS, COLS), steps, metadata, run_global, run_tap_out
+    )
+    assert result.result.shape == source.shape
+    np.testing.assert_allclose(result.result, expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_global_stage_warning_includes_auto_enl_parameters(monkeypatch, wrapped):
+    warnings = []
+    monkeypatch.setattr(
+        "grdl_rt.execution.tiled.logger.warning",
+        lambda event, **fields: warnings.append((event, fields)),
+    )
+    processor = LeeSigmaFilter(kernel_size=5, enl=0)
+    if wrapped:
+        processor = SimpleNamespace(processor=processor, tile_halo=None)
+    steps = [_ws(Scale(2), name="scale"), _ws(processor, name="lee_sigma")]
+    segments = plan_segments(steps)
+    assert warnings == []
+    TiledExecutor(TilingConfig())._log_plan(segments)
+    assert len(warnings) == 1
+    event, fields = warnings[0]
+    assert "tile workers do not parallelize" in event
+    assert fields["step_index"] == 1
+    assert fields["step_name"] == "lee_sigma"
+    assert fields["processor"] == "LeeSigmaFilter"
+    assert fields["parameters"]["enl"] == 0
+    assert fields["parameters"]["kernel_size"] == 5
+    assert "no finite tile halo" in fields["reason"]
+
+
+def test_global_stage_warnings_cover_periodic_and_band_routing(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        "grdl_rt.execution.tiled.logger.warning",
+        lambda event, **fields: warnings.append(fields),
+    )
+    steps = [
+        _ws(GaussianFilter(mode="wrap"), name="gaussian"),
+        _ws(Scale(2), name="bands", required_bands=3),
+        SimpleNamespace(name="tap", path="out.npy"),
+        _ws(LeeSigmaFilter(kernel_size=5, enl=4), name="tiled_lee_sigma"),
+    ]
+    TiledExecutor(TilingConfig())._log_plan(plan_segments(steps))
+    assert len(warnings) == 2
+    assert warnings[0]["parameters"]["mode"] == "wrap"
+    assert "required_bands=3" in warnings[1]["reason"]
+
+
+def test_global_stage_warns_once_per_execution_not_per_tile(image_path, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        "grdl_rt.execution.tiled.logger.warning",
+        lambda event, **fields: warnings.append(fields),
+    )
+    workflow = _workflow(GlobalMaxNorm(), Scale(2), tiling=THREADS)
+    workflow.execute(image_path)
+    assert len(warnings) == 1
+    warnings.clear()
+    _workflow(GlobalMaxNorm(), Scale(2)).execute(image_path)
+    assert warnings == []
 
 
 class TestTiledEquivalence:
