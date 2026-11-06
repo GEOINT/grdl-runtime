@@ -118,7 +118,7 @@ def _spec_to_property(spec: Any) -> dict[str, Any]:
         prop["enum"] = list(spec.choices)
 
     # Default value
-    if spec._has_default:
+    if spec._has_default and not isinstance(spec.default, property):
         prop["default"] = spec.default
 
     return prop
