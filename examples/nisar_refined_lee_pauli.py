@@ -26,8 +26,8 @@ from typing import Any
 import numpy as np
 import rasterio
 from grdl.image_processing.base import ImageProcessor
-from grdl.image_processing.decomposition import CoherencyMatrix, PauliDecomposition
-from grdl.image_processing.filters import RefinedLeeFilter
+from grdl_sar.decomposition import CoherencyMatrix, PauliDecomposition
+from grdl_sar.filters import RefinedLeeFilter
 from grdl.image_processing.versioning import processor_version
 from grdl.IO import write
 from grdl.IO.models.base import ChannelMetadata, ImageMetadata
@@ -215,6 +215,11 @@ def main() -> None:
         default="percent",
         help="Progress output: percent, per-tile updates, or none.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing output GeoTIFF or JSON report files.",
+    )
     args = parser.parse_args()
     if args.output.suffix.lower() not in (".tif", ".tiff"):
         parser.error("--output must have a .tif or .tiff extension")
@@ -227,6 +232,12 @@ def main() -> None:
     if args.chip_size is None and (args.chip_row is not None or args.chip_col is not None):
         parser.error("--chip-row and --chip-col require --chip-size")
     report_path = args.output.with_suffix(".json")
+    if not args.overwrite:
+        for existing_path in (args.output, report_path):
+            if existing_path.exists():
+                raise FileExistsError(
+                    f"Output path already exists (pass --overwrite to replace): {existing_path}"
+                )
 
     reader_cls: type[NISARReader] = NISARReader
     reader_kwargs: dict[str, Any] = {}

@@ -9,8 +9,8 @@ import pytest
 pytest.importorskip("grdl.data_prep.stitcher")
 h5py = pytest.importorskip("h5py")
 
-from grdl.image_processing.decomposition import CoherencyMatrix, PauliDecomposition
-from grdl.image_processing.filters import RefinedLeeFilter
+from grdl_sar.decomposition import CoherencyMatrix, PauliDecomposition
+from grdl_sar.filters import RefinedLeeFilter
 from grdl.IO.models.base import ImageMetadata
 from grdl.IO.sar import NISARReader
 

@@ -45,6 +45,8 @@ from grdl_rt.execution.dag_executor import (
     DAGExecutor,
 )
 from grdl_rt.execution.discovery import (
+    build_default_catalog,
+    discover_entry_point_catalogs,
     discover_processors,
     filter_processors,
     get_all_categories,
@@ -192,6 +194,8 @@ __all__ = [
     # gpu
     "GpuBackend",
     # discovery
+    "build_default_catalog",
+    "discover_entry_point_catalogs",
     "discover_processors",
     "resolve_processor_class",
     "get_processor_tags",

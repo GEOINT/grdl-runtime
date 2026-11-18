@@ -28,8 +28,8 @@ import pytest
 
 pytest.importorskip("grdl.data_prep.stitcher")
 
-from grdl.image_processing.decomposition import CovarianceMatrix
-from grdl.image_processing.filters import IDANFilter, RefinedLeeFilter
+from grdl_sar.decomposition import CovarianceMatrix
+from grdl_sar.filters import IDANFilter, RefinedLeeFilter
 from grdl.IO.base import ImageReader
 from grdl.IO.models.base import ChannelMetadata, ImageMetadata
 from grdl.IO.sar import CollectionValidationError, ReciprocityError
@@ -112,10 +112,22 @@ class Scale(_Plain):
         return source * self.k
 
 
+def _burn_cpu_tick() -> None:
+    """Consume CPU until both thread and process clocks advance at least one tick."""
+    t0 = time.thread_time()
+    p0 = time.process_time()
+    arr = np.linspace(0.0, 1.0, 32768)
+    for _ in range(10000):
+        _ = float(np.sum(np.sin(arr)))
+        if (time.thread_time() - t0) > 0.0 and (time.process_time() - p0) > 0.0:
+            break
+
+
 class GlobalMaxNorm(_Plain):
     """Needs the whole image; declares no halo."""
 
     def apply(self, source, **kwargs):
+        _burn_cpu_tick()
         return source / np.abs(source).max()
 
 
@@ -132,7 +144,8 @@ class TimedTile(_Plain):
     tile_halo = 0
 
     def apply(self, source, **kwargs):
-        time.sleep(0.03)
+        _burn_cpu_tick()
+        time.sleep(0.09)
         return source * 2
 
 

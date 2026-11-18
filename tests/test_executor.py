@@ -36,9 +36,10 @@ class TestDiscoverProcessors:
     def test_processors_have_apply_or_estimate(self):
         processors = discover_processors()
         for name, cls in processors.items():
-            assert hasattr(cls, "apply") or hasattr(
-                cls, "estimate"
-            ), f"{name} has neither apply nor estimate"
+            assert any(
+                hasattr(cls, method)
+                for method in ("execute", "apply", "estimate", "form_image")
+            ), f"{name} has neither execute, apply, estimate, nor form_image"
 
 
 # ---------------------------------------------------------------------------

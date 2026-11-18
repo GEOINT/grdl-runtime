@@ -82,8 +82,28 @@ def discover_entry_point_catalogs(
 
     for ep in sorted(eps, key=lambda e: e.name):
         try:
-            target = ep.load()
-            resolved = target() if callable(target) else target
+            resolved = None
+            try:
+                target = ep.load()
+                resolved = target() if callable(target) else target
+            except (AttributeError, ImportError) as load_exc:
+                # PEP 420 namespace shadowing (e.g. CWD contains an uninstalled
+                # source folder with the same top-level package name) can mask
+                # entry-point targets; locate bundled catalog.yaml via __path__.
+                pkg_name = ep.module.split(".")[0]
+                pkg = importlib.import_module(pkg_name)
+                for p in getattr(pkg, "__path__", []):
+                    for candidate in (
+                        Path(p) / pkg_name / "catalog.yaml",
+                        Path(p) / "catalog.yaml",
+                    ):
+                        if candidate.exists():
+                            resolved = candidate
+                            break
+                    if resolved is not None:
+                        break
+                if resolved is None:
+                    raise load_exc
 
             if isinstance(resolved, ArtifactCatalogBase):
                 catalogs.append(resolved)

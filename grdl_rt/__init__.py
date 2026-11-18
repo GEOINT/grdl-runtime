@@ -14,7 +14,7 @@ Created
 2026-02-09
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __author__ = "Claude Code (Anthropic)"
 
 # ── API convenience functions ────────────────────────────────────────
@@ -131,8 +131,10 @@ from grdl_rt.execution import (
     build_lineage,
     compute_array_hash,
     compute_workflow_hash,
+    build_default_catalog,
     configure_logging,
     # discovery
+    discover_entry_point_catalogs,
     discover_processors,
     embed_lineage_geotiff,
     filter_processors,
@@ -187,6 +189,8 @@ __all__ = [
     # execution: gpu
     "GpuBackend",
     # execution: discovery
+    "build_default_catalog",
+    "discover_entry_point_catalogs",
     "discover_processors",
     "resolve_processor_class",
     "get_processor_tags",

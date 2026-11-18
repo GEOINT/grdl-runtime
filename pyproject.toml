@@ -28,7 +28,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 dependencies = [
-    "grdl>=0.8.0",
+    "grdl>=0.8.1",
+    "grdl-sar>=0.1.0",
+    "grdl-eo>=0.1.0",
     "pyyaml>=6.0",
     "requests>=2.25",
     "packaging>=21.0",
@@ -132,6 +134,8 @@ disable_error_code = ["annotation-unchecked", "import-untyped", "import-not-foun
 [[tool.mypy.overrides]]
 module = [
     "grdl.*",
+    "grdl_sar.*",
+    "grdl_eo.*",
     "shapely.*",
     "jsonschema.*",
 ]
