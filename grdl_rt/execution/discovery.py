@@ -27,10 +27,14 @@ Created
 
 # Standard library
 import importlib
+import importlib.metadata
 import threading
+from pathlib import Path
 
 # grdl-runtime internal
 from grdl_rt.catalog.base import ArtifactCatalogBase
+from grdl_rt.catalog.federated import FederatedArtifactCatalog
+from grdl_rt.catalog.yaml_catalog import YamlArtifactCatalog
 from grdl_rt.execution.context import get_logger
 
 logger = get_logger(__name__)
@@ -60,15 +64,86 @@ def init_discovery(catalog: ArtifactCatalogBase) -> None:
         _catalog = catalog
 
 
+def discover_entry_point_catalogs(
+    group: str = "grdl.catalogs",
+) -> list[ArtifactCatalogBase]:
+    """Load catalogs registered via Python entry points (``grdl.catalogs``).
+
+    Each entry point may resolve to:
+    - a callable returning a ``Path``/``str`` to a ``catalog.yaml`` file (or an
+      ``ArtifactCatalogBase`` instance), or
+    - a ``Path``/``str`` directly.
+
+    If a returned ``catalog.yaml`` path does not exist on disk, falls back to
+    dynamic decorator introspection via :mod:`grdl.discovery.catalog_builder`.
+    """
+    catalogs: list[ArtifactCatalogBase] = []
+    eps = importlib.metadata.entry_points(group=group)
+
+    for ep in sorted(eps, key=lambda e: e.name):
+        try:
+            target = ep.load()
+            resolved = target() if callable(target) else target
+
+            if isinstance(resolved, ArtifactCatalogBase):
+                catalogs.append(resolved)
+                continue
+
+            cat_path = Path(resolved)
+            if cat_path.exists():
+                catalogs.append(YamlArtifactCatalog(file_path=cat_path))
+                logger.info("Loaded entry-point catalog", name=ep.name, path=str(cat_path))
+                continue
+
+            # Dynamic introspection fallback when catalog.yaml hasn't been exported
+            from grdl.discovery.catalog_builder import build_catalog_data
+
+            pkg_name = ep.module.split(".")[0]
+            data = build_catalog_data(pkg_name)
+            mem_cat = YamlArtifactCatalog.__new__(YamlArtifactCatalog)
+            mem_cat._file_path = cat_path
+            mem_cat._meta = data.get("catalog_meta", {"format_version": 1, "next_id": 1})
+            mem_cat._artifacts = data.get("artifacts", [])
+            mem_cat._remote_versions = data.get("remote_versions", [])
+            catalogs.append(mem_cat)
+            logger.info("Synthesized entry-point catalog via introspection", name=ep.name)
+        except Exception as exc:
+            logger.warning("Failed to load entry-point catalog", name=ep.name, error=str(exc))
+
+    return catalogs
+
+
+def build_default_catalog() -> ArtifactCatalogBase:
+    """Build the default federated catalog from local DB/YAML + entry points.
+
+    Resolution priority (first-catalog-wins):
+    1. Local user SQLite catalog (``SqliteArtifactCatalog``)
+    2. Local user YAML catalog (``~/.grdl/catalog.yaml`` if present)
+    3. Installed ``grdl.catalogs`` entry-point packages (``grdl``, ``grdl-sar``,
+       ``grdl-eo``, and third-party extensions)
+    """
+    from grdl_rt.catalog.database import SqliteArtifactCatalog
+
+    backends: list[ArtifactCatalogBase] = [SqliteArtifactCatalog()]
+
+    user_yaml = Path.home() / ".grdl" / "catalog.yaml"
+    if user_yaml.exists():
+        backends.append(YamlArtifactCatalog(file_path=user_yaml))
+
+    backends.extend(discover_entry_point_catalogs())
+
+    if len(backends) == 1:
+        return backends[0]
+    return FederatedArtifactCatalog(backends)
+
+
 def _get_catalog() -> ArtifactCatalogBase:
-    """Return the active catalog, creating a default if needed."""
+    """Return the active catalog, creating the default federated catalog if needed."""
     global _catalog
     with _catalog_lock:
         if _catalog is None:
-            from grdl_rt.catalog.database import SqliteArtifactCatalog
-
-            _catalog = SqliteArtifactCatalog()
-            logger.info("Discovery initialised with default SqliteArtifactCatalog")
+            _catalog = build_default_catalog()
+            logger.info("Discovery initialised with default federated catalog")
         return _catalog
 
 
